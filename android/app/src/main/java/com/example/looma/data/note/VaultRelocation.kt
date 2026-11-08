@@ -214,29 +214,6 @@ internal class VaultRelocation(private val vault: Vault) {
             linksUpdated += relinked.updated
         }
         val moves = mutableListOf(Move(from, to, inventory(source)))
-        for (path in notePaths) {
-            val newPath = paths.getValue(path)
-            for (suffix in listOf(".properties", ".md")) {
-                val oldDraft = "$DRAFTS/${draftKey(path)}$suffix"
-                val newDraft = "$DRAFTS/${draftKey(newPath)}$suffix"
-                val file = safeFile(oldDraft)
-                if (oldDraft != newDraft && exists(safeFile(newDraft))) conflict(safeFile(newDraft))
-                if (!exists(file)) continue
-                val bytes = readBytes(file, MAX_DRAFT_BYTES)
-                guards += Guard(oldDraft, hash(bytes))
-                if (oldDraft != newDraft) moves += Move(oldDraft, newDraft, listOf(Member("", hash(bytes))))
-                val properties = if (suffix == ".properties") properties(bytes) else null
-                val body = properties?.getProperty("content") ?: if (properties == null) text(bytes) else throw IOException("Invalid draft: $oldDraft")
-                val updated = relink(body, path, newPath, paths, before, after).content ?: continue
-                val replacement = if (properties == null) {
-                    updated.toByteArray(Charsets.UTF_8)
-                } else {
-                    properties.setProperty("content", updated)
-                    encodeProperties(properties)
-                }
-                rewrites += Rewrite(newDraft, bytes, replacement)
-            }
-        }
         val directories = missingParents(destination)
         val plan = Plan(moves, rewrites.map { it.record() }, directories, linksUpdated, linksFailed)
         validate(plan)
@@ -369,8 +346,8 @@ internal class VaultRelocation(private val vault: Vault) {
 
     private fun replay(journal: File, plan: Plan, manifest: ByteArray) {
         val staged = plan.writes.mapIndexed { index, write ->
-            val before = readBytes(File(journal, "$index.before"), MAX_DRAFT_BYTES)
-            val after = readBytes(File(journal, "$index.after"), MAX_DRAFT_BYTES)
+            val before = readBytes(File(journal, "$index.before"), MAX_MARKDOWN_BYTES)
+            val after = readBytes(File(journal, "$index.after"), MAX_MARKDOWN_BYTES)
             if (hash(before) != write.beforeHash || hash(after) != write.afterHash) conflict(journal)
             after
         }
@@ -509,32 +486,27 @@ internal class VaultRelocation(private val vault: Vault) {
             plan.moves.sumOf { it.members.size.toLong() } > MAX_ENTRIES || plan.directories.size > MAX_DEPTH
         ) throw IOException("Invalid relocation journal size")
         val namespace = plan.moves.first()
-        for ((index, move) in plan.moves.withIndex()) {
-            safeFile(move.source)
-            safeFile(move.destination)
-            if (move.source == move.destination || move.destination.startsWith("${move.source}/") || move.source.startsWith("${move.destination}/")) {
-                throw IOException("Invalid relocation move")
-            }
-            if (index == 0) {
-                if (move.members.firstOrNull()?.hash == null) {
-                    validateVisiblePath(move.source)
-                    validateVisiblePath(move.destination)
-                } else {
-                    validateNotePath(move.source)
-                    validateNotePath(move.destination)
-                }
-            } else if (!DRAFT_PATH.matches(move.source) || !DRAFT_PATH.matches(move.destination)) {
-                throw IOException("Invalid draft relocation")
-            }
-            if (move.members.isEmpty() || move.members.first().path != "" || move.members.map { it.path }.distinct().size != move.members.size) {
-                throw IOException("Invalid relocation inventory")
-            }
-            move.members.forEach { member ->
-                safeFile(join(move.source, member.path))
-                safeFile(join(move.destination, member.path))
-                if (member.hash != null && !HASH.matches(member.hash)) throw IOException("Invalid inventory hash")
-            }
-            if (index > 0 && (move.members.size != 1 || move.members.single().hash == null)) throw IOException("Invalid draft inventory")
+        if (plan.moves.size != 1) throw IOException("Invalid relocation moves count")
+        val move = plan.moves.single()
+        safeFile(move.source)
+        safeFile(move.destination)
+        if (move.source == move.destination || move.destination.startsWith("${move.source}/") || move.source.startsWith("${move.destination}/")) {
+            throw IOException("Invalid relocation move")
+        }
+        if (move.members.firstOrNull()?.hash == null) {
+            validateVisiblePath(move.source)
+            validateVisiblePath(move.destination)
+        } else {
+            validateNotePath(move.source)
+            validateNotePath(move.destination)
+        }
+        if (move.members.isEmpty() || move.members.first().path != "" || move.members.map { it.path }.distinct().size != move.members.size) {
+            throw IOException("Invalid relocation inventory")
+        }
+        move.members.forEach { member ->
+            safeFile(join(move.source, member.path))
+            safeFile(join(move.destination, member.path))
+            if (member.hash != null && !HASH.matches(member.hash)) throw IOException("Invalid inventory hash")
         }
         if ((plan.moves.map { it.source } + plan.moves.map { it.destination }).distinct().size != plan.moves.size * 2) {
             throw IOException("Overlapping relocation moves")
@@ -542,7 +514,7 @@ internal class VaultRelocation(private val vault: Vault) {
         if (plan.writes.map { it.path }.distinct().size != plan.writes.size) throw IOException("Duplicate relocation writes")
         plan.writes.forEach { write ->
             safeFile(write.path)
-            if (!DRAFT_PATH.matches(write.path)) validateNotePath(write.path)
+            validateNotePath(write.path)
             if (!HASH.matches(write.beforeHash) || !HASH.matches(write.afterHash)) throw IOException("Invalid write hash")
         }
         plan.directories.forEach { path ->
@@ -637,7 +609,6 @@ internal class VaultRelocation(private val vault: Vault) {
     private fun text(bytes: ByteArray): String = Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString()
     private fun hash(bytes: ByteArray): String = hex(MessageDigest.getInstance("SHA-256").digest(bytes))
     private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
-    private fun draftKey(path: String): String = hash(path.toByteArray(Charsets.UTF_8)).take(32)
     private fun relative(file: File): String = file.relativeTo(root).invariantSeparatorsPath
     private fun exists(file: File): Boolean = Files.exists(file.toPath(), NOFOLLOW_LINKS)
     private fun join(parent: String, child: String): String = if (child.isEmpty()) parent else "$parent/$child"
@@ -674,13 +645,10 @@ internal class VaultRelocation(private val vault: Vault) {
     private companion object {
         const val OPERATIONS = ".looma/operations"
         const val ABANDONED_OPERATIONS = ".looma/abandoned-operations"
-        const val DRAFTS = ".looma/drafts"
         const val MAX_ENTRIES = 20000
         const val MAX_DEPTH = 64
-        const val MAX_DRAFT_BYTES = MAX_MARKDOWN_BYTES * 6 + 4096
         const val MAX_MANIFEST_BYTES = 8L * 1024 * 1024
         val HASH = Regex("[0-9a-f]{64}")
-        val DRAFT_PATH = Regex("\\.looma/drafts/[0-9a-f]{32}\\.(properties|md)")
         val JOURNAL_NAME = Regex("op-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         val STAGING_NAME = Regex("staging-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         val SWEEPABLE_FILE = Regex("[0-9]+\\.(before|after)|intent\\.properties|progress|completed|\\.looma-[^/]*\\.tmp")

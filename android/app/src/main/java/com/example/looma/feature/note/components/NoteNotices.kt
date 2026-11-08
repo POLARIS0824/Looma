@@ -27,6 +27,14 @@ internal fun NoteSaveBanner(
     onReload: () -> Unit,
     onOverwrite: () -> Unit,
 ) {
+    val copy = state.conflictCopy
+    val copyName = copy?.relativePath?.substringAfterLast('/')
+    val message = when {
+        state.isConflict && copyName != null -> stringResource(R.string.editor_conflict_conflict_copy, copyName)
+        state.isConflict -> stringResource(R.string.editor_conflict)
+        copyName != null -> stringResource(R.string.editor_save_failed_conflict_copy, copyName)
+        else -> stringResource(R.string.editor_save_failed)
+    }
     Surface(color = MaterialTheme.colorScheme.errorContainer) {
         Row(
             modifier = Modifier
@@ -35,9 +43,7 @@ internal fun NoteSaveBanner(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = stringResource(
-                    if (state.isConflict) R.string.editor_conflict else R.string.editor_save_failed,
-                ),
+                text = message,
                 modifier = Modifier.weight(1f),
                 style = LoomaTokens.type.supporting,
                 color = MaterialTheme.colorScheme.onErrorContainer,

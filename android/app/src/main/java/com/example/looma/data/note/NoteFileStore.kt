@@ -9,14 +9,12 @@ import com.example.looma.domain.model.NoteWriteMode
 import com.example.looma.domain.model.TrashedNote
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultId
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import java.util.Properties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -27,11 +25,6 @@ internal data class StoredMarkdown(
     val root: File,
     val file: File,
     val revision: NoteRevision,
-)
-
-internal data class StoredDraft(
-    val content: String,
-    val baseRevision: NoteRevision,
 )
 
 internal data class StoredNoteStats(
@@ -91,7 +84,6 @@ internal class NoteFileStore(
         val (_, ops) = currentVault(id.vaultId)
         val file = ops.noteFile(id.path)
         if (!file.delete()) throw VaultFileException(VaultFileFailure.IO)
-        deleteDraftFiles(ops.rootDir, id.path)
     }
 
     suspend fun saveNote(
@@ -118,6 +110,33 @@ internal class NoteFileStore(
             if (observed != actualRevision) throw NoteChangedExternallyException(observed)
         }
         storedMarkdown(vault, ops.rootDir, file, bytes)
+    }
+
+    suspend fun writeConflictCopy(
+        id: NoteId,
+        content: String,
+        existing: NotePath?,
+    ): StoredMarkdown = withContext(Dispatchers.IO) {
+        val (vault, ops) = currentVault(id.vaultId)
+        val root = ops.rootDir
+        val bytes = markdownBytes(content)
+        if (existing != null) {
+            val target = File(root, existing.relativePath).canonicalFile
+            if (target.isFile) {
+                writeBytesAtomically(target, bytes)
+                return@withContext storedMarkdown(vault, root, target, bytes)
+            }
+        }
+        val folderPath = id.path.relativePath.substringBeforeLast('/', missingDelimiterValue = "")
+        val folder = if (folderPath.isEmpty()) root else File(root, folderPath).canonicalFile
+        ensureDirectory(folder)
+        val noteName = File(id.path.relativePath).nameWithoutExtension
+        val timestamp = LocalDateTime.now().format(CONFLICT_TIMESTAMP)
+        val file = generateSequence(1) { it + 1 }
+            .map { copy -> File(folder, conflictBackupName(noteName, timestamp, copy)) }
+            .first { !it.exists() }
+        writeBytesAtomically(file, bytes)
+        storedMarkdown(vault, root, file, bytes)
     }
 
     suspend fun deleteNote(id: NoteId): TrashedNote = withContext(Dispatchers.IO) {
@@ -177,71 +196,6 @@ internal class NoteFileStore(
             bulkOverTrash(ops, trashIds) { record -> ops.deletePermanently(record) }.second
         }
 
-    suspend fun writeDraft(id: NoteId, content: String, baseRevision: NoteRevision) = withContext(Dispatchers.IO) {
-        val (_, ops) = currentVault(id.vaultId)
-        markdownBytes(content)
-        val diskContent = try {
-            readMarkdown(ops.noteFile(id.path))
-        } catch (failure: VaultFileException) {
-            if (failure.failure != VaultFileFailure.NOT_FOUND) throw failure
-            null
-        } catch (_: NoteTooLargeException) {
-            null
-        }
-        if (content == diskContent) {
-            deleteDraftFiles(ops.rootDir, id.path)
-            return@withContext
-        }
-        val revision = when (baseRevision) {
-            is NoteRevision.Known -> baseRevision.sha256.also {
-                require(REVISION_PATTERN.matches(it)) { "invalid draft base revision" }
-            }
-            NoteRevision.Unknown -> ""
-        }
-        val properties = Properties().apply {
-            setProperty("version", "1")
-            setProperty("content", content)
-            setProperty("baseRevision", revision)
-        }
-        val output = ByteArrayOutputStream()
-        output.writer(Charsets.UTF_8).use { properties.store(it, null) }
-        val bytes = output.toByteArray()
-        if (bytes.size > MAX_DRAFT_BYTES) throw NoteTooLargeException("draft", MAX_DRAFT_BYTES)
-        val file = draftFile(ops.rootDir, id.path)
-        ensureDirectory(checkNotNull(file.parentFile))
-        writeBytesAtomically(file, bytes)
-    }
-
-    suspend fun readDraft(id: NoteId): StoredDraft? = withContext(Dispatchers.IO) {
-        val (_, ops) = currentVault(id.vaultId)
-        val file = draftFile(ops.rootDir, id.path)
-        if (!file.exists()) {
-            val legacy = legacyDraftFile(ops.rootDir, id.path)
-            return@withContext if (legacy.exists()) StoredDraft(readMarkdown(legacy), NoteRevision.Unknown) else null
-        }
-        val properties = Properties()
-        try {
-            readBytesBounded(file, MAX_DRAFT_BYTES).inputStream().reader(Charsets.UTF_8).use { properties.load(it) }
-        } catch (failure: IllegalArgumentException) {
-            throw IOException("invalid draft record", failure)
-        }
-        if (properties.getProperty("version") != "1") throw IOException("unsupported draft version")
-        val content = properties.getProperty("content") ?: throw IOException("missing draft content")
-        markdownBytes(content)
-        val rawRevision = properties.getProperty("baseRevision") ?: throw IOException("missing draft base revision")
-        val revision = when {
-            rawRevision.isEmpty() -> NoteRevision.Unknown
-            REVISION_PATTERN.matches(rawRevision) -> NoteRevision.Known(rawRevision)
-            else -> throw IOException("invalid draft base revision")
-        }
-        StoredDraft(content, revision)
-    }
-
-    suspend fun deleteDraft(id: NoteId) = withContext(Dispatchers.IO) {
-        val (_, ops) = currentVault(id.vaultId)
-        deleteDraftFiles(ops.rootDir, id.path)
-    }
-
     private fun backupConflictBytes(root: File, path: NotePath, bytes: ByteArray): File {
         try {
             val mirroredNote = File(File(root, CONFLICT_DIRECTORY), path.relativePath)
@@ -297,12 +251,6 @@ internal class NoteFileStore(
             revision = NoteRevision.of(bytes),
         )
 
-    private fun deleteDraftFiles(root: File, path: NotePath) {
-        for (file in listOf(legacyDraftFile(root, path), draftFile(root, path))) {
-            if (file.exists() && !file.delete()) throw VaultFileException(VaultFileFailure.IO)
-        }
-    }
-
     private fun ensureDirectory(directory: File) {
         if (!directory.isDirectory && !directory.mkdirs()) throw VaultFileException(VaultFileFailure.IO)
     }
@@ -314,18 +262,6 @@ internal class NoteFileStore(
         val CONFLICT_TIMESTAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HHmmss")
         val REVISION_PATTERN = Regex("[0-9a-f]{64}")
     }
-}
-
-internal const val MAX_DRAFT_BYTES = MAX_MARKDOWN_BYTES * 2 + 1024
-
-internal fun draftFile(root: File, path: NotePath): File = draftPath(root, path, ".properties")
-
-internal fun legacyDraftFile(root: File, path: NotePath): File = draftPath(root, path, ".md")
-
-private fun draftPath(root: File, path: NotePath, suffix: String): File {
-    val digest = MessageDigest.getInstance("SHA-256").digest(path.relativePath.toByteArray(Charsets.UTF_8))
-    val name = digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }.take(32)
-    return File(File(root, ".looma/drafts"), "$name$suffix")
 }
 
 internal fun <T> bulkOverTrash(

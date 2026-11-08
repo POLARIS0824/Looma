@@ -124,21 +124,16 @@ class RenameRelinkTest {
     }
 
     @Test
-    fun folderRenameMovesDraftAndUpdatesBacklinks() = runBlocking {
+    fun folderRenameUpdatesBacklinks() = runBlocking {
         File(root, "Inbox").mkdirs()
         write("Inbox/Nested.md", "# Nested\noriginal\n")
         write("Ref.md", "[[Inbox/Nested]]\n")
-        val original = repository.readNote(id("Inbox/Nested.md"))
-        repository.writeDraft(original.id, "# Nested\nunsaved\n", original.revision)
 
         repository.renameFolder(FolderPath("Inbox"), "Archive")
 
         assertEquals("[[Archive/Nested]]\n", read("Ref.md"))
         val opened = repository.openNote(id("Archive/Nested.md"))
-        assertTrue(opened.restoredDraft)
-        assertEquals("# Nested\nunsaved\n", opened.note.content)
-        assertEquals("# Nested\noriginal\n", opened.diskContent)
-        assertEquals(original.revision, opened.note.revision)
+        assertEquals("# Nested\noriginal\n", opened.content)
         val notes = repository.listNotes().items.map { it.summary.id.path.relativePath }
         assertTrue("Archive/Nested.md" in notes)
         assertTrue("Inbox/Nested.md" !in notes)

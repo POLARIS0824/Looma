@@ -280,56 +280,6 @@ class VaultRelocationTest {
     }
 
     @Test
-    fun `both primary and legacy drafts follow a note and retain the original baseline`() {
-        note("old.md", "[[old]] canonical")
-        val primary = primaryDraft("old.md", "[[old#Heading|Alias]] unsaved", "original-baseline")
-        val legacy = note(draftPath("old.md", ".md"), "\uFEFF[[old]] legacy\r\n")
-
-        relocation.renameNote(id("old.md"), "new")
-
-        assertFalse(primary.exists())
-        assertFalse(legacy.exists())
-        val moved = load(file(draftPath("new.md", ".properties")))
-        assertEquals("[[new#Heading|Alias]] unsaved", moved.getProperty("content"))
-        assertEquals("original-baseline", moved.getProperty("baseRevision"))
-        assertEquals("preserved", moved.getProperty("extra"))
-        assertEquals("\uFEFF[[new]] legacy\r\n", file(draftPath("new.md", ".md")).readText())
-        assertEquals("[[new]] canonical", file("new.md").readText())
-    }
-
-    @Test
-    fun `folder drafts and unmoved draft referrers recover with their unsaved content`() {
-        note("old/deep/note.md", "canonical")
-        note("ref.md", "canonical ref")
-        primaryDraft("old/deep/note.md", "own unsaved [[old/deep/note]]", "baseline")
-        primaryDraft("ref.md", "ref unsaved [[old/deep/note]]", "ref-baseline")
-        failAfter("move")
-        assertThrows(IOException::class.java) { relocation.renameFolder(FolderPath("old"), "new") }
-
-        assertNull(VaultRelocation(vault).recoverPending().stalled)
-
-        val moved = load(file(draftPath("new/deep/note.md", ".properties")))
-        val ref = load(file(draftPath("ref.md", ".properties")))
-        assertEquals("own unsaved [[new/deep/note]]", moved.getProperty("content"))
-        assertEquals("baseline", moved.getProperty("baseRevision"))
-        assertEquals("ref unsaved [[new/deep/note]]", ref.getProperty("content"))
-        assertEquals("ref-baseline", ref.getProperty("baseRevision"))
-        assertEquals("canonical", file("new/deep/note.md").readText())
-    }
-
-    @Test
-    fun `a colliding destination draft aborts before moving canonical files`() {
-        note("old.md", "original")
-        primaryDraft("new.md", "unfamiliar", "baseline")
-
-        assertThrows(IOException::class.java) { relocation.renameNote(id("old.md"), "new") }
-
-        assertEquals("original", file("old.md").readText())
-        assertEquals("unfamiliar", load(file(draftPath("new.md", ".properties"))).getProperty("content"))
-        assertFalse(file(".looma/operations").exists())
-    }
-
-    @Test
     fun `every durable application boundary can be recovered independently`() {
         val events = mutableListOf<String>()
         seedRecoverableMove()
@@ -351,7 +301,6 @@ class VaultRelocationTest {
             assertFalse(file("old.md").exists())
             assertEquals("[[old]] own", file("new/deep/old.md").readText())
             assertEquals("[[new/deep/old]] ref", file("ref.md").readText())
-            assertEquals("[[old]] unsaved", load(file(draftPath("new/deep/old.md", ".properties"))).getProperty("content"))
             assertNoPendingJournal()
         }
     }
@@ -475,8 +424,6 @@ class VaultRelocationTest {
     private fun seedRecoverableMove() {
         note("old.md", "[[old]] own")
         note("ref.md", "[[old]] ref")
-        primaryDraft("old.md", "[[old]] unsaved", "baseline")
-        note(draftPath("old.md", ".md"), "legacy")
         note("path-ref.md", "[[old.md]]")
         note("b/old.md", "ambiguous")
     }
@@ -484,18 +431,6 @@ class VaultRelocationTest {
     private fun file(path: String) = File(root, path)
     private fun id(path: String) = NoteId(vault.id, NotePath(path))
     private fun note(path: String, content: String): File = file(path).apply { parentFile.mkdirs(); writeText(content) }
-    private fun draftPath(path: String, suffix: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(path.toByteArray(Charsets.UTF_8))
-        return ".looma/drafts/" + digest.joinToString("") { "%02x".format(it) }.take(32) + suffix
-    }
-    private fun primaryDraft(path: String, content: String, baseline: String): File {
-        val properties = Properties().apply {
-            setProperty("content", content)
-            setProperty("baseRevision", baseline)
-            setProperty("extra", "preserved")
-        }
-        return note(draftPath(path, ".properties"), "").apply { writeBytes(store(properties)) }
-    }
     private fun store(data: Properties): ByteArray = ByteArrayOutputStream().use { data.store(it, null); it.toByteArray() }
     private fun load(file: File): Properties = Properties().apply { file.inputStream().use { load(it) } }
     private fun failAfter(boundary: String) {

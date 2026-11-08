@@ -116,6 +116,7 @@ fun NoteRoute(
         viewModel.refreshWiki()
     }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.onEnterBackground() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onEnterBackground() }
 
     BackHandler(enabled = state.needsLeaveGuard || state.willDiscardEmpty) {
         viewModel.requestLeave()
@@ -291,9 +292,6 @@ private fun NoteWorkspace(
                 .padding(innerPadding)
                 .imePadding(),
         ) {
-            if (state.restoredDraft) {
-                DraftRestoredNotice()
-            }
             if (state.saveFailed) {
                 NoteSaveBanner(
                     state = state,
@@ -419,26 +417,6 @@ private fun NoteBodyEditor(
             }
         },
     )
-}
-
-@Composable
-private fun DraftRestoredNotice(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.editor_draft_restored),
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        }
-    }
 }
 
 @Composable

@@ -2,6 +2,7 @@ package com.example.looma.data.index
 
 import com.example.looma.data.note.MarkdownLink
 import com.example.looma.data.note.MarkdownMetadata
+import com.example.looma.data.note.SavedNote
 import com.example.looma.data.note.markdownSnippetOf
 import com.example.looma.data.note.resolveCover
 import com.example.looma.domain.model.NoteId
@@ -59,3 +60,6 @@ internal fun indexedNote(
         links = metadata.links,
     )
 }
+
+internal fun SavedNote.toIndexedNote(): IndexedNote =
+    indexedNote(stored.id.vaultId, stored.root, stored.file, stored.content, metadata)

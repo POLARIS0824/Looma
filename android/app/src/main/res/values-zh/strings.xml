@@ -208,7 +208,8 @@
     <string name="editor_wikilink_search">搜索笔记</string>
     <string name="editor_wikilink_empty">没有匹配的笔记</string>
     <string name="editor_reload_from_disk">从磁盘重载</string>
-    <string name="editor_draft_restored">已恢复上次未保存的内容</string>
+    <string name="editor_save_failed_conflict_copy">保存失败，已将你的修改另存为「%1$s」。</string>
+    <string name="editor_conflict_conflict_copy">笔记已在外部变化，已将你的修改另存为「%1$s」。</string>
 
     <string name="home_folder_actions_description">文件夹操作</string>
     <string name="home_folder_rename_title">重命名文件夹</string>

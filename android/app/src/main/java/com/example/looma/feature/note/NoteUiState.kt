@@ -2,6 +2,7 @@ package com.example.looma.feature.note
 
 import com.example.looma.domain.markdown.ImageContext
 import com.example.looma.domain.markdown.ToolbarItem
+import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.wiki.WikiContext
 import java.time.Instant
@@ -37,7 +38,7 @@ data class NoteUiState(
     val isNewNote: Boolean = false,
     val wiki: WikiContext = WikiContext.Empty,
     val imageContext: ImageContext? = null,
-    val restoredDraft: Boolean = false,
+    val conflictCopy: NotePath? = null,
     val reloadToken: Int = 0,
     val showInlineTitle: Boolean = true,
     val toolbarOrder: List<ToolbarItem> = ToolbarItem.DEFAULT_ORDER,
@@ -57,7 +58,7 @@ data class NoteUiState(
         get() = isNewNote &&
             !keepEmptyNotes &&
             !isConflict &&
-            isEmptyDraft
+            isContentBlank
 
     fun canAdoptDiskRevision(diskRevision: NoteRevision): Boolean =
         !isLoading &&
@@ -69,6 +70,6 @@ data class NoteUiState(
             saveState != NoteSaveState.Saving &&
             diskRevision != revision
 
-    private val isEmptyDraft: Boolean
+    private val isContentBlank: Boolean
         get() = content.isBlank()
 }

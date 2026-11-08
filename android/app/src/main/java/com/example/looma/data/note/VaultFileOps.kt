@@ -211,9 +211,6 @@ internal class VaultFileOps(root: File) {
             metaFile.delete()
             throw VaultFileException(VaultFileFailure.IO)
         }
-        trashedDrafts(trashId, originalPath)
-            .filter { it.live.exists() }
-            .forEach { draft -> moveBestEffort(draft.live, draft.trashed) }
         return TrashRecord(trashId, originalPath, deletedAt, trashFile, metaFile)
     }
 
@@ -232,7 +229,6 @@ internal class VaultFileOps(root: File) {
     internal fun deletePermanently(record: TrashRecord) {
         if (!record.file.delete()) throw VaultFileException(VaultFileFailure.IO)
         record.metaFile.delete()
-        trashedDrafts(record.trashId, record.originalPath).forEach { it.trashed.delete() }
     }
 
     fun restore(trashId: String): File = restore(recordOf(trashId))
@@ -248,26 +244,8 @@ internal class VaultFileOps(root: File) {
         }
         if (!record.file.renameTo(destination)) throw VaultFileException(VaultFileFailure.IO)
         record.metaFile.delete()
-        trashedDrafts(record.trashId, record.originalPath)
-            .filter { it.trashed.exists() && !it.live.exists() }
-            .forEach { draft -> moveBestEffort(draft.trashed, draft.live) }
         return destination
     }
-
-    private fun moveBestEffort(source: File, target: File) {
-        val directory = checkNotNull(target.parentFile)
-        if (directory.isDirectory || directory.mkdirs()) source.renameTo(target)
-    }
-
-    private fun trashedDrafts(trashId: String, originalPath: NotePath): List<TrashedDraft> {
-        val directory = File(root, TRASHED_DRAFTS_DIRECTORY)
-        return listOf(
-            TrashedDraft(draftFile(root, originalPath), File(directory, "$trashId$META_SUFFIX")),
-            TrashedDraft(legacyDraftFile(root, originalPath), File(directory, "$trashId$MARKDOWN_SUFFIX")),
-        )
-    }
-
-    private data class TrashedDraft(val live: File, val trashed: File)
 
     private fun recordOf(trashId: String): TrashRecord {
         if (!UUID_PATTERN.matches(trashId)) throw VaultFileException(VaultFileFailure.INVALID_PATH)
@@ -360,7 +338,6 @@ internal class VaultFileOps(root: File) {
 
     companion object {
         const val TRASH_DIRECTORY = ".looma/trash"
-        private const val TRASHED_DRAFTS_DIRECTORY = "$TRASH_DIRECTORY/drafts"
         const val MARKDOWN_SUFFIX = ".md"
         private const val META_SUFFIX = ".properties"
         private const val MAX_NAME_LENGTH = 72
