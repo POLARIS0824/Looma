@@ -1,40 +1,42 @@
 # Create, edit and read Markdown notes
 
-Users create or open a note, edit its heading and body, format Markdown, switch to reading, follow links and return without losing content. Files on disk are the durable source of truth.
+Users create or open a note, edit its Markdown in one field, format it, switch to reading, follow wiki links, insert images and return without losing content. Files on disk are the durable source of truth.
 
 ## Sub-features
 
-- `note-create-save`: New note opens an editor; entered title/body persist after leaving and relaunch.
-- `note-open`: Recent cards, Notes cards and search results each open the selected note in edit mode.
-- `note-read-edit`: Read/Edit switches preserve content; read-mode checklists update Markdown.
-- `note-format`: formatting actions, Undo/Redo and configurable toolbar order affect the body.
-- `note-links`: Link a note inserts a wiki link; read mode resolves targets and shows backlinks; missing targets produce a message.
-- `note-images`: existing local Markdown image references render in Read mode when the referenced image exists inside the vault.
-- `note-recovery`: save failures/conflicts expose Retry save, Reload from disk, Overwrite and guarded leave; recovered drafts are shown.
+- `note-create-save`: New note creates `Untitled note.md` (then `Untitled note (1).md`, …) in the current folder and opens the editor; typed Markdown persists after leaving and relaunch.
+- `note-open`: Recent cards, Notes cards and search results each open the selected note in Edit mode.
+- `note-read-edit`: the top-bar Read/Edit toggle preserves content. Read shows the inline title, the rendered body and backlinks; tapping a checkbox rewrites `[ ]`/`[x]`.
+- `note-format`: toolbar actions, Undo/Redo and the configured toolbar order change the Markdown.
+- `note-links`: Link a note inserts a wiki link; Read resolves it, opens the target, and the target lists `Backlinks · N`; a missing target shows a snackbar.
+- `note-images`: Insert image picks a photo, writes `<first 16 hex of SHA-256>.<ext>` at the vault root and inserts `![[…]]` (Local attachment), or uploads to S3 and inserts `![](url)` (Image bed). Read renders `![](…)`, `![[…]]` and sized `![[x.png|300]]`.
+- `note-math`: `$…$` and `$$…$$` render as formulas in Read.
+- `note-conflict`: a save against bytes changed by another editor writes a conflict copy and shows a banner with Reload from disk and Overwrite; other save failures offer Retry save; leaving while a save fails asks first.
 
 ## How to get to it (user POV)
 
 - Home → New note (in the current folder).
-- Tap a card in Recent, Notes/folder contents, or a search result.
+- Tap a card in Recent, Notes or folder contents, or a search result.
 - A resolved wiki link or a backlink opens its target; Back returns to the prior note.
 
 ## Driving it with control.py
 
-Preconditions: connected empty Home, English UI, doctor passes. Create fixtures through New note; the baseline includes no wiki targets or image files.
+Preconditions: connected empty Home, English UI, doctor passes. Create fixtures through New note.
 
-- **Create.** `v tap --desc 'New note'`; `v ui`. On the editor the first `android.widget.EditText` is the title and the second is body. `v tap --class android.widget.EditText --index 0`; `v text 'Verification note'`; `v tap --class android.widget.EditText --index 1`; `v text 'Persistence marker #verify'`; `v capture note-typed`.
-- **Read/save.** `v tap --desc Read`; `v assert --text 'Verification note'`; `v capture note-read`; `v tap --desc Back`; `v files note-saved`. Inspect the copied `.md`: it must contain `# Verification note` and `Persistence marker #verify`. The filename may remain an automatically assigned Untitled note filename; the heading is not a file rename.
-- **Persistence/open entries.** `v relaunch`; `v ui`; tap `Verification note` with an explicit `--index` if both Recent and Notes show it. Require two EditText nodes with the saved values. Capture `note-reopened`. Return and repeat for the other card entry and the search-result entry; record each separately. `v tap --desc Read` shows the same heading/body; `v tap --desc Edit` returns to editing.
-- **Formatting/undo.** Focus body field, tap `v tap --desc Bold`, type `v text formatted`, then `v tap --desc Undo` and `v tap --desc Redo` when enabled. Use `v ui` and horizontal toolbar scrolling as needed for hidden actions. Capture source and Read states, leave and `v files note-format`. Require the intended Markdown delimiters and rendered emphasis, not only a changed button state. For checklist input type `- [ ] Task`, toggle its actual checkbox in Read using the current hierarchy and verify `[x]` in the saved file.
-- **Links.** First create a second note titled `Target note` through the same user path. In the first note focus body; `v tap --desc 'Link a note'`; `v tap --text 'Target note'`; capture insertion. Read and tap the visible target; verify its title, then its backlinks panel and return route. If the target is missing from the picker, report the missing precondition; do not replace the link journey with direct navigation. For a missing target, type a literal `[[Missing target]]` into body, Read, tap it and capture `No note named "Missing target"`.
-- **Image boundary.** Supply a disposable image fixture in the run-owned vault, recording its origin and bytes; type `![Fixture](fixture.png)` into the body through `v text`, then `v tap --desc Read`. Capture and visually inspect the actual image; leave and `v files note-image` to prove the persisted reference and image bytes. Report the missing prerequisite if no image fixture was supplied. This is a rendering check, not an attachment-import journey: the current toolbar filters out Insert image/Insert file, and NoteScreen does not wire import handlers.
-- **Recovery boundary.** Only in this disposable vault, use a separately documented external-file fixture change to simulate another editor, then type more in the UI. Verify the conflict banner and each chosen recovery action through its visible label and saved/backup bytes. A conflict run requires a deterministically changed file modification time. Never claim crash recovery merely from a successful normal relaunch; record the precise interruption used.
+- **Create.** `v tap --desc 'New note'`. The editor has exactly **one** `android.widget.EditText`, the whole Markdown file, placeholder `Start writing Markdown…`, already focused. `v tap --class android.widget.EditText`; `v text '# Verification note'`; `v key KEYCODE_ENTER`; `v text 'Persistence marker #verify'`; `v key KEYCODE_ENTER`; `v tap --desc Bold`; `v text formatted`.
+- **Read/save.** `v tap --desc Read`. Read shows the inline title `Untitled note` (the file name) above the heading `Verification note`, because they differ; `formatted` renders bold. `v tap --desc Back`; `v files note-saved`. The file is `Untitled note.md` with `# Verification note`, `Persistence marker #verify` and `**formatted**`. The heading never renames the file.
+- **Persistence/open entries.** `v relaunch`; `v ui`. Home shows each note twice (Recent and Notes), so pass `--index`. The field text is the full saved Markdown. Repeat from the other card and from a search result; record each entry separately.
+- **Toolbar.** About ten of the twenty actions fit a 1080 px screen: Undo, Redo, Link a note, Insert image, Bold, Italic, Strikethrough, Highlight, Link, then Inline code, Heading 1–3, Bulleted list, Numbered list, Checklist, Quote, Code block, Table and Divider offscreen. Scroll the row with `v swipe left --desc Bold` (repeat with any visible action). Then `v tap --desc Checklist`; `v text Task`; `v tap --desc Read`. Read exposes an `android.widget.CheckBox`; `v tap --class android.widget.CheckBox` sets `checked=true`, and after Back the file holds `- [x] Task`.
+- **Links.** Create a second note `# Target note`. In the first note: `v tap --desc 'Link a note'`; `v assert --text 'Search notes'`; `v tap --text 'Target note'`. The inserted text is `[[Untitled note (1)|Target note]]`: the target's file name with its heading as alias. Type `[[Missing target]]` on another line. **Leave and reopen the note before testing Read**: links typed in this session render as missing until the note is saved and reopened, because resolution uses the indexed links. In Read the whole paragraph is one TextView, so tap a span with `--at`: `v tap --class android.widget.TextView --index 2 --at 0.3,0.87` hits the last line. Expect the snackbar `No note named "Missing target"` (in PowerShell write `'No note named \"Missing target\"'`). The resolved line opens the target in Edit; `v tap --desc Read` there shows `Backlinks · 1` and the referrer's title.
+- **Images.** Make a small disposable PNG on the host. `v fixture <file.png> --to pictures` pushes it to `/sdcard/Pictures/<owner>/` and runs the media scanner. In Edit, `v tap --desc 'Insert image'`; `v doctor --system`. The photo picker lists `Photo taken on …` items; their descriptions contain U+202F before AM/PM, so copy the exact `content-desc` from `v ui` JSON instead of typing it. After the pick: Read renders the image; `v files` shows `<16 hex>.png` at the vault root, byte-identical to the fixture, and `![[<16 hex>.png]]` in the note.
+- **Math.** `v text 'Energy $E=mc^2$ here'`; Read renders the formula inline. Home card previews show the raw `$…$` source.
+- **Conflict.** Open a clean note. Write the "other editor" version on the host under the note's exact file name and push it with `v fixture '<file>' --to vault --replace`. Then type in the app: `v tap --class android.widget.EditText`; `v key KEYCODE_MOVE_END KEYCODE_CTRL_RIGHT`; `v text ' app edit'`. Within about 3 s, after the 2 s debounce, `v assert --text 'Reload from disk'` and `v assert --text Overwrite`. The banner reads `The note changed on disk. Your changes were saved as “<name> (conflicted copy yyyy-MM-dd HHmmss).md”.` with curly quotes; read it from `v ui`. `v files` shows that copy next to the note and the note holding the external bytes. `v tap --text Overwrite`: the banner closes, the note holds the app content, the conflict copy is gone and the external bytes are backed up under `.looma/conflicts/`.
 
 ## Gotchas
 
-- Existing notes initially open in Edit mode without automatically showing the keyboard; a new note focuses title. The title/body buffers are separate; the saved document combines them into one Markdown file.
-- Saving is throttled (not a typing-stops-only debounce) and flushed on leave/background. Poll observable state and inspect disk; arbitrary sleeps are not proof.
-- New empty notes are discarded by default unless Keep empty notes is on; do not interpret their absence as failed nonempty saving.
-- Back may first dismiss the keyboard. Prefer the editor's Back description when verifying leave behavior.
-- Toolbar actions may be offscreen or reordered. Resolve current descriptions; do not bake in x/y positions. ADB ASCII input does not verify IME composition.
-- Links/backlinks require two real saved notes and refreshed indexing. Images require a referenced image fixture. Insert image/Insert file are not currently exposed user routes. Recovery paths require deliberately induced failures; normal saving does not cover them.
+- There is no title field and no draft recovery. Old recipes that used EditText index 1 for a body are wrong.
+- Saving: 2 s after the last edit, at most 15 s after the first edit of a burst, and on Back, pause and stop. Poll observable state and inspect disk; sleeps are not proof.
+- Detection compares SHA-256 of the bytes, not mtime. An external change made while the app is in the background is taken silently on return if the note is clean; a conflict needs edits on top of an unseen external change.
+- New empty notes are discarded on leave unless Keep empty notes is on.
+- `Read` on a note opened from Read mode of another note: Back returns to that note, a second Back to Home.
+- `Insert file` never appears in the toolbar. ADB ASCII input does not verify IME composition.

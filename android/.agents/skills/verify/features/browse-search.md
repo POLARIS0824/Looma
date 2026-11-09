@@ -1,38 +1,42 @@
 # Browse files and search notes
 
-Users browse folders and recent notes, change list/grid or sorting, search titles/content/tags, and manage note or folder files with selection actions.
+Users browse folders and recent notes, change list/grid and sorting, search titles, text and tags, and manage notes or folders through selection actions with Undo.
 
 ## Sub-features
 
-- `browse-layout-sort`: list/grid, Sort by and pull-to-refresh preserve the visible note set.
-- `browse-folders`: create/open/navigate up, rename/move/delete a folder.
-- `browse-selection`: long-press selects notes/folders; clear, batch-delete/move, single-note rename/info and snackbar Undo act on the selected files.
-- `search-match`: title, body and hashtag queries show matching notes and open the result.
-- `search-empty-clear`: absent queries, Clear search and Close search show distinct expected states.
-- `search-history`: submitted/open-result queries become recent searches.
+- `browse-layout-sort`: Show as list/Show as grid, the `Sort by` sheet (`Last modified`, `Title A–Z`, `Title Z–A`) and pull-to-refresh keep the visible note set.
+- `browse-folders`: create, open, go up, rename, move and delete a folder.
+- `browse-selection`: long-press selects notes or one folder (never both); batch Move to…/Delete; single-note Rename and File info; snackbar Undo.
+- `browse-relink`: renaming or moving a note or folder rewrites wiki links in other notes; the rename snackbar reports how many.
+- `search-match`: title, body and tag queries list matching notes; a result opens the note.
+- `search-empty-clear`: blank query hint, `No matching notes`, Clear search and Close search.
+- `search-history`: submitted or opened queries appear under `Recent searches`.
+- `browse-stalled`: an unfinished rename/move journal shows a banner with Abandon. Source-only: no user path creates one.
 
 ## How to get to it (user POV)
 
-- Connected Home shows Recent, Folders and Notes; tap a folder and use breadcrumb/up to return.
-- Tap the Search <vault-name> field; search runs inside the expanded surface.
-- Tap Show as list/Show as grid or Sort in the collapsed search bar.
-- Long-press a note/folder; New folder is a separate floating action.
+- Connected Home shows `Recent` (root only, up to 10 newest notes), `Folders` (only when folders exist) and `Notes`. Inside a folder there are no headers; a breadcrumb `Home / <folder>` with `Go up one folder` replaces them.
+- The search field is an EditText with description `Search`; its placeholder `Search <vault>` has no semantics.
+- Show as list, Show as grid and Sort sit in the collapsed search bar.
+- Long-press a note or folder. `New folder` and `New note` are floating actions, hidden during selection.
 
 ## Driving it with control.py
 
-Preconditions: doctor passes on connected Home. Create `Verification note` with body `Persistence marker #verify` and a second distinct note via [notes.md](notes.md). No fixtures are supplied by launch.
+Preconditions: doctor passes on connected Home. Create two notes via [notes.md](notes.md); for relinking, one must link to the other.
 
-- **Layout/sort.** `v tap --desc 'Show as list'`; inspect both fixture titles, `v capture browse-list`; `v tap --desc 'Show as grid'`; `v tap --desc Sort`; `v tap --text Title`; inspect the actual file-list order rather than Recent, which has its own order. Repeat Last modified; capture. `v swipe down` performs a refresh gesture only from the top of Home; require the returned list and no load error.
-- **Folder.** `v tap --desc 'New folder'`; `v tap --class android.widget.EditText`; `v text Projects`; `v tap --text Create`; `v tap --text Projects`; assert `This folder is empty`. Create a note there and verify the copied path under Projects via `v files browse-folder`. Use `v tap --desc 'Go up one folder'`. `v tap --text Projects --long`; `v ui`; the selection top bar offers `v tap --desc Rename`, `v tap --desc 'Move to…'` and `v tap --desc Delete`. Rename opens the Rename folder dialog; edit its field with select-all and confirm Save. Delete opens confirmation; inspect it before confirming and prove descendant notes move to trash. Move uses the system folder picker and accepts targets within the connected vault only.
-- **Selection/info/rename.** `v tap --text 'Verification note' --index 0 --long` after inspecting duplicates. `v tap --desc 'File info'` opens Location/Size/Modified/Words/Characters; capture and close with OK. Reselect; `v tap --desc Rename`; the dialog's field is labelled File name. `v tap --class android.widget.EditText`; `v select-all`; `v text Renamed`; `v tap --text Save`. Require Renamed feedback and `v files browse-renamed` with the renamed `.md`; its heading may still be Verification note. Reopen to prove body integrity. For batch operations select two files before Move to…/Delete and verify both paths; check snackbar Undo before it expires. `v tap --desc 'Clear selection'` must restore normal Home controls.
-- **Title query.** On Home `v ui`; `v tap --class android.widget.EditText`; `v text Verification`; await `v assert --text 'Verification note'`; `v capture search-title`. Do not submit Enter to inspect expanded results: submitting collapses the search surface.
-- **Body/tag queries.** `v tap --desc 'Clear search'`; `v text Persistence`; inspect the result and matching excerpt; capture. Clear and type `#verify`, inspect matching note and capture. Tap a result to open the editor; Back returns Home. Search history is recorded on result selection or submit, not every keystroke; reopen the search field and inspect Recent searches.
-- **No match/clear/close.** Clear the query and `v text nonexistent-verify-token`; require `v assert --text 'No matching notes'`. `v tap --desc 'Clear search'` removes the query; `v tap --desc 'Close search'` returns the full Home list and clears filtering. Capture `search-closed`; `v files search-unchanged` and compare note bytes against the pre-search snapshot.
+- **Layout/sort.** `v tap --desc 'Show as list'`; `v assert --desc 'Show as grid'`; `v tap --desc 'Show as grid'`. `v tap --desc Sort`; `v assert --text 'Sort by'`; `v tap --text 'Title A–Z'` (U+2013 dash; plain `Title` matches nothing). Repeat `Title Z–A` and `Last modified`. Check the Notes order, not Recent, which is always newest first. Folders always sort by name.
+- **Folder.** `v tap --desc 'New folder'`; `v assert --text 'Folder name'`; the dialog's field is then the only EditText: `v tap --class android.widget.EditText`; `v text Projects`; `v tap --text Create`; `v assert --text 'Folder created'` (its Undo deletes the folder). `v tap --text Projects`; `v assert --text 'This folder is empty'`; `v assert --text 'Home / Projects'`; `v tap --desc 'Go up one folder'`.
+- **File info.** `v tap --text '<title>' --index 1 --long` (index 1 is the Notes card; 0 is Recent). `v tap --desc 'File info'`: rows `Location`, `Size`, `Modified`, `Words`, `Characters` and, with checkboxes, `Checklist` / `1 of 1 done`. Location uses `›` between folders. Close with `v tap --text OK`.
+- **Rename and relink.** Long-press the linked target; `v tap --desc Rename`; `v assert --text 'File name'`; `v tap --class android.widget.EditText`; `v select-all`; `v text Renamed`; `v tap --text Save`. Expect `Renamed, 1 backlink(s) updated` (plain `Renamed` when no link changed). `v files` shows `Renamed.md` and the referrer now holding `[[Renamed|…]]`. `v tap --text Undo` right away; `v assert --text Undone`; the file name and the link return.
+- **Move.** Long-press a note; `v tap --desc 'Move to…'`; `v doctor --system`. DocumentsUI opens at the vault folder: `v tap --text Projects`; `v tap --text 'USE THIS FOLDER'`; `v tap --text ALLOW`. Expect `1 moved` + Undo, and the file under `Projects/`. A link that uses the bare file name keeps resolving and is not rewritten. Undo expires after about 10 s; a `v files` pull before tapping it can take longer.
+- **Batch.** Long-press note A, then tap note B: the title is `2`, `File info` disappears and `Rename` is disabled. `v tap --desc Delete` has no confirmation: `2 moved to trash` + Undo → `Undone`.
+- **Folder delete.** `v tap --text Projects --long`; `v tap --desc Delete`; `v assert --text 'Delete “Projects”?'`; the message is `1 note in this folder will move to the trash.` or `This folder is empty and will be removed.` `v tap --text Delete` → `Folder deleted · 1 note moved to trash` + Undo. The note lands in `.looma/trash/` with `originalPath=Projects/<name>.md`.
+- **Search.** `v tap --class android.widget.EditText`; with no history expect `Search titles, text and tags`. `v text Verification` → result `Verification note`. `v tap --desc 'Clear search'`; `v text Persistence` (body); clear; `v text '#verify'` (tag). A result row shows the note's stored excerpt, not a snippet around the match. Tapping it opens the note and records the query. Reopen the field: `Recent searches` lists `#verify`. `v text nonexistent-verify-token` → `No matching notes`. `v tap --desc 'Clear search'`; `v tap --desc 'Close search'` → `v assert --desc 'Show as list'`.
 
 ## Gotchas
 
-- Home, Recent and search may repeat the same title. Ambiguous text selectors must be resolved from `v ui`, not guessed. File-list headings derive from note content; rename is a filename operation.
-- Controls described here are accessibility descriptions, while menu/dialog actions may be text. Inspect exact attributes if an assertion fails; doctor before retrying.
-- To replace a populated field, focus it, `v select-all` and type; app state setters do not count. The helper intentionally does not pretend `text` replaces existing text.
-- Search submission collapses and clears the query; inspect matching results before Enter. Search scans the vault, not just the visible folder.
-- Folder deletion requires confirmation and moves descendant notes to `.looma/trash`; empty folders are removed. A picker cancellation must not move files; selecting outside the vault must not move files there.
+- Titles repeat across Recent, Notes and the selection bar. Resolve `--index` from `v ui`.
+- Do not press Enter while inspecting results: submit records the query, collapses search and clears it. Closing search also clears it.
+- Dialog actions are text (`Create`, `Save`, `Delete`, `OK`); bar controls are descriptions.
+- Snackbars with Undo use the long duration. Assert the message before slow steps.
+- A stalled relocation needs a broken `.looma/operations/op-<uuid>` journal. No harness command or user path creates one; report it as source-only.

@@ -45,14 +45,14 @@ Run doctor before the first drive, after relaunch, and after any failure/surpris
 
 ## Drive
 
-The standard-library ADB helper resolves **current** accessibility text, description, resource ID or widget class from UIAutomator before tapping. It does not cache coordinates. Compose lacks test tags here; title/body fields are the first/second `android.widget.EditText` on the editor screen. Always inspect the hierarchy before using positional field indices or ambiguous text.
+The standard-library ADB helper resolves **current** accessibility text, description, resource ID or widget class from UIAutomator before tapping. It does not cache coordinates. Compose lacks test tags here. The note editor is a single `android.widget.EditText` holding the whole Markdown file. Always inspect the hierarchy before using positional indices or ambiguous text.
 
 ```nu
 v ui
 v tap --desc 'New note'
-v tap --class android.widget.EditText --index 0
-v text 'Verification note'
-v tap --class android.widget.EditText --index 1
+v tap --class android.widget.EditText
+v text '# Verification note'
+v key KEYCODE_ENTER
 v text 'Persistence marker #verify'
 v tap --desc Read
 v assert --text 'Verification note'
@@ -61,11 +61,20 @@ v tap --desc Back
 v files note-saved
 ```
 
-Use `v assert --text 'exact text'`, `--desc`, `--id` or `--class`; `--absent` asserts disappearance. `v tap` accepts the same selectors, optional `--index 0` for a consciously selected duplicate and `--long` for selection. Both tap and assert wait for matching nodes, with bounded timeouts. The helper fails ambiguous taps. `v key KEYCODE_BACK`, `v key KEYCODE_ENTER`, and `v swipe up`/`down` cover keyboard and scrolling; swipes derive positions from the current device size. To replace a populated focused field use `v select-all` (real Ctrl+A input), then `v text 'replacement'`. `v relaunch` force-stops only this run's Looma installation and restarts it for persistence checks. It does not reinstall or clear data.
+Use `v assert --text 'exact text'`, `--desc`, `--id` or `--class`; `--absent` asserts disappearance. Matching is exact: `Title` does not match `Title A–Z`. `v tap` accepts the same selectors, `--index N` for a consciously selected duplicate, `--long` for selection, and `--at X,Y` to tap at fractions of the node's bounds, for a link inside a multi-line TextView. Tap refuses a point under the navigation bar or keyboard; scroll first. Both tap and assert wait for matching nodes, with bounded timeouts. The helper fails ambiguous taps and out-of-range indices.
+
+- `v key KEYCODE_BACK`, `v key KEYCODE_ENTER`: keyboard.
+- `v swipe up`/`down`: scroll, with positions derived from the device size. `v swipe left --desc Bold` scrolls the horizontal row that holds that node, such as the editor toolbar.
+- `v toggle 'Exact label'`: taps the switch or checkbox in that label's row and prints the new `checked` value. Compose switches are `android.view.View` nodes, not `android.widget.Switch`.
+- `v select-all` (real Ctrl+A), then `v text 'replacement'`: replace a populated focused field.
+- `v relaunch`: force-stops only this run's Looma and restarts it for persistence checks. It does not reinstall or clear data.
+- `v fixture FILE --to pictures` pushes a disposable image into `/sdcard/Pictures/<owner>/` and runs the media scanner, so the system photo picker can offer it. `v fixture FILE --to vault [--replace]` puts a file in the run's vault; `--replace` overwrites an existing vault file to stand in for another editor. File names allow letters, digits, spaces, `(`, `)`, `_`, `-` and `.`. Every push is logged with its SHA-256.
 
 `v text` sends single-line ASCII without `%` through real Android input. Line breaks use `v key KEYCODE_ENTER`. It does not prove Chinese IME composition, clipboard, rich input or hardware-keyboard behavior. Report those checks as unverified unless driven with an appropriate real input tool/device. Exact names below assume English; after an intentional locale change inspect the new hierarchy and use the actual localized names.
 
-Read the matching feature recipe. Do not treat this short example as coverage of the entire map. Launch creates **no sample notes**: recipes requiring notes, backlinks, trash or attachments must create the stated fixtures through user paths. A missing prerequisite is a failed/unreached journey, not a pass through an easier entry point.
+Read the matching feature recipe. Do not treat this short example as coverage of the entire map. Launch creates **no sample notes**: recipes requiring notes, backlinks, trash or attachments must create the stated fixtures through user paths. `v fixture` covers only what lies outside Looma (a gallery photo, another editor's write). A missing prerequisite is a failed/unreached journey, not a pass through an easier entry point.
+
+On Windows PowerShell 5 instead of Nushell, wrap the helper the same way (`function v { python .agents/skills/verify/scripts/control.py --run $run @args; if ($LASTEXITCODE) { throw "v $args failed" } }`). Set `[Console]::OutputEncoding` and `$env:PYTHONIOENCODING` to UTF-8 before reading `v ui`. Escape embedded double quotes as `\"`, because PowerShell 5 strips them when it calls a native program.
 
 ## Evidence
 
@@ -76,7 +85,7 @@ All run artifacts are under `android/<LOOM_VERIFY_RUN>/`, normally `android/app/
 - `v capture <name>`: `<name>.png`, `<name>.xml`, `<name>-logcat.txt`. Open the PNG and inspect it; existence alone is not visual verification.
 - `v files <name>`: copies the actual vault to `<name>-vault/`, including `.looma` side effects. Each name must be new. Inspect note bytes, paths and trash metadata alongside UI results. This is a read-only second view, never the mutation path under test.
 
-Proof requires real user input, the resulting UI, and durable effects where applicable. A screenshot of typed text is insufficient for saving: leave, reopen/relaunch and inspect the saved Markdown. Do not use `run-as` preference setters, direct index insertion, permission appops, prewritten fixture notes or test-only entry points as evidence for the corresponding user journey. No mocks are required. For external file/image journeys, use a disposable file as a boundary fixture and then select it in the system UI; retain its provenance and the resulting Markdown reference/file. API 36 emulator success does not establish physical-device permissions, API 26–29, OEM pickers, TalkBack, predictive-back gestures, IME composition, performance or other display sizes.
+Proof requires real user input, the resulting UI, and durable effects where applicable. A screenshot of typed text is insufficient for saving: leave, reopen/relaunch and inspect the saved Markdown. Do not use `run-as` preference setters, direct index insertion, permission appops, prewritten fixture notes or test-only entry points as evidence for the corresponding user journey. No mocks are required. For external file/image journeys, push a disposable file with `v fixture` and then select it in the system UI; retain its provenance and the resulting Markdown reference/file. API 36 emulator success does not establish physical-device permissions, API 26–29, OEM pickers, TalkBack, predictive-back gestures, IME composition, performance or other display sizes.
 
 Record feature IDs and entry points covered, failures and unmet prerequisites in a run-local `coverage.md`. For creation, one mapped feature is sufficient; explicitly label the remaining map entries as source-seeded, not live-proven. A maintenance run must cover every feature file from source and live. Capture partial evidence before troubleshooting; a broken UI is a product gap unless source and intended behavior establish doc drift.
 
@@ -90,7 +99,7 @@ ls $env.LOOM_VERIFY_RUN
 open --raw ($env.LOOM_VERIFY_RUN | path join 'session.json')
 ```
 
-Cleanup verifies the guest ownership marker and sends `emu kill` only to the serial this run started, waits for its console port to close, and marks the session `cleaned`. Read-only emulator disk overlays, the installed app and scratch vault disappear with that instance; existing AVD storage is not overwritten. Startup failures stop only the recorded process tree. Never kill by process name, stop a pre-existing emulator, use `adb kill-server`, or wipe an AVD. A disconnected/already-exited device may need PID/port inspection before cleanup can establish ownership; report unresolved residue rather than killing another instance.
+Cleanup verifies the guest ownership marker and sends `emu kill` only to the serial this run started, waits for its console port to close, and marks the session `cleaned`. If the emulator already exited on its own (its console port is closed and `adb devices` no longer lists it), cleanup records `exited_early` and marks the session cleaned without touching anything. Start a new run name to continue. Read-only emulator disk overlays, the installed app and scratch vault disappear with that instance; existing AVD storage is not overwritten. Startup failures stop only the recorded process tree. Never kill by process name, stop a pre-existing emulator, use `adb kill-server`, or wipe an AVD. A disconnected/already-exited device may need PID/port inspection before cleanup can establish ownership; report unresolved residue rather than killing another instance.
 
 Cleanup preserves every host artifact. Confirm the named PNG, XML, action log and pulled Markdown still exist and open after teardown. Cleanup is safe to repeat on a cleaned session. Do not reuse that run name for a new emulator. No app or emulator started by a drive should outlive its usefulness; capture and clean residue after failed iterations before retrying.
 
