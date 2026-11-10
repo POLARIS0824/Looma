@@ -41,7 +41,7 @@ internal fun HomeBreadcrumb(
             style = LoomaTokens.type.breadcrumb,
             color = LoomaTokens.colors.muted,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.StartEllipsis,
         )
     }
 }
