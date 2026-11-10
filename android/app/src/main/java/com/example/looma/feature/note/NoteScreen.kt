@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldDecorator
@@ -439,15 +440,17 @@ private fun NoteBodyEditor(
         ),
         scrollState = scrollState,
         decorator = TextFieldDecorator { innerTextField ->
-            Box {
-                if (buffer.text.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        style = LoomaTokens.type.noteBody,
-                        color = LoomaTokens.colors.muted,
-                    )
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                Box(Modifier.widthIn(max = NoteColumnMaxWidth).fillMaxWidth()) {
+                    if (buffer.text.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            style = LoomaTokens.type.noteBody,
+                            color = LoomaTokens.colors.muted,
+                        )
+                    }
+                    innerTextField()
                 }
-                innerTextField()
             }
         },
     )
@@ -476,24 +479,31 @@ private fun NoteReadBody(
             .fillMaxWidth()
             .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        inline?.let { title ->
-            Text(
-                text = title.text,
-                style = LoomaTokens.type.noteTitle,
-                color = LoomaTokens.colors.title,
+        Column(
+            modifier = Modifier.widthIn(max = NoteColumnMaxWidth).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            inline?.let { title ->
+                Text(
+                    text = title.text,
+                    style = LoomaTokens.type.noteTitle,
+                    color = LoomaTokens.colors.title,
+                )
+            }
+            MarkdownBody(
+                document = document,
+                onCheckboxToggle = onCheckboxToggle,
+                wiki = wiki,
+                onWikiLinkClick = onWikiLinkClick,
             )
+            BacklinksSection(backlinks = wiki.backlinks, onOpen = onOpenNote)
         }
-        MarkdownBody(
-            document = document,
-            onCheckboxToggle = onCheckboxToggle,
-            wiki = wiki,
-            onWikiLinkClick = onWikiLinkClick,
-        )
-        BacklinksSection(backlinks = wiki.backlinks, onOpen = onOpenNote)
     }
 }
+
+private val NoteColumnMaxWidth = 640.dp
 
 private fun insertWikiLink(buffer: TextFieldState, reference: String) {
     insertSnippet(buffer, "[[$reference]]")
