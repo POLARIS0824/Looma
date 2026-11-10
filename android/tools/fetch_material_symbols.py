@@ -40,6 +40,11 @@ ICONS = {
     "drive_file_move": "ic_move",
     "restore_from_trash": "ic_restore",
     "settings": "ic_settings",
+    "folder": "ic_folder",
+    "arrow_upward": "ic_arrow_up",
+    "arrow_downward": "ic_arrow_down",
+    "history": "ic_history",
+    "add_photo_alternate": "ic_editor_image",
 
     "undo": "ic_editor_undo",
     "redo": "ic_editor_redo",
