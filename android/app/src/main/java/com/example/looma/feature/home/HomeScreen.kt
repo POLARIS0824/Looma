@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FabPosition
@@ -627,25 +628,16 @@ private fun StalledRelocationBanner(
     isActionRunning: Boolean,
     onAbandonClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = stringResource(
-                R.string.home_stalled_relocation_banner,
-                stalled.sourcePath,
-                stalled.destinationPath,
-            ),
-            style = LoomaTokens.type.cardBody,
-            color = LoomaTokens.colors.error,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onAbandonClick, enabled = !isActionRunning) {
-            Text(stringResource(R.string.home_stalled_relocation_abandon))
-        }
-    }
+    HomeErrorContainer(
+        message = stringResource(
+            R.string.home_stalled_relocation_banner,
+            stalled.sourcePath,
+            stalled.destinationPath,
+        ),
+        actionLabel = stringResource(R.string.home_stalled_relocation_abandon),
+        actionEnabled = !isActionRunning,
+        onActionClick = onAbandonClick,
+    )
 }
 
 @Composable
@@ -655,23 +647,49 @@ private fun HomeErrorBanner(error: HomeError, onRetryClick: () -> Unit) {
         HomeError.LoadFailed -> stringResource(R.string.home_error_load)
         HomeError.CreateFailed -> stringResource(R.string.home_error_create)
     }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    HomeErrorContainer(
+        message = message,
+        actionLabel = stringResource(R.string.home_retry),
+        actionEnabled = true,
+        onActionClick = onRetryClick,
+    )
+}
+
+@Composable
+private fun HomeErrorContainer(
+    message: String,
+    actionLabel: String,
+    actionEnabled: Boolean,
+    onActionClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.large,
+        color = scheme.errorContainer,
+        contentColor = scheme.onErrorContainer,
     ) {
-        Text(
-            text = message,
-            style = LoomaTokens.type.cardBody,
-            color = LoomaTokens.colors.error,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onRetryClick) {
-            Text(stringResource(R.string.home_retry))
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = message,
+                style = LoomaTokens.type.cardBody,
+                color = scheme.onErrorContainer,
+                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+            )
+            TextButton(
+                onClick = onActionClick,
+                enabled = actionEnabled,
+                colors = ButtonDefaults.textButtonColors(contentColor = scheme.onErrorContainer),
+            ) {
+                Text(actionLabel)
+            }
         }
     }
 }
-
 @Composable
 private fun HomeCentered(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
