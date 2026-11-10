@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -64,11 +66,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -479,53 +483,55 @@ private fun HomeSortSheet(current: HomeSort, onSelect: (HomeSort) -> Unit) {
             color = LoomaTokens.colors.title,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
         )
-        HomeSortOption(
-            label = stringResource(R.string.home_sort_last_modified),
-            selected = current == HomeSort.LAST_MODIFIED,
-            onClick = { onSelect(HomeSort.LAST_MODIFIED) },
-        )
-        HomeSortOption(
-            label = stringResource(R.string.home_sort_title),
-            selected = current == HomeSort.TITLE,
-            onClick = { onSelect(HomeSort.TITLE) },
-        )
-        HomeSortOption(
-            label = stringResource(R.string.home_sort_title_descending),
-            selected = current == HomeSort.TITLE_DESCENDING,
-            onClick = { onSelect(HomeSort.TITLE_DESCENDING) },
-        )
+        Column(Modifier.selectableGroup()) {
+            HomeSortOption(
+                label = stringResource(R.string.home_sort_last_modified),
+                selected = current == HomeSort.LAST_MODIFIED,
+                onClick = { onSelect(HomeSort.LAST_MODIFIED) },
+            )
+            HomeSortOption(
+                label = stringResource(R.string.home_sort_title),
+                selected = current == HomeSort.TITLE,
+                onClick = { onSelect(HomeSort.TITLE) },
+            )
+            HomeSortOption(
+                label = stringResource(R.string.home_sort_title_descending),
+                selected = current == HomeSort.TITLE_DESCENDING,
+                onClick = { onSelect(HomeSort.TITLE_DESCENDING) },
+            )
+        }
     }
 }
 
 @Composable
 private fun HomeSortOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(28.dp),
-        color = if (selected) LoomaTokens.colors.chip else Color.Transparent,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+    val shape = RoundedCornerShape(28.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .clip(shape)
+            .background(if (selected) LoomaTokens.colors.chip else Color.Transparent)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (selected) {
-                LoomaIcon(
-                    iconRes = R.drawable.ic_check,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                    tint = LoomaTokens.colors.accent,
-                )
-            } else {
-                Spacer(Modifier.width(22.dp))
-            }
-            Spacer(Modifier.width(16.dp))
-            Text(
-                text = label,
-                style = LoomaTokens.type.body,
-                color = LoomaTokens.colors.title,
+        if (selected) {
+            LoomaIcon(
+                iconRes = R.drawable.ic_check,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = LoomaTokens.colors.onChip,
             )
+        } else {
+            Spacer(Modifier.width(22.dp))
         }
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text = label,
+            style = LoomaTokens.type.body,
+            color = if (selected) LoomaTokens.colors.onChip else LoomaTokens.colors.title,
+        )
     }
 }
 
