@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
 
 package com.example.looma.feature.note
 
@@ -7,28 +10,49 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.AnimationVector
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.TwoWayConverter
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.VectorizedFiniteAnimationSpec
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +69,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -75,8 +100,8 @@ import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.compose.animation.EnterExitState
 import com.example.looma.feature.note.components.WikiLinkPanel
 import com.example.looma.feature.note.components.wikiReferenceFor
+import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.components.LoomaLoadingIndicator
 import com.example.looma.ui.markdown.LocalImageSourceResolver
 import com.example.looma.ui.markdown.MarkdownBody
 import com.example.looma.ui.theme.LoomaTheme
@@ -206,6 +231,12 @@ private fun NoteWorkspace(
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val modeFade = rememberFadeThrough()
+    val appBarState = rememberTopAppBarState()
+    val appBarScroll = TopAppBarDefaults.pinnedScrollBehavior(
+        scrollableState = if (mode == NoteMode.Read) readScroll else editScroll,
+        state = appBarState,
+    )
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
     val leaveWorkspace = {
@@ -239,6 +270,7 @@ private fun NoteWorkspace(
     }
 
     LaunchedEffect(mode) {
+        appBarState.contentOffset = 0f
         if (mode == NoteMode.Edit) {
             if (isNew) {
                 bodyFocus.requestFocus()
@@ -273,9 +305,18 @@ private fun NoteWorkspace(
     }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(appBarScroll.nestedScrollConnection),
         containerColor = LoomaTokens.colors.noteCanvas,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.windowInsetsPadding(
+                    WindowInsets.ime.exclude(ScaffoldDefaults.contentWindowInsets),
+                ),
+            )
+        },
         topBar = {
             NoteTopBar(
                 mode = mode,
@@ -283,6 +324,7 @@ private fun NoteWorkspace(
                 onToggleMode = {
                     mode = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
                 },
+                scrollBehavior = appBarScroll,
             )
         },
     ) { innerPadding ->
@@ -290,94 +332,101 @@ private fun NoteWorkspace(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
                 .imePadding(),
         ) {
-            if (state.saveFailed) {
-                NoteSaveBanner(
-                    state = state,
-                    onRetry = onRetrySave,
-                    onReload = onReloadFromDisk,
-                    onOverwrite = onOverwrite,
-                )
-            }
+            NoteSaveBanner(
+                state = state,
+                onRetry = onRetrySave,
+                onReload = onReloadFromDisk,
+                onOverwrite = onOverwrite,
+            )
 
-            when (mode) {
-                NoteMode.Read -> NoteReadBody(
-                    content = contentText,
-                    fileName = fallbackTitle,
-                    showInlineTitle = state.showInlineTitle,
-                    scrollState = readScroll,
-                    wiki = state.wiki,
-                    onWikiLinkClick = onWikiLinkClick,
-                    onOpenNote = onOpenNote,
-                    onCheckboxToggle = { position, checked ->
-                        val document = MarkdownIndex.index(contentBuffer.text.toString(), fallbackTitle)
-                        if (document.withCheckboxChecked(position, checked) != null) {
-                            contentBuffer.edit {
-                                replace(
-                                    position,
-                                    position + MARKER_LENGTH,
-                                    if (checked) CHECKED_MARKER else UNCHECKED_MARKER,
-                                )
+            AnimatedContent(
+                targetState = mode,
+                modifier = Modifier.weight(1f),
+                transitionSpec = { modeFade.enter togetherWith modeFade.exit using null },
+                label = "note-mode",
+            ) { shownMode ->
+                when (shownMode) {
+                    NoteMode.Read -> NoteReadBody(
+                        content = contentText,
+                        fileName = fallbackTitle,
+                        showInlineTitle = state.showInlineTitle,
+                        scrollState = readScroll,
+                        wiki = state.wiki,
+                        onWikiLinkClick = onWikiLinkClick,
+                        onOpenNote = onOpenNote,
+                        onCheckboxToggle = { position, checked ->
+                            val document = MarkdownIndex.index(contentBuffer.text.toString(), fallbackTitle)
+                            if (document.withCheckboxChecked(position, checked) != null) {
+                                contentBuffer.edit {
+                                    replace(
+                                        position,
+                                        position + MARKER_LENGTH,
+                                        if (checked) CHECKED_MARKER else UNCHECKED_MARKER,
+                                    )
+                                }
                             }
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-
-                NoteMode.Edit -> {
-                    NoteBodyEditor(
-                        active = editorActive,
-                        buffer = contentBuffer,
-                        focusRequester = bodyFocus,
-                        scrollState = editScroll,
-                        modifier = Modifier.weight(1f),
+                        },
+                        modifier = Modifier.fillMaxSize(),
                     )
-                    if (linkPanelOpen) {
-                        WikiLinkPanel(
-                            candidates = state.wiki.linkables,
-                            onPick = { note ->
-                                insertWikiLink(
-                                    buffer = contentBuffer,
-                                    reference = wikiReferenceFor(note, state.wiki.linkables),
-                                )
-                                linkPanelOpen = false
+
+                    NoteMode.Edit -> Column(Modifier.fillMaxSize()) {
+                        NoteBodyEditor(
+                            active = editorActive,
+                            buffer = contentBuffer,
+                            focusRequester = bodyFocus,
+                            scrollState = editScroll,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (linkPanelOpen) {
+                            WikiLinkPanel(
+                                candidates = state.wiki.linkables,
+                                onPick = { note ->
+                                    insertWikiLink(
+                                        buffer = contentBuffer,
+                                        reference = wikiReferenceFor(note, state.wiki.linkables),
+                                    )
+                                    linkPanelOpen = false
+                                    bodyFocus.requestFocus()
+                                },
+                                onDismiss = {
+                                    linkPanelOpen = false
+                                    bodyFocus.requestFocus()
+                                },
+                            )
+                        }
+                        NoteFormatBar(
+                            formatState = formatState,
+                            toolbarOrder = state.toolbarOrder,
+                            canUndo = contentBuffer.undoState.canUndo,
+                            canRedo = contentBuffer.undoState.canRedo,
+                            isUploadingImage = state.isUploadingImage,
+                            wikiLinkOpen = linkPanelOpen,
+                            onCommand = { command ->
+                                applyMarkdownCommand(contentBuffer, command)
                                 bodyFocus.requestFocus()
                             },
-                            onDismiss = {
-                                linkPanelOpen = false
+                            onUndo = {
+                                contentBuffer.undoState.undo()
                                 bodyFocus.requestFocus()
                             },
+                            onRedo = {
+                                contentBuffer.undoState.redo()
+                                bodyFocus.requestFocus()
+                            },
+                            onWikiLink = {
+                                linkPanelOpen = !linkPanelOpen
+                                if (linkPanelOpen) {
+                                    focusManager.clearFocus()
+                                } else {
+                                    bodyFocus.requestFocus()
+                                }
+                            },
+                            onInsertImage = onPickImage,
                         )
                     }
-                    NoteFormatBar(
-                        formatState = formatState,
-                        toolbarOrder = state.toolbarOrder,
-                        canUndo = contentBuffer.undoState.canUndo,
-                        canRedo = contentBuffer.undoState.canRedo,
-                        isUploadingImage = state.isUploadingImage,
-                        onCommand = { command ->
-                            applyMarkdownCommand(contentBuffer, command)
-                            bodyFocus.requestFocus()
-                        },
-                        onUndo = {
-                            contentBuffer.undoState.undo()
-                            bodyFocus.requestFocus()
-                        },
-                        onRedo = {
-                            contentBuffer.undoState.redo()
-                            bodyFocus.requestFocus()
-                        },
-                        onWikiLink = {
-                            linkPanelOpen = !linkPanelOpen
-                            if (linkPanelOpen) {
-                                focusManager.clearFocus()
-                            } else {
-                                bodyFocus.requestFocus()
-                            }
-                        },
-                        onInsertImage = onPickImage,
-                    )
                 }
             }
         }
@@ -405,15 +454,17 @@ private fun NoteBodyEditor(
         ),
         scrollState = scrollState,
         decorator = TextFieldDecorator { innerTextField ->
-            Box {
-                if (buffer.text.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        style = LoomaTokens.type.noteBody,
-                        color = LoomaTokens.colors.muted,
-                    )
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                Box(Modifier.widthIn(max = NoteColumnMaxWidth).fillMaxWidth()) {
+                    if (buffer.text.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            style = LoomaTokens.type.noteBody,
+                            color = LoomaTokens.colors.muted,
+                        )
+                    }
+                    innerTextField()
                 }
-                innerTextField()
             }
         },
     )
@@ -442,24 +493,31 @@ private fun NoteReadBody(
             .fillMaxWidth()
             .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        inline?.let { title ->
-            Text(
-                text = title.text,
-                style = LoomaTokens.type.noteTitle,
-                color = LoomaTokens.colors.title,
+        Column(
+            modifier = Modifier.widthIn(max = NoteColumnMaxWidth).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            inline?.let { title ->
+                Text(
+                    text = title.text,
+                    style = LoomaTokens.type.noteTitle,
+                    color = LoomaTokens.colors.title,
+                )
+            }
+            MarkdownBody(
+                document = document,
+                onCheckboxToggle = onCheckboxToggle,
+                wiki = wiki,
+                onWikiLinkClick = onWikiLinkClick,
             )
+            BacklinksSection(backlinks = wiki.backlinks, onOpen = onOpenNote)
         }
-        MarkdownBody(
-            document = document,
-            onCheckboxToggle = onCheckboxToggle,
-            wiki = wiki,
-            onWikiLinkClick = onWikiLinkClick,
-        )
-        BacklinksSection(backlinks = wiki.backlinks, onOpen = onOpenNote)
     }
 }
+
+private val NoteColumnMaxWidth = 640.dp
 
 private fun insertWikiLink(buffer: TextFieldState, reference: String) {
     insertSnippet(buffer, "[[$reference]]")
@@ -510,6 +568,57 @@ private const val MARKER_LENGTH = 3
 private const val CHECKED_MARKER = "[x]"
 private const val UNCHECKED_MARKER = "[ ]"
 
+private class FadeThrough(val enter: EnterTransition, val exit: ExitTransition)
+
+@Composable
+private fun rememberFadeThrough(): FadeThrough {
+    val motion = MaterialTheme.motionScheme
+    val outSpec = motion.fastEffectsSpec<Float>()
+    val inSpec = motion.defaultEffectsSpec<Float>()
+    return remember(outSpec, inSpec) {
+        val outNanos = outSpec.vectorize(Float.VectorConverter).getDurationNanos(
+            initialValue = AnimationVector1D(1f),
+            targetValue = AnimationVector1D(0f),
+            initialVelocity = AnimationVector1D(0f),
+        )
+        FadeThrough(
+            enter = fadeIn(DelayedSpec(inSpec, outNanos)),
+            exit = fadeOut(outSpec),
+        )
+    }
+}
+
+private class DelayedSpec<T>(
+    private val base: FiniteAnimationSpec<T>,
+    private val delayNanos: Long,
+) : FiniteAnimationSpec<T> {
+    override fun <V : AnimationVector> vectorize(
+        converter: TwoWayConverter<T, V>,
+    ): VectorizedFiniteAnimationSpec<V> = DelayedVectorizedSpec(base.vectorize(converter), delayNanos)
+}
+
+private class DelayedVectorizedSpec<V : AnimationVector>(
+    private val base: VectorizedFiniteAnimationSpec<V>,
+    private val delayNanos: Long,
+) : VectorizedFiniteAnimationSpec<V> {
+    override fun getValueFromNanos(playTimeNanos: Long, initialValue: V, targetValue: V, initialVelocity: V): V =
+        if (playTimeNanos < delayNanos) {
+            initialValue
+        } else {
+            base.getValueFromNanos(playTimeNanos - delayNanos, initialValue, targetValue, initialVelocity)
+        }
+
+    override fun getVelocityFromNanos(playTimeNanos: Long, initialValue: V, targetValue: V, initialVelocity: V): V =
+        if (playTimeNanos < delayNanos) {
+            initialVelocity
+        } else {
+            base.getVelocityFromNanos(playTimeNanos - delayNanos, initialValue, targetValue, initialVelocity)
+        }
+
+    override fun getDurationNanos(initialValue: V, targetValue: V, initialVelocity: V): Long =
+        delayNanos + base.getDurationNanos(initialValue, targetValue, initialVelocity)
+}
+
 @Composable
 private fun NoteLoadingScreen(
     onNavigateUp: () -> Unit,
@@ -530,7 +639,7 @@ private fun NoteLoadingScreen(
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentAlignment = Alignment.Center,
         ) {
-            LoomaLoadingIndicator()
+            DelayedLoadingIndicator(loading = true)
         }
     }
 }
@@ -562,9 +671,9 @@ private fun NoteLoadErrorScreen(
             Text(
                 text = stringResource(R.string.editor_load_failed),
                 style = LoomaTokens.type.supporting,
-                color = MaterialTheme.colorScheme.error,
+                color = MaterialTheme.colorScheme.onSurface,
             )
-            TextButton(onClick = onRetry) { Text(stringResource(R.string.editor_reload)) }
+            FilledTonalButton(onClick = onRetry) { Text(stringResource(R.string.editor_reload)) }
         }
     }
 }

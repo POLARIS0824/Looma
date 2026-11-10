@@ -27,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -58,7 +59,6 @@ internal fun WikiLinkPanel(
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 3.dp,
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -109,14 +109,13 @@ internal fun WikiLinkPanel(
             } else {
                 LazyColumn(modifier = Modifier.heightIn(max = 216.dp)) {
                     items(matches, key = { it.id.path.relativePath }) { note ->
+                        val folder = note.id.path.relativePath.substringBeforeLast('/', "")
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 2.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                                    shape = RoundedCornerShape(10.dp),
-                                )
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                                 .clickable { onPick(note) }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -128,13 +127,15 @@ internal fun WikiLinkPanel(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Text(
-                                text = note.id.path.relativePath.substringBeforeLast('/'),
-                                style = LoomaTokens.type.cardMeta,
-                                color = LoomaTokens.colors.muted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            if (folder.isNotEmpty()) {
+                                Text(
+                                    text = folder,
+                                    style = LoomaTokens.type.cardMeta,
+                                    color = LoomaTokens.colors.muted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }

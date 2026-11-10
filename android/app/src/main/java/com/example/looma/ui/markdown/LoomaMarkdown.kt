@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -65,9 +68,12 @@ import com.mikepenz.markdown.model.markdownAnnotatorConfig
 import com.mikepenz.markdown.model.markdownInlineContent
 import com.mikepenz.markdown.model.markdownPadding
 import org.intellij.markdown.IElementType
+import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
+import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.ast.findChildOfType
 import org.intellij.markdown.ast.getTextInNode
+import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 
 @Immutable
 data class LoomaMarkdownTheme(
@@ -111,15 +117,16 @@ fun loomaMarkdownTheme(
     textColor: Color = LoomaTokens.colors.title,
 ): LoomaMarkdownTheme {
     val colors = LoomaTokens.colors
+    val scheme = MaterialTheme.colorScheme
     val type = LoomaTokens.type
     val scale = remember(type, compact, preview) { loomaMarkdownScale(type, compact, preview) }
     return LoomaMarkdownTheme(
         colors = markdownColor(
             text = textColor,
-            codeBackground = colors.chip.copy(alpha = 0.6f),
-            inlineCodeBackground = colors.chip.copy(alpha = 0.6f),
+            codeBackground = if (compact) scheme.surfaceContainerHighest else scheme.surfaceContainerHigh,
+            inlineCodeBackground = scheme.surfaceContainerHighest,
             dividerColor = colors.divider,
-            tableBackground = colors.card,
+            tableBackground = if (compact) colors.card else scheme.surfaceContainer,
             highlightText = colors.onChip,
             highlightBackground = colors.chip,
         ),
@@ -166,6 +173,7 @@ internal fun loomaMarkdownComponents(
     resolvedLink: SpanStyle = SpanStyle(),
     missingLink: SpanStyle = SpanStyle(),
     math: MathRenderState? = null,
+    checkedText: Color? = null,
 ): MarkdownComponents {
     val checkSize = if (compact) 14.dp else 18.dp
     val checkGap = if (compact) 6.dp else 9.dp
@@ -211,7 +219,7 @@ internal fun loomaMarkdownComponents(
                 listModifier = { Modifier.weight(1f) },
             )
         },
-        paragraph = { model -> LoomaMarkdownParagraph(model, links, math) },
+        paragraph = { model -> LoomaMarkdownParagraph(model, links, math, checkedText) },
         checkbox = { model ->
             CheckboxMarker(
                 checked = model.isChecked(),
@@ -319,6 +327,7 @@ private fun LoomaMarkdownParagraph(
     model: MarkdownComponentModel,
     links: WikiAnnotator?,
     math: MathRenderState?,
+    checkedText: Color?,
 ) {
     val block = math?.blockDisplay(model.node)
     if (block != null) {
@@ -332,6 +341,7 @@ private fun LoomaMarkdownParagraph(
         }.withSynthItalic().let { links?.invoke(it) ?: it }
     }
     if (annotated.isEmpty()) return
+    val receded = checkedText != null && model.node.inCheckedTask(model.content)
     MathInlineScope(
         math = math,
         fontSize = math?.fontSize,
@@ -340,7 +350,11 @@ private fun LoomaMarkdownParagraph(
         MarkdownText(
             content = annotated,
             node = model.node,
-            style = model.typography.paragraph,
+            style = if (receded) {
+                model.typography.paragraph.copy(color = checkedText)
+            } else {
+                model.typography.paragraph
+            },
             sourceContent = model.content,
         )
     }
@@ -348,6 +362,12 @@ private fun LoomaMarkdownParagraph(
 
 private fun MarkdownComponentModel.isChecked(): Boolean =
     node.getTextInNode(content).contains("[x]")
+
+private fun ASTNode.inCheckedTask(content: String): Boolean {
+    val item = parent?.takeIf { it.type == MarkdownElementTypes.LIST_ITEM } ?: return false
+    val box = item.children.getOrNull(1)?.takeIf { it.type == GFMTokenTypes.CHECK_BOX } ?: return false
+    return box.getTextInNode(content).contains("[x]")
+}
 
 @Composable
 private fun CheckboxMarker(
@@ -365,16 +385,27 @@ private fun CheckboxMarker(
     ) {
         val boxModifier = Modifier
             .size(size)
-            .clip(shape)
-            .border(1.5.dp, if (checked) colors.primary else colors.outline, shape)
-            .background(if (checked) colors.primary else Color.Transparent, shape)
             .then(
                 if (onToggle != null) {
-                    Modifier.toggleable(value = checked, role = Role.Checkbox, onValueChange = onToggle)
+                    Modifier
+                        .wrapContentSize(unbounded = true)
+                        .requiredSize(width = CheckboxTouchTarget, height = maxOf(lineHeight, size))
+                        .toggleable(
+                            value = checked,
+                            interactionSource = null,
+                            indication = ripple(bounded = false, radius = CheckboxTouchTarget / 2),
+                            role = Role.Checkbox,
+                            onValueChange = onToggle,
+                        )
+                        .wrapContentSize()
+                        .size(size)
                 } else {
                     Modifier
                 },
             )
+            .clip(shape)
+            .border(1.5.dp, if (checked) colors.primary else colors.outline, shape)
+            .background(if (checked) colors.primary else Color.Transparent, shape)
         Box(boxModifier, contentAlignment = Alignment.Center) {
             if (checked) {
                 Icon(
@@ -388,6 +419,8 @@ private fun CheckboxMarker(
         Spacer(Modifier.width(gap))
     }
 }
+
+private val CheckboxTouchTarget = 48.dp
 
 @Composable
 private fun lineHeightOf(style: TextStyle): Dp {
