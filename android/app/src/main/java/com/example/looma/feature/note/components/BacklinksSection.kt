@@ -1,19 +1,23 @@
 package com.example.looma.feature.note.components
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.wiki.Backlink
+import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
@@ -35,20 +39,30 @@ fun BacklinksSection(
             text = stringResource(R.string.note_backlinks_title, backlinks.size),
             style = type.sectionTitle,
             color = colors.title,
-            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
         )
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            backlinks.forEach { backlink ->
-                Text(
-                    text = backlink.title,
-                    style = type.body,
-                    color = colors.accent,
-                    maxLines = 2,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpen(backlink.id) }
-                        .padding(vertical = 8.dp),
-                )
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            backlinks.forEachIndexed { index, backlink ->
+                SegmentedListItem(
+                    onClick = { onOpen(backlink.id) },
+                    shapes = ListItemDefaults.segmentedShapes(index, backlinks.size),
+                    colors = ListItemDefaults.segmentedColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                    leadingContent = {
+                        LoomaIcon(
+                            iconRes = R.drawable.ic_note,
+                            contentDescription = null,
+                        )
+                    },
+                ) {
+                    Text(
+                        text = backlink.title,
+                        style = type.body,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
