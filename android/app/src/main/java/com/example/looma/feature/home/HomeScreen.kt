@@ -31,15 +31,19 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.LargeFloatingActionButton
+import androidx.compose.material3.FabPosition
+import androidx.compose.material3.FloatingToolbarDefaults
+import androidx.compose.material3.FloatingToolbarExitDirection
+import androidx.compose.material3.FloatingToolbarScrollBehavior
+import androidx.compose.material3.HorizontalFloatingToolbar
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -231,6 +235,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
 ) {
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
+    val toolbarScrollBehavior = FloatingToolbarDefaults.exitAlwaysScrollBehavior(FloatingToolbarExitDirection.Bottom)
     var sortSheetVisible by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
@@ -254,7 +259,10 @@ fun HomeScreen(
 
     Box(modifier.fillMaxSize()) {
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .nestedScroll(toolbarScrollBehavior),
             containerColor = LoomaTokens.colors.page,
             topBar = {
                 AnimatedContent(
@@ -295,8 +303,6 @@ fun HomeScreen(
                             state = state,
                             scrollBehavior = scrollBehavior,
                             onQueryChange = actions.onQueryChange,
-                            onToggleLayout = actions.onToggleLayout,
-                            onSortClick = { sortSheetVisible = true },
                             onSearchSubmit = actions.onSearchSubmit,
                             onSearchResultClick = actions.onSearchResultClick,
                             onMenuClick = actions.onMenuClick,
@@ -307,13 +313,18 @@ fun HomeScreen(
             },
             floatingActionButton = {
                 if (!state.isSelecting) {
-                    HomeActionButtons(
+                    HomeActionToolbar(
                         isCreating = state.isCreating,
+                        isGridMode = state.isGridMode,
+                        scrollBehavior = toolbarScrollBehavior,
                         onCreateFolderClick = actions.onCreateFolderClick,
+                        onToggleLayout = actions.onToggleLayout,
+                        onSortClick = { sortSheetVisible = true },
                         onCreateNoteClick = actions.onCreateNoteClick,
                     )
                 }
             },
+            floatingActionButtonPosition = FabPosition.Center,
             snackbarHost = { SnackbarHost(snackbarHostState) },
         ) { innerPadding ->
             PullToRefreshBox(
@@ -335,6 +346,8 @@ fun HomeScreen(
                     actions = actions.copy(onRecentRevealed = { request ->
                         scrollBehavior.scrollState.scrollOffset = 0f
                         scrollBehavior.scrollState.contentOffset = 0f
+                        toolbarScrollBehavior.state.offset = 0f
+                        toolbarScrollBehavior.state.contentOffset = 0f
                         actions.onRecentRevealed(request)
                     }),
                 )
@@ -658,44 +671,52 @@ private fun HomeCentered(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun HomeActionButtons(
+private fun HomeActionToolbar(
     isCreating: Boolean,
+    isGridMode: Boolean,
+    scrollBehavior: FloatingToolbarScrollBehavior,
     onCreateFolderClick: () -> Unit,
+    onToggleLayout: () -> Unit,
+    onSortClick: () -> Unit,
     onCreateNoteClick: () -> Unit,
 ) {
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    HorizontalFloatingToolbar(
+        expanded = true,
+        scrollBehavior = scrollBehavior,
+        floatingActionButton = {
+            FloatingToolbarDefaults.VibrantFloatingActionButton(onClick = onCreateNoteClick) {
+                if (isCreating) {
+                    LoomaLoadingIndicator(size = 32.dp, color = LocalContentColor.current)
+                } else {
+                    LoomaIcon(
+                        iconRes = R.drawable.ic_add,
+                        contentDescription = stringResource(R.string.home_create_note_description),
+                    )
+                }
+            }
+        },
     ) {
-        SmallFloatingActionButton(
-            onClick = onCreateFolderClick,
-            modifier = Modifier.size(58.dp),
-            shape = RoundedCornerShape(20.dp),
-            containerColor = LoomaTokens.colors.accentContainer,
-        ) {
+        IconButton(onClick = onCreateFolderClick) {
             LoomaIcon(
                 iconRes = R.drawable.ic_folder_plus,
                 contentDescription = stringResource(R.string.home_new_folder_description),
-                modifier = Modifier.size(26.dp),
             )
         }
-
-        LargeFloatingActionButton(
-            onClick = onCreateNoteClick,
-            modifier = Modifier.size(88.dp),
-            shape = RoundedCornerShape(28.dp),
-            containerColor = LoomaTokens.colors.accentContainer,
-        ) {
-            if (isCreating) {
-                CircularProgressIndicator(Modifier.size(28.dp))
-            } else {
-                LoomaIcon(
-                    iconRes = R.drawable.ic_add,
-                    contentDescription = stringResource(R.string.home_create_note_description),
-                    modifier = Modifier.size(38.dp),
-                )
-            }
+        IconButton(onClick = onToggleLayout) {
+            LoomaIcon(
+                iconRes = if (isGridMode) R.drawable.ic_view_agenda else R.drawable.ic_grid,
+                contentDescription = stringResource(
+                    if (isGridMode) R.string.home_switch_to_list_description else R.string.home_switch_to_grid_description,
+                ),
+            )
+        }
+        IconButton(onClick = onSortClick) {
+            LoomaIcon(
+                iconRes = R.drawable.ic_swap_vert,
+                contentDescription = stringResource(R.string.home_sort_description),
+            )
         }
     }
 }

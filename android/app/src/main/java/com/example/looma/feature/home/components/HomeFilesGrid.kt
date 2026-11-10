@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,7 +61,12 @@ internal fun HomeFilesGrid(
         state = gridState,
         columns = StaggeredGridCells.Fixed(if (isGridMode) 2 else 1),
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 172.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 8.dp,
+            bottom = FloatingToolbarDefaults.ContainerSize + FloatingToolbarDefaults.ScreenOffset * 2,
+        ),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalItemSpacing = 10.dp,
     ) {
