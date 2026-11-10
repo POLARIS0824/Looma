@@ -1,6 +1,7 @@
 package com.example.looma.ui.markdown
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -31,6 +32,7 @@ fun MarkdownBody(
     val dividerColor = LoomaTokens.colors.divider
     val accent = LoomaTokens.colors.accent
     val muted = LoomaTokens.colors.muted
+    val checkedText = MaterialTheme.colorScheme.onSurfaceVariant
     val renderBody = remember(document.body) { preserveDisplayMathParagraphs(document.body) }
     val math = rememberMathRenderState(
         body = renderBody,
@@ -39,7 +41,7 @@ fun MarkdownBody(
     )
     val annotator = remember(math) { mathAnnotator(math) }
     val inlineContent = markdownInlineContent(rememberMathInlineContent(math, math.fontSize))
-    val components = remember(theme, dividerColor, renderBody, document.bodyStart, wiki, accent, muted, math) {
+    val components = remember(theme, dividerColor, renderBody, document.bodyStart, wiki, accent, muted, math, checkedText) {
         loomaMarkdownComponents(
             theme = theme,
             compact = false,
@@ -51,6 +53,7 @@ fun MarkdownBody(
             resolvedLink = SpanStyle(color = accent, textDecoration = TextDecoration.Underline),
             missingLink = SpanStyle(color = muted),
             math = math,
+            checkedText = checkedText,
         )
     }
 
