@@ -2,6 +2,7 @@ package com.example.looma.navigation
 
 import androidx.navigation3.runtime.NavKey
 import com.example.looma.domain.model.NoteId
+import java.util.UUID
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -23,6 +24,7 @@ sealed interface LoomaRoute : NavKey {
         val vaultId: String,
         val relativePath: String,
         val isNew: Boolean = false,
+        val visitId: String = UUID.randomUUID().toString(),
     ) : LoomaRoute {
         companion object {
             fun from(id: NoteId, isNew: Boolean = false): Note = Note(

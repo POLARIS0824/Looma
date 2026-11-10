@@ -148,7 +148,7 @@
     <string name="settings_keep_empty_notes">Keep empty notes</string>
     <string name="settings_keep_empty_notes_desc">Save a new note even when you write nothing</string>
     <string name="settings_show_inline_title">Show inline title</string>
-    <string name="settings_show_inline_title_desc">Show the file name above a note when it differs from the first heading</string>
+    <string name="settings_show_inline_title_desc">Show the file name as a title above the note</string>
     <string name="settings_section_about">About</string>
     <string name="settings_version">Version %1$s</string>
     <string name="settings_vault_unavailable">The vault folder is not available</string>
@@ -204,6 +204,12 @@
     <string name="editor_reload">Reload</string>
     <string name="editor_save_failed">Could not save this note</string>
     <string name="editor_load_failed">Could not open this note</string>
+    <string name="editor_title_hint">File name</string>
+    <string name="editor_rename_invalid">That name is not allowed</string>
+    <string name="editor_rename_taken">A note with that name already exists</string>
+    <string name="editor_rename_stalled">Finish the pending move on Home first</string>
+    <string name="editor_rename_blocked">Resolve the save problem before renaming</string>
+    <string name="editor_rename_failed">Could not rename this note</string>
     <string name="home_snackbar_renamed_links">Renamed, %1$d backlink(s) updated</string>
     <string name="home_snackbar_renamed_failed">Renamed, %1$d backlink(s) could not be updated</string>
     <string name="note_backlinks_title">Backlinks · %1$d</string>

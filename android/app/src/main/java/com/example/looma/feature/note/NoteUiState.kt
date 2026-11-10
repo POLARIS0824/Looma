@@ -2,6 +2,7 @@ package com.example.looma.feature.note
 
 import com.example.looma.domain.markdown.ImageContext
 import com.example.looma.domain.markdown.ToolbarItem
+import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.wiki.WikiContext
@@ -21,6 +22,14 @@ sealed interface NoteImageError {
     data object Unknown : NoteImageError
 }
 
+sealed interface NoteTitleError {
+    data object InvalidName : NoteTitleError
+    data object NameTaken : NoteTitleError
+    data object Stalled : NoteTitleError
+    data object Blocked : NoteTitleError
+    data object Failed : NoteTitleError
+}
+
 data class NoteUiState(
     val content: String = "",
     val savedContent: String = "",
@@ -36,6 +45,7 @@ data class NoteUiState(
     val leaveBlocked: Boolean = false,
     val keepEmptyNotes: Boolean = true,
     val isNewNote: Boolean = false,
+    val fileName: String = "",
     val wiki: WikiContext = WikiContext.Empty,
     val imageContext: ImageContext? = null,
     val conflictCopy: NotePath? = null,
@@ -45,6 +55,8 @@ data class NoteUiState(
     val isUploadingImage: Boolean = false,
     val imageInsertion: ImageInsertion? = null,
     val imageUploadError: NoteImageError? = null,
+    val titleError: NoteTitleError? = null,
+    val renameTarget: NoteId? = null,
 ) {
     val isDirty: Boolean get() = !isLoading && content != savedContent
 

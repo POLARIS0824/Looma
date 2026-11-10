@@ -12,6 +12,9 @@ import com.example.looma.data.image.ImageUploadFailure
 import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.note.NoteChangedExternallyException
 import com.example.looma.data.note.NoteRepository
+import com.example.looma.data.note.RelocationStalledException
+import com.example.looma.data.note.VaultFileException
+import com.example.looma.data.note.VaultFileFailure
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.domain.model.Note
 import com.example.looma.domain.model.NoteId
@@ -32,9 +35,10 @@ class NoteViewModel(
     private val repository: NoteRepository,
     private val settingsRepository: SettingsRepository,
     private val imageUploader: ImageUploader,
-    private val noteId: NoteId,
+    initialId: NoteId,
     isNewNote: Boolean,
 ) : ViewModel() {
+    private var currentId: NoteId = initialId
     private val _uiState = MutableStateFlow(NoteUiState(isNewNote = isNewNote))
     val uiState: StateFlow<NoteUiState> = _uiState.asStateFlow()
 
@@ -66,12 +70,12 @@ class NoteViewModel(
         loadJob = enqueue { generation ->
             _uiState.update { it.copy(isLoading = true, loadFailed = false) }
             try {
-                val note = repository.openNote(noteId)
+                val note = repository.openNote(currentId)
                 val keepEmptyNotes = settingsRepository.settings.first().keepEmptyNotes
-                val wiki = runCatching { repository.wikiContext(noteId) }
+                val wiki = runCatching { repository.wikiContext(currentId) }
                     .onFailure { if (it is CancellationException) throw it }
                     .getOrDefault(WikiContext.Empty)
-                val imageContext = runCatching { repository.imageContext(noteId) }
+                val imageContext = runCatching { repository.imageContext(currentId) }
                     .onFailure { if (it is CancellationException) throw it }
                     .getOrNull()
                 if (generation != operationGeneration) return@enqueue
@@ -89,6 +93,7 @@ class NoteViewModel(
                         loadFailed = false,
                         isConflict = false,
                         keepEmptyNotes = keepEmptyNotes,
+                        fileName = fileNameOf(currentId),
                         wiki = wiki,
                         imageContext = imageContext,
                         conflictCopy = null,
@@ -110,7 +115,7 @@ class NoteViewModel(
         if (current.isLoading || current.isDirty || current.isConflict || current.saveFailed) return
         enqueue {
             try {
-                val disk = repository.readNote(noteId)
+                val disk = repository.readNote(currentId)
                 _uiState.update { state ->
                     if (!state.canAdoptDiskRevision(disk.revision)) {
                         state
@@ -120,6 +125,7 @@ class NoteViewModel(
                             savedContent = disk.content,
                             modifiedAt = disk.modifiedAt,
                             revision = disk.revision,
+                            fileName = fileNameOf(currentId),
                             reloadToken = state.reloadToken + 1,
                             saveState = NoteSaveState.Idle,
                             saveFailed = false,
@@ -138,7 +144,7 @@ class NoteViewModel(
         if (_uiState.value.isLoading) return
         viewModelScope.launch {
             try {
-                val wiki = repository.wikiContext(noteId)
+                val wiki = repository.wikiContext(currentId)
                 _uiState.update { it.copy(wiki = wiki) }
             } catch (e: CancellationException) {
                 throw e
@@ -199,6 +205,56 @@ class NoteViewModel(
         scheduler.onEdit()
     }
 
+    fun commitTitle(raw: String) {
+        scheduler.cancel()
+        enqueue { generation ->
+            val state = _uiState.value
+            if (state.isLoading || state.loadFailed || state.renameTarget != null) return@enqueue
+            if (state.isConflict || state.saveFailed) {
+                _uiState.update { it.copy(titleError = NoteTitleError.Blocked) }
+                return@enqueue
+            }
+            val name = raw.trim()
+            if (name.isEmpty() || name == state.fileName) return@enqueue
+            if (state.isDirty && !saveCurrent(generation)) return@enqueue
+            if (generation != operationGeneration) return@enqueue
+            try {
+                val outcome = repository.renameNote(currentId, name)
+                currentId = outcome.note.id
+                val imageContext = runCatching { repository.imageContext(currentId) }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrNull()
+                _uiState.update {
+                    it.copy(
+                        fileName = fileNameOf(currentId),
+                        revision = outcome.note.revision,
+                        isNewNote = false,
+                        imageContext = imageContext,
+                        renameTarget = currentId,
+                        titleError = null,
+                    )
+                }
+                refreshWiki()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: VaultFileException) {
+                _uiState.update { it.copy(titleError = e.toTitleError()) }
+            } catch (e: RelocationStalledException) {
+                _uiState.update { it.copy(titleError = NoteTitleError.Stalled) }
+            } catch (_: Exception) {
+                _uiState.update { it.copy(titleError = NoteTitleError.Failed) }
+            }
+        }
+    }
+
+    fun onTitleErrorShown() {
+        _uiState.update { it.copy(titleError = null) }
+    }
+
+    fun onRenameNavigated() {
+        _uiState.update { it.copy(renameTarget = null) }
+    }
+
     fun retrySave() {
         scheduler.cancel()
         enqueue { generation ->
@@ -228,7 +284,7 @@ class NoteViewModel(
         lastConflictCopy = null
         loadJob = enqueue { generation ->
             try {
-                val note = repository.reloadNote(noteId)
+                val note = repository.reloadNote(currentId)
                 if (generation != operationGeneration) return@enqueue
                 _uiState.update {
                     it.copy(
@@ -242,6 +298,7 @@ class NoteViewModel(
                         saveState = NoteSaveState.Idle,
                         saveFailed = false,
                         isConflict = false,
+                        fileName = fileNameOf(currentId),
                         conflictCopy = null,
                         reloadToken = it.reloadToken + 1,
                     )
@@ -343,7 +400,7 @@ class NoteViewModel(
     private suspend fun persistOnce(request: SaveRequest): Boolean {
         _uiState.update { it.copy(saveState = NoteSaveState.Saving, saveFailed = false) }
         try {
-            val updated = repository.saveNote(noteId, request.content, request.mode)
+            val updated = repository.saveNote(currentId, request.content, request.mode)
             val copy = lastConflictCopy
             lastConflictCopy = null
             _uiState.update { state ->
@@ -385,7 +442,7 @@ class NoteViewModel(
         val content = state.content
         if (content == state.savedContent || content == lastConflictCopy?.content) return
         try {
-            val copy = repository.saveConflictCopy(noteId, content, state.conflictCopy)
+            val copy = repository.saveConflictCopy(currentId, content, state.conflictCopy)
             lastConflictCopy = copy
             _uiState.update { it.copy(conflictCopy = copy.id.path) }
         } catch (e: CancellationException) {
@@ -396,7 +453,7 @@ class NoteViewModel(
 
     private suspend fun discardEmpty(state: NoteUiState): Boolean {
         return try {
-            repository.discardNote(noteId, state.revision)
+            repository.discardNote(currentId, state.revision)
             true
         } catch (e: CancellationException) {
             throw e
@@ -406,6 +463,9 @@ class NoteViewModel(
             false
         }
     }
+
+    private fun fileNameOf(id: NoteId): String =
+        id.path.relativePath.substringAfterLast('/').substringBeforeLast('.')
 
     private fun recordFailure(error: Exception) {
         _uiState.update {
@@ -424,14 +484,20 @@ class NoteViewModel(
             repository: NoteRepository,
             settingsRepository: SettingsRepository,
             imageUploader: ImageUploader,
-            noteId: NoteId,
+            initialId: NoteId,
             isNewNote: Boolean = false,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
-                NoteViewModel(repository, settingsRepository, imageUploader, noteId, isNewNote)
+                NoteViewModel(repository, settingsRepository, imageUploader, initialId, isNewNote)
             }
         }
     }
+}
+
+private fun VaultFileException.toTitleError(): NoteTitleError = when (failure) {
+    VaultFileFailure.INVALID_NAME -> NoteTitleError.InvalidName
+    VaultFileFailure.NAME_TAKEN -> NoteTitleError.NameTaken
+    else -> NoteTitleError.Failed
 }
 
 private fun ImageUploadException.toNoteError(): NoteImageError = when (failure) {

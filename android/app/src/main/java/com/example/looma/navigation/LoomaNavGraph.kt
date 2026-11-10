@@ -12,7 +12,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -23,7 +22,6 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
-import com.example.looma.R
 import com.example.looma.data.folder.FolderRepository
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.image.ImageUploader
@@ -187,7 +185,7 @@ fun LoomaNavGraph(
                     )
                 }
 
-                entry<LoomaRoute.Note> { route ->
+                entry<LoomaRoute.Note>(clazzContentKey = { it.visitId }) { route ->
                     val noteId = NoteId(
                         vaultId = VaultId(route.vaultId),
                         path = NotePath(route.relativePath),
@@ -197,20 +195,23 @@ fun LoomaNavGraph(
                             repository = noteRepository,
                             settingsRepository = settingsRepository,
                             imageUploader = imageUploader,
-                            noteId = noteId,
+                            initialId = noteId,
                             isNewNote = route.isNew,
                         ),
                     )
                     NoteRoute(
                         viewModel = noteViewModel,
-                        fallbackTitle = if (route.isNew) {
-                            stringResource(R.string.home_untitled_note)
-                        } else {
-                            route.relativePath.substringAfterLast('/').substringBeforeLast('.')
-                        },
-                        isNew = route.isNew,
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
+                        onRenameNavigate = { id ->
+                            val top = backStack.lastOrNull() as? LoomaRoute.Note
+                            if (top != null && top.visitId == route.visitId) {
+                                backStack[backStack.lastIndex] = top.copy(
+                                    relativePath = id.path.relativePath,
+                                    isNew = false,
+                                )
+                            }
+                        },
                     )
                 }
             },
