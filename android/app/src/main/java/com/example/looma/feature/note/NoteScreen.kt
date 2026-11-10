@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
 
 package com.example.looma.feature.note
 
@@ -48,6 +51,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -64,6 +69,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -226,6 +232,11 @@ private fun NoteWorkspace(
     val keyboard = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
     val modeFade = rememberFadeThrough()
+    val appBarState = rememberTopAppBarState()
+    val appBarScroll = TopAppBarDefaults.pinnedScrollBehavior(
+        scrollableState = if (mode == NoteMode.Read) readScroll else editScroll,
+        state = appBarState,
+    )
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
     val leaveWorkspace = {
@@ -259,6 +270,7 @@ private fun NoteWorkspace(
     }
 
     LaunchedEffect(mode) {
+        appBarState.contentOffset = 0f
         if (mode == NoteMode.Edit) {
             if (isNew) {
                 bodyFocus.requestFocus()
@@ -293,7 +305,9 @@ private fun NoteWorkspace(
     }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(appBarScroll.nestedScrollConnection),
         containerColor = LoomaTokens.colors.noteCanvas,
         snackbarHost = {
             SnackbarHost(
@@ -310,6 +324,7 @@ private fun NoteWorkspace(
                 onToggleMode = {
                     mode = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
                 },
+                scrollBehavior = appBarScroll,
             )
         },
     ) { innerPadding ->

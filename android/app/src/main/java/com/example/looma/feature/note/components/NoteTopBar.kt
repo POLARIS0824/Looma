@@ -1,18 +1,17 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.example.looma.feature.note.components
 
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.feature.note.NoteMode
 import com.example.looma.ui.components.LoomaIcon
@@ -24,29 +23,23 @@ internal fun NoteTopBar(
     onNavigateUp: () -> Unit,
     onToggleMode: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    scrollBehavior: TopAppBarScrollBehavior? = null,
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = LoomaTokens.colors.noteCanvas,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .height(64.dp)
-                .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onNavigateUp) {
+    TopAppBar(
+        title = {},
+        modifier = modifier,
+        navigationIcon = {
+            IconButton(onClick = onNavigateUp, shapes = IconButtonDefaults.shapes()) {
                 LoomaIcon(
                     iconRes = R.drawable.ic_arrow_back,
                     contentDescription = stringResource(R.string.editor_back),
                 )
             }
-            Spacer(Modifier.weight(1f))
+        },
+        actions = {
             val toggle = onToggleMode
             if (toggle != null) {
-                IconButton(onClick = toggle) {
+                IconButton(onClick = toggle, shapes = IconButtonDefaults.shapes()) {
                     LoomaIcon(
                         iconRes = if (mode == NoteMode.Read) {
                             R.drawable.ic_editor_edit
@@ -59,6 +52,11 @@ internal fun NoteTopBar(
                     )
                 }
             }
-        }
-    }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = LoomaTokens.colors.noteCanvas,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        scrollBehavior = scrollBehavior,
+    )
 }
