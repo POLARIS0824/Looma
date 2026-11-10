@@ -12,6 +12,8 @@ enum class NoteSaveState { Idle, Pending, Saving, Saved, Failed }
 
 data class ImageInsertion(val snippet: String, val token: Long)
 
+data class RenameNotice(val linksUpdated: Int, val linksFailed: Int)
+
 sealed interface NoteImageError {
     data object NotConfigured : NoteImageError
     data object UnsupportedImage : NoteImageError
@@ -56,6 +58,7 @@ data class NoteUiState(
     val imageInsertion: ImageInsertion? = null,
     val imageUploadError: NoteImageError? = null,
     val titleError: NoteTitleError? = null,
+    val renameNotice: RenameNotice? = null,
     val renameTarget: NoteId? = null,
 ) {
     val isDirty: Boolean get() = !isLoading && content != savedContent

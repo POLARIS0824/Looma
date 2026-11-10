@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -172,6 +173,7 @@ fun NoteRoute(
                     onContentChanged = viewModel::onContentChanged,
                     onCommitTitle = viewModel::commitTitle,
                     onTitleErrorShown = viewModel::onTitleErrorShown,
+                    onRenameNoticeShown = viewModel::onRenameNoticeShown,
                     onRequestLeave = requestLeave,
                     onRetrySave = viewModel::retrySave,
                     onOverwrite = viewModel::overwrite,
@@ -207,6 +209,7 @@ private fun NoteWorkspace(
     onContentChanged: (String) -> Unit,
     onCommitTitle: (String) -> Unit,
     onTitleErrorShown: () -> Unit,
+    onRenameNoticeShown: () -> Unit,
     onRequestLeave: () -> Unit,
     onRetrySave: () -> Unit,
     onOverwrite: () -> Unit,
@@ -296,6 +299,17 @@ private fun NoteWorkspace(
         onTitleErrorShown()
     }
 
+    LaunchedEffect(state.renameNotice) {
+        val notice = state.renameNotice ?: return@LaunchedEffect
+        val text = if (notice.linksFailed > 0) {
+            resources.getString(R.string.editor_rename_links_failed, notice.linksFailed)
+        } else {
+            resources.getString(R.string.editor_rename_links, notice.linksUpdated)
+        }
+        snackbarHostState.showSnackbar(text)
+        onRenameNoticeShown()
+    }
+
     val contentText = contentBuffer.text.toString()
     val selection = contentBuffer.selection
     val formatState = remember(contentText, selection) {
@@ -328,21 +342,25 @@ private fun NoteWorkspace(
                 scrollBehavior = appBarScroll,
                 title = {
                     if (!state.showInlineTitle) {
-                        NoteTitleField(
-                            fileName = state.fileName,
-                            isNewNote = state.isNewNote,
-                            textStyle = LoomaTokens.type.sectionTitle,
-                            focusRequester = titleFocus,
-                            onCommit = onCommitTitle,
-                            error = state.titleError,
-                            onDone = {
-                                if (mode == NoteMode.Edit) {
-                                    bodyFocus.requestFocus()
-                                } else {
-                                    keyboard?.hide()
-                                }
-                            },
-                        )
+                        if (mode == NoteMode.Edit) {
+                            NoteTitleField(
+                                fileName = state.fileName,
+                                isNewNote = state.isNewNote,
+                                textStyle = LoomaTokens.type.sectionTitle,
+                                focusRequester = titleFocus,
+                                onCommit = onCommitTitle,
+                                error = state.titleError,
+                                onDone = { bodyFocus.requestFocus() },
+                            )
+                        } else {
+                            Text(
+                                text = state.fileName,
+                                style = LoomaTokens.type.sectionTitle,
+                                color = LoomaTokens.colors.title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 },
             )
@@ -356,28 +374,6 @@ private fun NoteWorkspace(
                 .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (state.showInlineTitle) {
-                NoteTitleField(
-                    fileName = state.fileName,
-                    isNewNote = state.isNewNote,
-                    textStyle = LoomaTokens.type.noteTitle,
-                    focusRequester = titleFocus,
-                    onCommit = onCommitTitle,
-                    error = state.titleError,
-                    onDone = {
-                        if (mode == NoteMode.Edit) {
-                            bodyFocus.requestFocus()
-                        } else {
-                            keyboard?.hide()
-                        }
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 20.dp, vertical = 4.dp)
-                        .widthIn(max = NoteColumnMaxWidth)
-                        .fillMaxWidth(),
-                )
-            }
-
             NoteSaveBanner(
                 state = state,
                 onRetry = onRetrySave,
@@ -399,6 +395,16 @@ private fun NoteWorkspace(
                         wiki = state.wiki,
                         onWikiLinkClick = onWikiLinkClick,
                         onOpenNote = onOpenNote,
+                        title = {
+                            if (state.showInlineTitle) {
+                                Text(
+                                    text = state.fileName,
+                                    style = LoomaTokens.type.noteTitle,
+                                    color = LoomaTokens.colors.title,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        },
                         onCheckboxToggle = { position, checked ->
                             val document = MarkdownIndex.index(contentBuffer.text.toString(), state.fileName)
                             if (document.withCheckboxChecked(position, checked) != null) {
@@ -415,13 +421,35 @@ private fun NoteWorkspace(
                     )
 
                     NoteMode.Edit -> Column(Modifier.fillMaxSize()) {
-                        NoteBodyEditor(
-                            active = editorActive,
-                            buffer = contentBuffer,
-                            focusRequester = bodyFocus,
-                            scrollState = editScroll,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .verticalScroll(editScroll),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            if (state.showInlineTitle) {
+                                NoteTitleField(
+                                    fileName = state.fileName,
+                                    isNewNote = state.isNewNote,
+                                    textStyle = LoomaTokens.type.noteTitle,
+                                    focusRequester = titleFocus,
+                                    onCommit = onCommitTitle,
+                                    error = state.titleError,
+                                    onDone = { bodyFocus.requestFocus() },
+                                    modifier = Modifier
+                                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                                        .widthIn(max = NoteColumnMaxWidth)
+                                        .fillMaxWidth(),
+                                )
+                            }
+                            NoteBodyEditor(
+                                active = editorActive,
+                                buffer = contentBuffer,
+                                focusRequester = bodyFocus,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                         if (linkPanelOpen) {
                             WikiLinkPanel(
                                 candidates = state.wiki.linkables,
@@ -480,7 +508,6 @@ private fun NoteBodyEditor(
     active: Boolean,
     buffer: TextFieldState,
     focusRequester: FocusRequester,
-    scrollState: ScrollState,
     modifier: Modifier = Modifier,
 ) {
     val placeholder = stringResource(R.string.editor_placeholder)
@@ -494,7 +521,6 @@ private fun NoteBodyEditor(
         textStyle = LoomaTokens.type.noteBody.copy(
             color = LoomaTokens.colors.title,
         ),
-        scrollState = scrollState,
         decorator = TextFieldDecorator { innerTextField ->
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                 Box(Modifier.widthIn(max = NoteColumnMaxWidth).fillMaxWidth()) {
@@ -520,6 +546,7 @@ private fun NoteReadBody(
     wiki: WikiContext,
     onWikiLinkClick: (String) -> Unit,
     onOpenNote: (NoteId) -> Unit,
+    title: @Composable () -> Unit,
     onCheckboxToggle: (position: Int, checked: Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -537,6 +564,7 @@ private fun NoteReadBody(
             modifier = Modifier.widthIn(max = NoteColumnMaxWidth).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            title()
             MarkdownBody(
                 document = document,
                 onCheckboxToggle = onCheckboxToggle,
@@ -681,6 +709,7 @@ private fun NoteWorkspacePreview() {
             onContentChanged = {},
             onCommitTitle = {},
             onTitleErrorShown = {},
+            onRenameNoticeShown = {},
             onRequestLeave = {},
             onRetrySave = {},
             onOverwrite = {},

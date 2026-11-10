@@ -207,6 +207,8 @@
     <string name="editor_rename_stalled">请先在首页处理未完成的重命名</string>
     <string name="editor_rename_blocked">请先解决保存问题再改名</string>
     <string name="editor_rename_failed">无法重命名这篇笔记</string>
+    <string name="editor_rename_links">已重命名，更新了 %1$d 处引用</string>
+    <string name="editor_rename_links_failed">已重命名，%1$d 处引用未能更新</string>
     <string name="home_snackbar_renamed_links">已重命名，更新了 %1$d 处引用</string>
     <string name="home_snackbar_renamed_failed">已重命名，%1$d 处引用未能更新</string>
     <string name="note_backlinks_title">反向链接 · %1$d</string>

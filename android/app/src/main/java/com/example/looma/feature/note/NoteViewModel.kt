@@ -213,8 +213,8 @@ class NoteViewModel(
                 _uiState.update { it.copy(titleError = NoteTitleError.Blocked) }
                 return@enqueue
             }
-            val name = raw.trim()
-            if (name.isEmpty() || name == state.fileName) return@enqueue
+            val name = titleEditFor(raw, state.fileName, lastCommitted = null).renameTo
+                ?: return@enqueue
             scheduler.cancel()
             if (state.isDirty && !saveCurrent(generation)) return@enqueue
             if (generation != operationGeneration) return@enqueue
@@ -227,9 +227,12 @@ class NoteViewModel(
                 _uiState.update {
                     it.copy(
                         fileName = fileNameOf(currentId),
+                        modifiedAt = outcome.note.modifiedAt,
                         revision = outcome.note.revision,
                         isNewNote = false,
                         imageContext = imageContext,
+                        renameNotice = RenameNotice(outcome.linksUpdated, outcome.linksFailed)
+                            .takeIf { outcome.linksUpdated > 0 || outcome.linksFailed > 0 },
                         renameTarget = currentId,
                         titleError = null,
                     )
@@ -249,6 +252,10 @@ class NoteViewModel(
 
     fun onTitleErrorShown() {
         _uiState.update { it.copy(titleError = null) }
+    }
+
+    fun onRenameNoticeShown() {
+        _uiState.update { it.copy(renameNotice = null) }
     }
 
     fun onRenameNavigated() {
