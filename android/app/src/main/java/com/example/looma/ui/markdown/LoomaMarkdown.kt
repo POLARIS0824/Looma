@@ -117,15 +117,16 @@ fun loomaMarkdownTheme(
     textColor: Color = LoomaTokens.colors.title,
 ): LoomaMarkdownTheme {
     val colors = LoomaTokens.colors
+    val scheme = MaterialTheme.colorScheme
     val type = LoomaTokens.type
     val scale = remember(type, compact, preview) { loomaMarkdownScale(type, compact, preview) }
     return LoomaMarkdownTheme(
         colors = markdownColor(
             text = textColor,
-            codeBackground = colors.chip.copy(alpha = 0.6f),
-            inlineCodeBackground = colors.chip.copy(alpha = 0.6f),
+            codeBackground = if (compact) scheme.surfaceContainerHighest else scheme.surfaceContainerHigh,
+            inlineCodeBackground = scheme.surfaceContainerHighest,
             dividerColor = colors.divider,
-            tableBackground = colors.card,
+            tableBackground = if (compact) colors.card else scheme.surfaceContainer,
             highlightText = colors.onChip,
             highlightBackground = colors.chip,
         ),

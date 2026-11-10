@@ -51,7 +51,7 @@ fun MarkdownBody(
             wiki = wiki,
             onWikiLinkClick = { target -> currentLinkClick.value(target) },
             resolvedLink = SpanStyle(color = accent, textDecoration = TextDecoration.Underline),
-            missingLink = SpanStyle(color = muted),
+            missingLink = SpanStyle(color = muted, textDecoration = TextDecoration.Underline),
             math = math,
             checkedText = checkedText,
         )
