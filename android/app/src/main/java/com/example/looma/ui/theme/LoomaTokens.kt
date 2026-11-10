@@ -8,7 +8,6 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -73,11 +72,11 @@ data class LoomaPreviewTypography(
 )
 
 fun loomaColors(scheme: ColorScheme): LoomaColors = LoomaColors(
-    page = scheme.surfaceContainerLow,
-    noteCanvas = if (scheme.surface.luminance() > 0.5f) Color.White else scheme.surface,
-    card = scheme.surfaceBright,
+    page = scheme.surface,
+    noteCanvas = scheme.surface,
+    card = scheme.surfaceContainerHigh,
     sheet = scheme.surfaceContainerLow,
-    searchField = scheme.surfaceBright,
+    searchField = scheme.surfaceContainerHigh,
     title = scheme.onSurface,
     body = scheme.onSurfaceVariant,
     muted = scheme.onSurfaceVariant,
@@ -120,7 +119,7 @@ fun loomaTypography(base: Typography): LoomaTypography = LoomaTypography(
     body = base.bodyLarge,
     supporting = base.bodyMedium,
     avatar = base.titleMediumEmphasized,
-    noteTitle = base.headlineMediumEmphasized,
+    noteTitle = base.headlineLargeEmphasized,
     noteBody = base.bodyLarge.copy(lineHeight = BODY_LINE_HEIGHT.sp),
     noteHeadings = LoomaNoteHeadings(
         h1 = base.headlineMediumEmphasized,
