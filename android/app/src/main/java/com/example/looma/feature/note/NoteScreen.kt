@@ -334,6 +334,7 @@ private fun NoteWorkspace(
                             textStyle = LoomaTokens.type.sectionTitle,
                             focusRequester = titleFocus,
                             onCommit = onCommitTitle,
+                            error = state.titleError,
                             onDone = {
                                 if (mode == NoteMode.Edit) {
                                     bodyFocus.requestFocus()
@@ -362,6 +363,7 @@ private fun NoteWorkspace(
                     textStyle = LoomaTokens.type.noteTitle,
                     focusRequester = titleFocus,
                     onCommit = onCommitTitle,
+                    error = state.titleError,
                     onDone = {
                         if (mode == NoteMode.Edit) {
                             bodyFocus.requestFocus()

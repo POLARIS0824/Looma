@@ -206,7 +206,6 @@ class NoteViewModel(
     }
 
     fun commitTitle(raw: String) {
-        scheduler.cancel()
         enqueue { generation ->
             val state = _uiState.value
             if (state.isLoading || state.loadFailed || state.renameTarget != null) return@enqueue
@@ -216,6 +215,7 @@ class NoteViewModel(
             }
             val name = raw.trim()
             if (name.isEmpty() || name == state.fileName) return@enqueue
+            scheduler.cancel()
             if (state.isDirty && !saveCurrent(generation)) return@enqueue
             if (generation != operationGeneration) return@enqueue
             try {

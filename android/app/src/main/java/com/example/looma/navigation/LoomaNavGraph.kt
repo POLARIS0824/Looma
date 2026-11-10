@@ -204,9 +204,12 @@ fun LoomaNavGraph(
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
                         onRenameNavigate = { id ->
-                            val top = backStack.lastOrNull() as? LoomaRoute.Note
-                            if (top != null && top.visitId == route.visitId) {
-                                backStack[backStack.lastIndex] = top.copy(
+                            val index = backStack.indexOfLast {
+                                it is LoomaRoute.Note && it.visitId == route.visitId
+                            }
+                            if (index >= 0) {
+                                val entry = backStack[index] as LoomaRoute.Note
+                                backStack[index] = entry.copy(
                                     relativePath = id.path.relativePath,
                                     isNew = false,
                                 )

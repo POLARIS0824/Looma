@@ -24,6 +24,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import com.example.looma.R
+import com.example.looma.feature.note.NoteTitleError
 import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
@@ -34,14 +35,21 @@ internal fun NoteTitleField(
     focusRequester: FocusRequester,
     onCommit: (String) -> Unit,
     modifier: Modifier = Modifier,
+    error: NoteTitleError? = null,
     onDone: () -> Unit = {},
 ) {
     val buffer = rememberSaveable(saver = TextFieldState.Saver) { TextFieldState(fileName) }
     var focused by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 
-    LaunchedEffect(focused, fileName) {
+    LaunchedEffect(fileName) {
         if (!focused && buffer.text.toString() != fileName) {
+            buffer.setTextAndPlaceCursorAtEnd(fileName)
+        }
+    }
+
+    LaunchedEffect(error) {
+        if (error != null) {
             buffer.setTextAndPlaceCursorAtEnd(fileName)
         }
     }
