@@ -130,6 +130,7 @@
     <string name="settings_dynamic_color_unavailable">当前 Android 版本不支持</string>
     <string name="settings_theme">色彩主题</string>
     <string name="settings_theme_wallpaper">壁纸取色</string>
+    <string name="settings_theme_wallpaper_hint">选择主题会关闭动态取色</string>
     <string name="settings_theme_dialog_title">色彩主题</string>
     <string name="settings_theme_default">Looma</string>
     <string name="settings_theme_indigo">靛蓝</string>

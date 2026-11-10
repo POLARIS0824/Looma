@@ -4,7 +4,6 @@ package com.example.looma.feature.settings
 
 import android.os.Build
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,25 +15,28 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.ListItemColors
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,11 +45,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -150,19 +156,17 @@ fun SettingsScreen(
     var imageTargetDialogVisible by remember { mutableStateOf(false) }
     var imageBedSheetVisible by remember { mutableStateOf(false) }
     val dynamicColorSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val dynamicColorActive = settings.dynamicColor && dynamicColorSupported
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = LoomaTokens.colors.page,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.settings_title),
-                        style = LoomaTokens.type.pageTitle,
-                        color = LoomaTokens.colors.title,
-                    )
-                },
+            LargeFlexibleTopAppBar(
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
                         LoomaIcon(
@@ -171,10 +175,8 @@ fun SettingsScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = LoomaTokens.colors.page,
-                    navigationIconContentColor = LoomaTokens.colors.title,
-                ),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = LoomaTokens.colors.page),
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { innerPadding ->
@@ -184,173 +186,168 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            SettingsSectionHeader(stringResource(R.string.settings_section_vault))
-            SettingsCard {
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            text = vaultName ?: stringResource(R.string.settings_vault_none),
-                            style = LoomaTokens.type.cardTitle,
-                            color = LoomaTokens.colors.title,
-                        )
-                    },
-                    supportingContent = vaultPath?.let { path ->
-                        {
-                            Text(
-                                text = path,
-                                style = LoomaTokens.type.cardMeta,
-                                color = LoomaTokens.colors.muted,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    },
-                    trailingContent = {
-                        TextButton(onClick = onChangeVaultClick, enabled = !isVaultBusy) {
-                            Text(stringResource(R.string.settings_vault_change))
-                        }
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                )
-            }
-            vaultError?.let { failure ->
-                Text(
-                    text = vaultErrorText(failure),
-                    style = LoomaTokens.type.cardBody,
-                    color = LoomaTokens.colors.error,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
-
-            SettingsSectionHeader(stringResource(R.string.settings_section_appearance))
-            SettingsCard {
-                SettingsSwitchRow(
-                    title = stringResource(R.string.settings_dynamic_color),
-                    description = stringResource(
-                        if (dynamicColorSupported) {
-                            R.string.settings_dynamic_color_desc
-                        } else {
-                            R.string.settings_dynamic_color_unavailable
-                        },
-                    ),
-                    checked = settings.dynamicColor && dynamicColorSupported,
-                    enabled = dynamicColorSupported,
-                    onCheckedChange = onDynamicColorChange,
-                )
-                SettingsRow(
-                    title = stringResource(R.string.settings_theme),
-                    description = if (settings.dynamicColor && dynamicColorSupported) {
-                        stringResource(R.string.settings_theme_wallpaper)
-                    } else {
-                        themeName(settings.themePreset)
-                    },
-                    trailing = {
-                        ThemeSwatch(
-                            preset = settings.themePreset,
-                            useWallpaper = settings.dynamicColor && dynamicColorSupported,
-                        )
-                    },
-                    onClick = { themeDialogVisible = true },
-                )
-            }
-
-            SettingsSectionHeader(stringResource(R.string.settings_section_language))
-            SettingsCard {
-                SettingsRow(
-                    title = stringResource(R.string.settings_language),
-                    description = languageName(language),
-                    onClick = { languageDialogVisible = true },
-                )
-            }
-
-            SettingsSectionHeader(stringResource(R.string.settings_section_notes))
-            SettingsCard {
-                SettingsRow(
-                    title = stringResource(R.string.settings_toolbar_order),
-                    description = stringResource(R.string.settings_toolbar_order_desc),
-                    onClick = { toolbarSheetVisible = true },
-                )
-                SettingsSwitchRow(
-                    title = stringResource(R.string.settings_keep_empty_notes),
-                    description = stringResource(R.string.settings_keep_empty_notes_desc),
-                    checked = settings.keepEmptyNotes,
-                    enabled = true,
-                    onCheckedChange = onKeepEmptyNotesChange,
-                )
-                SettingsSwitchRow(
-                    title = stringResource(R.string.settings_show_inline_title),
-                    description = stringResource(R.string.settings_show_inline_title_desc),
-                    checked = settings.showInlineTitle,
-                    enabled = true,
-                    onCheckedChange = onShowInlineTitleChange,
-                )
-            }
-
-            SettingsSectionHeader(stringResource(R.string.settings_section_images))
-            SettingsCard {
-                SettingsRow(
-                    title = stringResource(R.string.settings_image_destination),
-                    description = imageTargetName(settings.imageUploadTarget),
-                    onClick = { imageTargetDialogVisible = true },
-                )
-                SettingsRow(
-                    title = stringResource(R.string.settings_image_bed),
-                    description = if (settings.imageBed.isConfigured) {
-                        stringResource(
-                            R.string.settings_image_bed_configured,
-                            settings.imageBed.bucket,
-                            settings.imageBed.endpoint,
-                        )
-                    } else {
-                        stringResource(R.string.settings_image_bed_not_configured)
-                    },
-                    onClick = { imageBedSheetVisible = true },
-                )
-            }
-
-            SettingsSectionHeader(stringResource(R.string.settings_section_storage))
-            SettingsCard {
-                SettingsRow(
-                    title = stringResource(
-                        if (hasStorageAccess) {
-                            R.string.settings_storage_allowed
-                        } else {
-                            R.string.settings_storage_denied
-                        },
-                    ),
-                    trailing = if (!hasStorageAccess) {
-                        {
-                            TextButton(onClick = onStorageAccessClick) {
-                                Text(stringResource(R.string.settings_storage_grant))
+            Column(
+                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                SettingsGroup(stringResource(R.string.settings_section_vault)) {
+                    SettingsRow(
+                        index = 0,
+                        count = 1,
+                        title = vaultName ?: stringResource(R.string.settings_vault_none),
+                        description = vaultPath,
+                        trailing = {
+                            TextButton(onClick = onChangeVaultClick, enabled = !isVaultBusy) {
+                                Text(stringResource(R.string.settings_vault_change))
                             }
-                        }
-                    } else {
-                        null
-                    },
-                )
-            }
+                        },
+                    )
+                    vaultError?.let { failure ->
+                        Text(
+                            text = vaultErrorText(failure),
+                            style = LoomaTokens.type.supporting,
+                            color = LoomaTokens.colors.error,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
 
-            SettingsSectionHeader(stringResource(R.string.settings_section_about))
-            SettingsCard {
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            text = stringResource(R.string.app_name),
-                            style = LoomaTokens.type.cardTitle,
-                            color = LoomaTokens.colors.title,
-                        )
-                    },
-                    supportingContent = {
-                        Text(
-                            text = stringResource(R.string.settings_version, versionName),
-                            style = LoomaTokens.type.cardMeta,
-                            color = LoomaTokens.colors.muted,
-                        )
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                )
+                SettingsGroup(stringResource(R.string.settings_section_appearance)) {
+                    SettingsSwitchRow(
+                        index = 0,
+                        count = 2,
+                        title = stringResource(R.string.settings_dynamic_color),
+                        description = stringResource(
+                            if (dynamicColorSupported) {
+                                R.string.settings_dynamic_color_desc
+                            } else {
+                                R.string.settings_dynamic_color_unavailable
+                            },
+                        ),
+                        checked = dynamicColorActive,
+                        enabled = dynamicColorSupported,
+                        onCheckedChange = onDynamicColorChange,
+                    )
+                    SettingsRow(
+                        index = 1,
+                        count = 2,
+                        title = stringResource(R.string.settings_theme),
+                        description = if (dynamicColorActive) {
+                            stringResource(R.string.settings_theme_wallpaper)
+                        } else {
+                            themeName(settings.themePreset)
+                        },
+                        hint = if (dynamicColorActive) {
+                            stringResource(R.string.settings_theme_wallpaper_hint)
+                        } else {
+                            null
+                        },
+                        trailing = {
+                            ThemeSwatch(
+                                preset = settings.themePreset,
+                                useWallpaper = dynamicColorActive,
+                            )
+                        },
+                        onClick = { themeDialogVisible = true },
+                    )
+                }
+
+                SettingsGroup(stringResource(R.string.settings_section_language)) {
+                    SettingsRow(
+                        index = 0,
+                        count = 1,
+                        title = stringResource(R.string.settings_language),
+                        description = languageName(language),
+                        onClick = { languageDialogVisible = true },
+                    )
+                }
+
+                SettingsGroup(stringResource(R.string.settings_section_notes)) {
+                    SettingsRow(
+                        index = 0,
+                        count = 3,
+                        title = stringResource(R.string.settings_toolbar_order),
+                        description = stringResource(R.string.settings_toolbar_order_desc),
+                        onClick = { toolbarSheetVisible = true },
+                    )
+                    SettingsSwitchRow(
+                        index = 1,
+                        count = 3,
+                        title = stringResource(R.string.settings_keep_empty_notes),
+                        description = stringResource(R.string.settings_keep_empty_notes_desc),
+                        checked = settings.keepEmptyNotes,
+                        enabled = true,
+                        onCheckedChange = onKeepEmptyNotesChange,
+                    )
+                    SettingsSwitchRow(
+                        index = 2,
+                        count = 3,
+                        title = stringResource(R.string.settings_show_inline_title),
+                        description = stringResource(R.string.settings_show_inline_title_desc),
+                        checked = settings.showInlineTitle,
+                        enabled = true,
+                        onCheckedChange = onShowInlineTitleChange,
+                    )
+                }
+
+                SettingsGroup(stringResource(R.string.settings_section_images)) {
+                    SettingsRow(
+                        index = 0,
+                        count = 2,
+                        title = stringResource(R.string.settings_image_destination),
+                        description = imageTargetName(settings.imageUploadTarget),
+                        onClick = { imageTargetDialogVisible = true },
+                    )
+                    SettingsRow(
+                        index = 1,
+                        count = 2,
+                        title = stringResource(R.string.settings_image_bed),
+                        description = if (settings.imageBed.isConfigured) {
+                            stringResource(
+                                R.string.settings_image_bed_configured,
+                                settings.imageBed.bucket,
+                                settings.imageBed.endpoint,
+                            )
+                        } else {
+                            stringResource(R.string.settings_image_bed_not_configured)
+                        },
+                        onClick = { imageBedSheetVisible = true },
+                    )
+                }
+
+                SettingsGroup(stringResource(R.string.settings_section_storage)) {
+                    SettingsRow(
+                        index = 0,
+                        count = 1,
+                        title = stringResource(
+                            if (hasStorageAccess) {
+                                R.string.settings_storage_allowed
+                            } else {
+                                R.string.settings_storage_denied
+                            },
+                        ),
+                        trailing = if (!hasStorageAccess) {
+                            {
+                                TextButton(onClick = onStorageAccessClick) {
+                                    Text(stringResource(R.string.settings_storage_grant))
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                }
+
+                SettingsGroup(stringResource(R.string.settings_section_about)) {
+                    SettingsRow(
+                        index = 0,
+                        count = 1,
+                        title = stringResource(R.string.app_name),
+                        description = stringResource(R.string.settings_version, versionName),
+                    )
+                }
             }
         }
     }
@@ -412,17 +409,23 @@ private fun ImageTargetDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.settings_image_destination_dialog_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 ImageUploadTarget.entries.forEach { target ->
                     val selected = target == current
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 52.dp)
-                            .selectable(selected = selected, onClick = { onSelect(target) })
+                            .selectable(
+                                selected = selected,
+                                onClick = { onSelect(target) },
+                                role = Role.RadioButton,
+                            )
                             .padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        RadioButton(selected = selected, onClick = null)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = imageTargetName(target),
@@ -431,15 +434,8 @@ private fun ImageTargetDialog(
                             )
                             Text(
                                 text = stringResource(target.descriptionRes()),
-                                style = LoomaTokens.type.cardMeta,
+                                style = LoomaTokens.type.supporting,
                                 color = LoomaTokens.colors.muted,
-                            )
-                        }
-                        if (selected) {
-                            LoomaIcon(
-                                iconRes = R.drawable.ic_check,
-                                contentDescription = null,
-                                tint = LoomaTokens.colors.accent,
                             )
                         }
                     }
@@ -520,20 +516,26 @@ private fun ImageBedSheet(
                 label = stringResource(R.string.settings_image_bed_public_url),
                 onChange = { publicBaseUrl = it },
             )
-            SettingsSwitchRow(
-                title = stringResource(R.string.settings_image_bed_path_style),
-                description = stringResource(R.string.settings_image_bed_path_style_desc),
-                checked = pathStyle,
-                enabled = true,
-                onCheckedChange = { pathStyle = it },
-            )
-            SettingsSwitchRow(
-                title = stringResource(R.string.settings_image_bed_public_read),
-                description = stringResource(R.string.settings_image_bed_public_read_desc),
-                checked = publicRead,
-                enabled = true,
-                onCheckedChange = { publicRead = it },
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+                SettingsSwitchRow(
+                    index = 0,
+                    count = 2,
+                    title = stringResource(R.string.settings_image_bed_path_style),
+                    description = stringResource(R.string.settings_image_bed_path_style_desc),
+                    checked = pathStyle,
+                    enabled = true,
+                    onCheckedChange = { pathStyle = it },
+                )
+                SettingsSwitchRow(
+                    index = 1,
+                    count = 2,
+                    title = stringResource(R.string.settings_image_bed_public_read),
+                    description = stringResource(R.string.settings_image_bed_public_read_desc),
+                    checked = publicRead,
+                    enabled = true,
+                    onCheckedChange = { publicRead = it },
+                )
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
                 TextButton(
@@ -607,32 +609,30 @@ private fun ThemePresetDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.settings_theme_dialog_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 ThemePreset.entries.forEach { preset ->
                     val selected = preset == current
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 52.dp)
-                            .clickable { onSelect(preset) }
+                            .selectable(
+                                selected = selected,
+                                onClick = { onSelect(preset) },
+                                role = Role.RadioButton,
+                            )
                             .padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        ThemeSwatch(preset = preset, useWallpaper = false)
+                        RadioButton(selected = selected, onClick = null)
                         Text(
                             text = themeName(preset),
                             style = LoomaTokens.type.body,
                             color = LoomaTokens.colors.title,
                             modifier = Modifier.weight(1f),
                         )
-                        if (selected) {
-                            LoomaIcon(
-                                iconRes = R.drawable.ic_check,
-                                contentDescription = null,
-                                tint = LoomaTokens.colors.accent,
-                            )
-                        }
+                        ThemeSwatch(preset = preset, useWallpaper = false)
                     }
                 }
             }
@@ -653,30 +653,29 @@ private fun LanguageDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.settings_language_dialog_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 AppLanguage.entries.forEach { language ->
                     val selected = language == current
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 52.dp)
-                            .selectable(selected = selected, onClick = { onSelect(language) })
+                            .selectable(
+                                selected = selected,
+                                onClick = { onSelect(language) },
+                                role = Role.RadioButton,
+                            )
                             .padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        RadioButton(selected = selected, onClick = null)
                         Text(
                             text = languageName(language),
                             style = LoomaTokens.type.body,
                             color = LoomaTokens.colors.title,
                             modifier = Modifier.weight(1f),
                         )
-                        if (selected) {
-                            LoomaIcon(
-                                iconRes = R.drawable.ic_check,
-                                contentDescription = null,
-                                tint = LoomaTokens.colors.accent,
-                            )
-                        }
                     }
                 }
             }
@@ -725,87 +724,94 @@ private fun languageName(language: AppLanguage): String = when (language) {
 }
 
 @Composable
+private fun settingsListColors(): ListItemColors =
+    ListItemDefaults.segmentedColors(containerColor = LoomaTokens.colors.card)
+
+@Composable
 private fun SettingsSwitchRow(
+    index: Int,
+    count: Int,
     title: String,
     description: String,
     checked: Boolean,
     enabled: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    ListItem(
-        headlineContent = {
-            Text(
-                text = title,
-                style = LoomaTokens.type.cardBody,
-                color = if (enabled) LoomaTokens.colors.title else LoomaTokens.colors.muted,
-            )
+    SegmentedListItem(
+        onClick = { onCheckedChange(!checked) },
+        shapes = ListItemDefaults.segmentedShapes(index, count),
+        modifier = Modifier.fillMaxWidth().semantics {
+            role = Role.Switch
+            toggleableState = ToggleableState(checked)
         },
-        supportingContent = {
-            Text(
-                text = description,
-                style = LoomaTokens.type.cardMeta,
-                color = LoomaTokens.colors.muted,
-            )
-        },
+        enabled = enabled,
+        supportingContent = { Text(description) },
         trailingContent = {
-            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+            Switch(checked = checked, onCheckedChange = null, enabled = enabled)
         },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-    )
+        colors = settingsListColors(),
+    ) {
+        Text(title)
+    }
 }
 
 @Composable
 private fun SettingsRow(
+    index: Int,
+    count: Int,
     title: String,
     description: String? = null,
+    hint: String? = null,
     trailing: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
-    ListItem(
-        modifier = if (onClick != null) {
-            Modifier.fillMaxWidth().clickable(onClick = onClick)
-        } else {
-            Modifier.fillMaxWidth()
-        },
-        headlineContent = {
-            Text(
-                text = title,
-                style = LoomaTokens.type.cardBody,
-                color = LoomaTokens.colors.title,
-            )
-        },
-        supportingContent = description?.let { text ->
-            {
-                Text(
-                    text = text,
-                    style = LoomaTokens.type.cardMeta,
-                    color = LoomaTokens.colors.muted,
-                )
+    val supporting: (@Composable () -> Unit)? = description?.let { text ->
+        {
+            Column {
+                Text(text)
+                hint?.let { Text(it) }
             }
-        },
-        trailingContent = trailing,
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-    )
+        }
+    }
+    val shapes = ListItemDefaults.segmentedShapes(index, count)
+    if (onClick != null) {
+        SegmentedListItem(
+            onClick = onClick,
+            shapes = shapes,
+            modifier = Modifier.fillMaxWidth(),
+            supportingContent = supporting,
+            trailingContent = trailing,
+            colors = settingsListColors(),
+        ) {
+            Text(title)
+        }
+    } else {
+        SegmentedListItem(
+            shapes = shapes,
+            modifier = Modifier.fillMaxWidth(),
+            supportingContent = supporting,
+            trailingContent = trailing,
+            colors = settingsListColors(),
+        ) {
+            Text(title)
+        }
+    }
 }
 
 @Composable
-private fun SettingsSectionHeader(title: String) {
-    Text(
-        text = title,
-        style = LoomaTokens.type.sectionTitle,
-        color = LoomaTokens.colors.muted,
-        modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp),
-    )
-}
-
-@Composable
-private fun SettingsCard(content: @Composable () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = LoomaTokens.colors.card,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column { content() }
+private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            text = title,
+            style = LoomaTokens.type.sectionTitle,
+            color = LoomaTokens.colors.accent,
+            modifier = Modifier
+                .padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                .semantics { heading() },
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+            content()
+        }
     }
 }
 
@@ -843,24 +849,29 @@ private fun ToolbarOrderSheet(
                             onClick = {
                                 order = order.toMutableList().apply { add(index - 1, removeAt(index)) }
                             },
-                            modifier = Modifier.semantics { contentDescription = upLabel },
-                        ) { Text("↑") }
+                        ) {
+                            LoomaIcon(iconRes = R.drawable.ic_arrow_up, contentDescription = upLabel)
+                        }
                         IconButton(
                             enabled = index < order.lastIndex,
                             onClick = {
                                 order = order.toMutableList().apply { add(index + 1, removeAt(index)) }
                             },
-                            modifier = Modifier.semantics { contentDescription = downLabel },
-                        ) { Text("↓") }
+                        ) {
+                            LoomaIcon(iconRes = R.drawable.ic_arrow_down, contentDescription = downLabel)
+                        }
                     }
                 }
             }
             TextButton(onClick = {
                 order = ToolbarItem.DEFAULT_ORDER.filter { it.isAvailableInToolbar() }
             }) { Text(stringResource(R.string.toolbar_reset)) }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            ) {
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
-                TextButton(onClick = {
+                Button(onClick = {
                     onSave(order + current.filterNot { it.isAvailableInToolbar() })
                 }) { Text(stringResource(R.string.dialog_save)) }
             }

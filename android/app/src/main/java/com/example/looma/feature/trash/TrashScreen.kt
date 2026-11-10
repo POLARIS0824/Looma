@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
 
 package com.example.looma.feature.trash
 
@@ -9,15 +12,18 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -25,7 +31,6 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,15 +40,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.looma.R
+import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.LoomaLoadingIndicator
 import com.example.looma.ui.format.formatDateTime
@@ -163,20 +171,17 @@ fun TrashScreen(
     modifier: Modifier = Modifier,
 ) {
     var confirm by remember { mutableStateOf<TrashConfirm?>(null) }
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = LoomaTokens.colors.page,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.trash_title),
-                        style = LoomaTokens.type.pageTitle,
-                        color = LoomaTokens.colors.title,
-                    )
-                },
+            MediumFlexibleTopAppBar(
+                title = { Text(stringResource(R.string.trash_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
                         LoomaIcon(
@@ -204,10 +209,8 @@ fun TrashScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = LoomaTokens.colors.page,
-                    navigationIconContentColor = LoomaTokens.colors.title,
-                ),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = LoomaTokens.colors.page),
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { innerPadding ->
@@ -216,45 +219,52 @@ fun TrashScreen(
                 state.isLoading && state.items.isEmpty() -> Box(
                     Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
-                ) { LoomaLoadingIndicator() }
+                ) { DelayedLoadingIndicator(loading = true, size = 48.dp) }
 
                 state.loadFailed -> Column(
                     Modifier.fillMaxSize().padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = stringResource(R.string.trash_load_failed),
                         color = LoomaTokens.colors.error,
-                        style = LoomaTokens.type.cardBody,
+                        style = LoomaTokens.type.body,
+                        textAlign = TextAlign.Center,
                     )
-                    TextButton(onClick = onRetryClick) {
+                    FilledTonalButton(onClick = onRetryClick) {
                         Text(stringResource(R.string.trash_retry))
                     }
                 }
 
                 state.isEmpty -> Column(
                     Modifier.fillMaxSize().padding(32.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = stringResource(R.string.trash_empty),
                         style = LoomaTokens.type.cardTitle,
                         color = LoomaTokens.colors.title,
+                        textAlign = TextAlign.Center,
                     )
                     Text(
                         text = stringResource(R.string.trash_empty_hint),
-                        style = LoomaTokens.type.cardBody,
+                        style = LoomaTokens.type.supporting,
                         color = LoomaTokens.colors.muted,
+                        textAlign = TextAlign.Center,
                     )
                 }
 
-                else -> Column(Modifier.fillMaxSize()) {
+                else -> Column(
+                    Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     if (state.busy == TrashBusy.Bulk) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        LinearWavyProgressIndicator(Modifier.fillMaxWidth())
                     }
                     LazyColumn(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).widthIn(max = 640.dp).fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -387,20 +397,27 @@ private fun TrashRow(
                     maxLines = 1,
                 )
             }
-            if (isRestoring) {
-                CircularProgressIndicator(Modifier.size(20.dp))
-            } else {
-                IconButton(onClick = onRestoreClick, enabled = actionsEnabled) {
-                    LoomaIcon(
-                        iconRes = R.drawable.ic_restore,
-                        contentDescription = stringResource(R.string.trash_restore),
-                    )
-                }
-                IconButton(onClick = onDeleteClick, enabled = actionsEnabled) {
-                    LoomaIcon(
-                        iconRes = R.drawable.ic_delete,
-                        contentDescription = stringResource(R.string.trash_delete),
-                    )
+            Box(
+                modifier = Modifier.width(96.dp).height(48.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isRestoring) {
+                    LoomaLoadingIndicator(size = 40.dp)
+                } else {
+                    Row {
+                        IconButton(onClick = onRestoreClick, enabled = actionsEnabled) {
+                            LoomaIcon(
+                                iconRes = R.drawable.ic_restore,
+                                contentDescription = stringResource(R.string.trash_restore),
+                            )
+                        }
+                        IconButton(onClick = onDeleteClick, enabled = actionsEnabled) {
+                            LoomaIcon(
+                                iconRes = R.drawable.ic_delete,
+                                contentDescription = stringResource(R.string.trash_delete),
+                            )
+                        }
+                    }
                 }
             }
         }
