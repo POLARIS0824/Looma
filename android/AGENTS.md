@@ -34,7 +34,6 @@
     - `markdown/WikiLinks.kt`：用正则找 `[[target#heading|alias]]`，跳过代码。`retarget` 只替换 target 部分，保留 alias、heading 和 `!`。
     - `markdown/MarkdownEditing.kt`：工具栏命令的文本编辑，手写字符串扫描，不用 Markdown 库。行内样式可以开关，块命令逐行处理。`formatState` 给出光标处的格式。
     - `markdown/ToolbarItem.kt`、`markdown/ToolbarOrder.kt`：枚举的声明顺序就是默认顺序。各项的 `id` 用逗号拼接后存进 DataStore。改了 `id`，用户对这一项的自定义位置就会丢失。
-    - `markdown/InlineTitle.kt`：Obsidian 的 inline title。文件名和第一个标题相同时不显示。
     - `wiki/WikiGraph.kt`：按 Obsidian 的规则解析 wiki link。匹配忽略大小写和 `.md`，精确路径优先。带 `/` 的按路径后缀匹配，其余按文件名匹配。重名时同文件夹优先，然后取最短路径。它提供 backlinks 和 `referrersOf`。`referrersOf` 包含笔记自身，因为重命名时也要改它自己的链接。`retargetAfterRename` 保留链接原来的写法，文件名还是文件名，路径还是路径。
   - `data/`
     - Vault 里的 `.looma/` 存放 Looma 自己的状态：`trash/`、`conflicts/`、`operations/` 和 `abandoned-operations/`。扫描、搜索和重定位都跳过以 `.` 开头的目录。
@@ -60,6 +59,7 @@
     - `note/`：编辑和阅读。`NoteMode` 在 Edit 和 Read 之间切换。`SaveScheduler` 防抖 2 s，连续编辑时最迟 15 s 保存一次。
       `NoteViewModel` 用一个 `Mutex` 串行所有写入，用 `operationGeneration` 丢弃过期的操作。普通保存用 `Checked`。发生冲突时先写冲突副本，用户选择覆盖时才用 `Overwrite`。App 进入后台时立即保存。
       `NoteBuffer` 只把 `MarkdownEditing` 结果中变化的中间部分写回 `TextFieldState`。`WikiLinkPanel` 是点工具栏 Link a note 后弹出的候选列表，输入 `[[` 不会打开它。
+      `NoteTitleField` 在正文顶部编辑文件名，随正文滚动；只出现在 Edit 模式，Read 模式把文件名显示为文本；关闭 Show inline title 后 Edit 的输入框移到顶栏。`titleEditFor` 负责去空格、空草稿回退到文件名和丢弃重复提交。
     - `trash/`：回收站的列表、恢复、彻底删除和清空。`TrashBusy` 防止同时进行两个操作。
     - `settings/`：设置页。`SettingsViewModel` 用 `stateIn(WhileSubscribed(5_000))`。
     - `vault/`：选择 vault。`VaultSetupViewModel` 是 Activity 级的，设置页也用它。没有权限时，`VaultPicker` 跳到“所有文件访问权限”页面。有权限后，它打开 `OpenDocumentTree`。

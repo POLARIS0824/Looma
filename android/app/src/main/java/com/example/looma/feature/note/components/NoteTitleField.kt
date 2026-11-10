@@ -24,6 +24,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import com.example.looma.R
+import com.example.looma.feature.note.titleEditFor
 import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
@@ -38,6 +39,7 @@ internal fun NoteTitleField(
 ) {
     val buffer = rememberSaveable(saver = TextFieldState.Saver) { TextFieldState(fileName) }
     var focused by remember { mutableStateOf(false) }
+    var lastCommitted by remember { mutableStateOf<String?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(focused, fileName) {
@@ -55,11 +57,14 @@ internal fun NoteTitleField(
     }
 
     val commitDraft = {
-        val draft = buffer.text.toString()
-        if (draft.isBlank()) {
+        val edit = titleEditFor(buffer.text.toString(), fileName, lastCommitted)
+        if (edit.restoreFileName) {
             buffer.setTextAndPlaceCursorAtEnd(fileName)
-        } else if (draft.trim() != fileName) {
-            onCommit(draft)
+            lastCommitted = null
+        }
+        edit.renameTo?.let { name ->
+            lastCommitted = name
+            onCommit(name)
         }
     }
 
@@ -74,6 +79,8 @@ internal fun NoteTitleField(
                 focused = focusState.isFocused
                 if (wasFocused && !focusState.isFocused) {
                     commitDraft()
+                } else if (!wasFocused && focusState.isFocused) {
+                    lastCommitted = null
                 }
             },
         lineLimits = TextFieldLineLimits.SingleLine,

@@ -210,6 +210,8 @@
     <string name="editor_rename_stalled">Finish the pending move on Home first</string>
     <string name="editor_rename_blocked">Resolve the save problem before renaming</string>
     <string name="editor_rename_failed">Could not rename this note</string>
+    <string name="editor_rename_links">Renamed, %1$d backlink(s) updated</string>
+    <string name="editor_rename_links_failed">Renamed, %1$d backlink(s) could not be updated</string>
     <string name="home_snackbar_renamed_links">Renamed, %1$d backlink(s) updated</string>
     <string name="home_snackbar_renamed_failed">Renamed, %1$d backlink(s) could not be updated</string>
     <string name="note_backlinks_title">Backlinks · %1$d</string>
