@@ -17,11 +17,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 @Composable
-fun DelayedLoadingIndicator(loading: Boolean, modifier: Modifier = Modifier) {
+fun DelayedLoadingIndicator(loading: Boolean, modifier: Modifier = Modifier, size: Dp = 20.dp) {
     var ready by remember(loading) { mutableStateOf(false) }
     LaunchedEffect(loading) {
         if (loading) {
@@ -30,14 +31,14 @@ fun DelayedLoadingIndicator(loading: Boolean, modifier: Modifier = Modifier) {
         }
     }
     val motion = MaterialTheme.motionScheme
-    Box(modifier.size(20.dp), contentAlignment = Alignment.Center) {
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
         AnimatedVisibility(
             visible = loading && ready,
             enter = fadeIn(motion.defaultEffectsSpec()),
             exit = fadeOut(motion.fastEffectsSpec()),
         ) {
             LoadingIndicator(
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(size),
                 color = MaterialTheme.colorScheme.primary,
             )
         }
