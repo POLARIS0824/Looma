@@ -319,14 +319,12 @@ private fun NoteWorkspace(
                 .consumeWindowInsets(innerPadding)
                 .imePadding(),
         ) {
-            if (state.saveFailed) {
-                NoteSaveBanner(
-                    state = state,
-                    onRetry = onRetrySave,
-                    onReload = onReloadFromDisk,
-                    onOverwrite = onOverwrite,
-                )
-            }
+            NoteSaveBanner(
+                state = state,
+                onRetry = onRetrySave,
+                onReload = onReloadFromDisk,
+                onOverwrite = onOverwrite,
+            )
 
             AnimatedContent(
                 targetState = mode,
