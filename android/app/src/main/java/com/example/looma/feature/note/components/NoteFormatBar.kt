@@ -1,26 +1,38 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+
 package com.example.looma.feature.note.components
 
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonColors
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.domain.markdown.MarkdownBlockStyle
@@ -39,6 +51,7 @@ internal fun NoteFormatBar(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onWikiLink: () -> Unit,
+    wikiLinkOpen: Boolean = false,
     toolbarOrder: List<ToolbarItem> = ToolbarItem.DEFAULT_ORDER,
     isUploadingImage: Boolean = false,
     onInsertImage: () -> Unit = {},
@@ -73,59 +86,33 @@ internal fun NoteFormatBar(
                         onClick = onRedo,
                     )
 
-                    ToolbarItem.WikiLink -> IconButton(
-                        onClick = onWikiLink,
-                        modifier = Modifier.size(48.dp),
-                        colors = IconButtonDefaults.iconButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                    ) {
-                        LoomaIcon(
-                            iconRes = R.drawable.ic_editor_wikilink,
-                            contentDescription = stringResource(R.string.editor_wikilink),
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
+                    ToolbarItem.WikiLink -> ToolbarToggleButton(
+                        icon = R.drawable.ic_editor_wikilink,
+                        label = stringResource(R.string.editor_wikilink),
+                        checked = wikiLinkOpen,
+                        onCheckedChange = { onWikiLink() },
+                    )
 
                     ToolbarItem.InsertImage -> if (isUploadingImage) {
-                        Box(
-                            modifier = Modifier.size(48.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        }
+                        val uploading = stringResource(R.string.editor_uploading_image)
+                        LoadingIndicator(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .semantics { contentDescription = uploading },
+                        )
                     } else {
-                        IconButton(
+                        ToolbarIconButton(
+                            icon = R.drawable.ic_editor_image,
+                            label = stringResource(R.string.editor_insert_image),
                             onClick = onInsertImage,
-                            modifier = Modifier.size(48.dp),
-                            colors = IconButtonDefaults.iconButtonColors(
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        ) {
-                            LoomaIcon(
-                                iconRes = R.drawable.ic_editor_preview,
-                                contentDescription = stringResource(R.string.editor_insert_image),
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                    }
-
-                    ToolbarItem.InsertFile -> IconButton(
-                        onClick = onInsertFile,
-                        modifier = Modifier.size(48.dp),
-                        colors = IconButtonDefaults.iconButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                    ) {
-                        LoomaIcon(
-                            iconRes = R.drawable.folder_open_24px,
-                            contentDescription = "Insert file",
-                            modifier = Modifier.size(22.dp),
                         )
                     }
+
+                    ToolbarItem.InsertFile -> ToolbarIconButton(
+                        icon = R.drawable.folder_open_24px,
+                        label = "Insert file",
+                        onClick = onInsertFile,
+                    )
 
                     else -> {
                         FormatActionMap[item]?.let { action ->
@@ -272,13 +259,13 @@ private fun HistoryButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
-        LoomaIcon(
-            iconRes = icon,
-            contentDescription = stringResource(label),
-            modifier = Modifier.size(22.dp),
-        )
-    }
+    ToolbarIconButton(
+        icon = icon,
+        label = stringResource(label),
+        onClick = onClick,
+        enabled = enabled,
+        colors = IconButtonDefaults.iconButtonColors(),
+    )
 }
 
 @Composable
@@ -287,41 +274,86 @@ private fun FormatButton(
     formatState: MarkdownFormatState,
     onCommand: (MarkdownCommand) -> Unit,
 ) {
-    if (!action.isToggle) {
-        IconButton(
+    if (action.isToggle) {
+        ToolbarToggleButton(
+            icon = action.icon,
+            label = stringResource(action.label),
+            checked = action.isActive(formatState),
+            onCheckedChange = { onCommand(action.command) },
+        )
+    } else {
+        ToolbarIconButton(
+            icon = action.icon,
+            label = stringResource(action.label),
             onClick = { onCommand(action.command) },
+        )
+    }
+}
+
+@Composable
+private fun ToolbarIconButton(
+    @DrawableRes icon: Int,
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    colors: IconButtonColors = IconButtonDefaults.iconButtonColors(
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ),
+) {
+    ToolbarTooltip(label) {
+        IconButton(
+            onClick = onClick,
+            shapes = IconButtonDefaults.shapes(),
             modifier = Modifier.size(48.dp),
-            colors = IconButtonDefaults.iconButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
+            enabled = enabled,
+            colors = colors,
         ) {
             LoomaIcon(
-                iconRes = action.icon,
-                contentDescription = stringResource(action.label),
+                iconRes = icon,
+                contentDescription = label,
                 modifier = Modifier.size(22.dp),
             )
         }
-        return
     }
+}
 
-    val checked = action.isActive(formatState)
-    IconToggleButton(
-        checked = checked,
-        onCheckedChange = { onCommand(action.command) },
-        modifier = Modifier.size(48.dp),
-        colors = IconButtonDefaults.iconToggleButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            disabledContainerColor = Color.Transparent,
-            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-            checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        ),
-    ) {
-        LoomaIcon(
-            iconRes = action.icon,
-            contentDescription = stringResource(action.label),
-            modifier = Modifier.size(22.dp),
-        )
+@Composable
+private fun ToolbarToggleButton(
+    @DrawableRes icon: Int,
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    ToolbarTooltip(label) {
+        IconToggleButton(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            shapes = IconButtonDefaults.toggleableShapes(),
+            modifier = Modifier.size(48.dp),
+            colors = IconButtonDefaults.iconToggleButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                disabledContainerColor = Color.Transparent,
+                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                checkedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                checkedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ),
+        ) {
+            LoomaIcon(
+                iconRes = icon,
+                contentDescription = label,
+                modifier = Modifier.size(22.dp),
+            )
+        }
     }
+}
+
+@Composable
+private fun ToolbarTooltip(label: String, content: @Composable () -> Unit) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(label) } },
+        state = rememberTooltipState(),
+        content = content,
+    )
 }

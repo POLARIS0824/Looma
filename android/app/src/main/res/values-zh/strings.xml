@@ -254,6 +254,7 @@
     <string name="settings_image_bed_public_read">公共读 ACL</string>
     <string name="settings_image_bed_public_read_desc">上传时设置 public-read 权限</string>
     <string name="editor_insert_image">插入图片</string>
+    <string name="editor_uploading_image">正在上传图片</string>
     <string name="note_image_error_not_configured">请先在设置里配置 S3 图床</string>
     <string name="note_image_error_unsupported">仅支持 PNG、JPEG、WebP、GIF 和 BMP 图片</string>
     <string name="note_image_error_too_large">图片超过 12 MB</string>

@@ -369,6 +369,7 @@ private fun NoteWorkspace(
                         canUndo = contentBuffer.undoState.canUndo,
                         canRedo = contentBuffer.undoState.canRedo,
                         isUploadingImage = state.isUploadingImage,
+                        wikiLinkOpen = linkPanelOpen,
                         onCommand = { command ->
                             applyMarkdownCommand(contentBuffer, command)
                             bodyFocus.requestFocus()

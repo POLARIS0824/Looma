@@ -259,6 +259,7 @@
     <string name="settings_image_bed_public_read">Public read ACL</string>
     <string name="settings_image_bed_public_read_desc">Upload objects with public-read access</string>
     <string name="editor_insert_image">Insert image</string>
+    <string name="editor_uploading_image">Uploading image</string>
     <string name="note_image_error_not_configured">Set up the S3 image bed in Settings first</string>
     <string name="note_image_error_unsupported">Only PNG, JPEG, WebP, GIF and BMP images are supported</string>
     <string name="note_image_error_too_large">Image is larger than 12 MB</string>
