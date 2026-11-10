@@ -1,6 +1,5 @@
 package com.example.looma.feature.home.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,11 +8,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -41,61 +40,8 @@ internal fun HomeFolderCard(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    FolderRow(
-        item = item,
-        shape = RoundedCornerShape(20.dp),
-        isSelected = isSelected,
-        nameLines = 2,
-        onClick = onClick,
-        onLongClick = onLongClick,
-        modifier = modifier,
-    )
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-internal fun HomeFolderGroup(
-    folders: List<HomeFolderItem>,
-    selected: FolderPath?,
-    onFolderClick: (HomeFolderItem) -> Unit,
-    onFolderLongClick: (HomeFolderItem) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (folders.isEmpty()) return
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
-    ) {
-        folders.forEachIndexed { index, folder ->
-            FolderRow(
-                item = folder,
-                shape = segmentedShape(index, folders.size),
-                isSelected = folder.path == selected,
-                nameLines = 1,
-                onClick = { onFolderClick(folder) },
-                onLongClick = { onFolderLongClick(folder) },
-            )
-        }
-    }
-}
-
-private fun segmentedShape(index: Int, count: Int) = RoundedCornerShape(
-    topStart = if (index == 0) 28.dp else 4.dp,
-    topEnd = if (index == 0) 28.dp else 4.dp,
-    bottomStart = if (index == count - 1) 28.dp else 4.dp,
-    bottomEnd = if (index == count - 1) 28.dp else 4.dp,
-)
-
-@Composable
-private fun FolderRow(
-    item: HomeFolderItem,
-    shape: Shape,
-    isSelected: Boolean,
-    nameLines: Int,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+    val shape = RoundedCornerShape(20.dp)
+    val colors = homeCardColors(isSelected)
     val actionsLabel = stringResource(R.string.home_folder_actions_description)
     Surface(
         modifier = modifier
@@ -109,33 +55,107 @@ private fun FolderRow(
                 onLongClick = onLongClick,
             ),
         shape = shape,
-        color = LoomaTokens.colors.card,
-        border = if (isSelected) BorderStroke(2.dp, LoomaTokens.colors.accent) else null,
+        color = colors.container,
     ) {
-        FolderRowContent(item, nameLines)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FolderIcon(tint = folderIconTint(isSelected))
+            Spacer(Modifier.width(12.dp))
+            FolderName(
+                name = item.name,
+                color = colors.title,
+                maxLines = 2,
+                modifier = Modifier.weight(1f).padding(vertical = 12.dp),
+            )
+            if (isSelected) {
+                Spacer(Modifier.width(8.dp))
+                SelectedCheck()
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun HomeFolderGroup(
+    folders: List<HomeFolderItem>,
+    selected: FolderPath?,
+    onFolderClick: (HomeFolderItem) -> Unit,
+    onFolderLongClick: (HomeFolderItem) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (folders.isEmpty()) return
+    val actionsLabel = stringResource(R.string.home_folder_actions_description)
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+    ) {
+        folders.forEachIndexed { index, folder ->
+            val isSelected = folder.path == selected
+            val colors = homeCardColors(isSelected)
+            val iconTint = folderIconTint(isSelected)
+            SegmentedListItem(
+                onClick = { onFolderClick(folder) },
+                onLongClick = { onFolderLongClick(folder) },
+                onLongClickLabel = actionsLabel,
+                shapes = ListItemDefaults.segmentedShapes(index, folders.size),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = colors.container,
+                    contentColor = colors.title,
+                    leadingContentColor = iconTint,
+                    trailingContentColor = colors.title,
+                ),
+                modifier = Modifier.semantics { this.selected = isSelected },
+                leadingContent = { FolderIcon(tint = iconTint) },
+                trailingContent = if (isSelected) {
+                    { SelectedCheck() }
+                } else {
+                    null
+                },
+            ) {
+                FolderName(name = folder.name, color = colors.title, maxLines = 1)
+            }
+        }
     }
 }
 
 @Composable
-private fun FolderRowContent(item: HomeFolderItem, nameLines: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        LoomaIcon(
-            iconRes = R.drawable.folder_open_24px,
-            contentDescription = null,
-            modifier = Modifier.size(26.dp),
-            tint = Color.Unspecified,
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = item.name,
-            style = LoomaTokens.type.folderName,
-            color = LoomaTokens.colors.title,
-            maxLines = nameLines,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).padding(vertical = 12.dp),
-        )
-    }
+private fun folderIconTint(isSelected: Boolean): Color =
+    if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else LoomaTokens.colors.muted
+
+@Composable
+private fun FolderIcon(tint: Color) {
+    LoomaIcon(
+        iconRes = R.drawable.ic_folder,
+        contentDescription = null,
+        tint = tint,
+    )
+}
+
+@Composable
+private fun SelectedCheck() {
+    LoomaIcon(
+        iconRes = R.drawable.ic_check,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+    )
+}
+
+@Composable
+private fun FolderName(
+    name: String,
+    color: Color,
+    maxLines: Int,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = name,
+        style = LoomaTokens.type.folderName,
+        color = color,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
 }

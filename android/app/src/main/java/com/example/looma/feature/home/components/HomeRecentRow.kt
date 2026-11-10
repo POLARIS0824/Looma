@@ -7,9 +7,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
@@ -69,44 +71,46 @@ private fun HomeRecentCard(
 ) {
     val shape = RoundedCornerShape(20.dp)
     val selectLabel = stringResource(R.string.home_select_note_label)
+    val colors = homeCardColors(isSelected)
     Surface(
         modifier = modifier
             .width(RecentCardWidth)
-            .height(RecentCardHeight)
+            .heightIn(min = RecentCardMinHeight)
             .clip(shape)
             .combinedClickable(
                 onLongClickLabel = selectLabel,
                 onLongClick = onLongClick,
                 onClick = onClick,
-            ),
+            )
+            .semantics { selected = isSelected },
         shape = shape,
-        color = LoomaTokens.colors.card,
+        color = colors.container,
         border = if (isSelected) BorderStroke(2.dp, LoomaTokens.colors.accent) else null,
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
             Text(
                 text = item.note.summary.title,
                 style = LoomaTokens.type.cardTitle,
-                color = LoomaTokens.colors.title,
+                color = colors.title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(6.dp))
-            Box(Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
+            Box(Modifier.fillMaxWidth().height(RecentPreviewHeight).clipToBounds()) {
                 if (item.markdown.isBlank()) {
                     Text(
                         text = stringResource(R.string.home_empty_note),
                         style = LoomaTokens.type.cardBody,
-                        color = LoomaTokens.colors.muted,
+                        color = colors.body,
                     )
                 } else {
-                    MarkdownPreview(markdown = item.markdown)
+                    MarkdownPreview(markdown = item.markdown, textColor = colors.body)
                 }
                 Box(
                     Modifier.matchParentSize().background(
                         Brush.verticalGradient(
                             0.72f to Color.Transparent,
-                            1f to LoomaTokens.colors.card,
+                            1f to colors.container,
                         ),
                     ),
                 )
@@ -116,4 +120,5 @@ private fun HomeRecentCard(
 }
 
 private val RecentCardWidth = 168.dp
-private val RecentCardHeight = 152.dp
+private val RecentCardMinHeight = 152.dp
+private val RecentPreviewHeight = 96.dp

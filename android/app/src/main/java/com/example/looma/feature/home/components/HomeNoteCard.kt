@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -40,6 +42,7 @@ internal fun HomeNoteCard(
 ) {
     val shape = RoundedCornerShape(20.dp)
     val selectLabel = stringResource(R.string.home_select_note_label)
+    val colors = homeCardColors(isSelected)
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -51,11 +54,8 @@ internal fun HomeNoteCard(
             )
             .semantics { selected = isSelected },
         shape = shape,
-        color = LoomaTokens.colors.card,
-        border = BorderStroke(
-            if (isSelected) 2.dp else 1.dp,
-            if (isSelected) LoomaTokens.colors.accent else LoomaTokens.colors.divider,
-        ),
+        color = colors.container,
+        border = if (isSelected) BorderStroke(2.dp, LoomaTokens.colors.accent) else null,
     ) {
         Column {
             note.coverPath?.let { path ->
@@ -71,7 +71,7 @@ internal fun HomeNoteCard(
                 Text(
                     text = note.summary.title,
                     style = LoomaTokens.type.homeNoteTitle,
-                    color = LoomaTokens.colors.title,
+                    color = colors.title,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -79,7 +79,7 @@ internal fun HomeNoteCard(
                     Text(
                         text = stringResource(R.string.home_empty_note),
                         style = LoomaTokens.type.homeNotePreview.body,
-                        color = LoomaTokens.colors.muted,
+                        color = colors.body,
                     )
                 } else {
                     Box(
@@ -91,13 +91,13 @@ internal fun HomeNoteCard(
                         MarkdownPreview(
                             markdown = note.markdownSnippet,
                             typography = LoomaTokens.type.homeNotePreview,
-                            textColor = LoomaTokens.colors.body,
+                            textColor = colors.body,
                         )
                         Box(
                             Modifier.matchParentSize().background(
                                 Brush.verticalGradient(
                                     0.72f to Color.Transparent,
-                                    1f to LoomaTokens.colors.card,
+                                    1f to colors.container,
                                 ),
                             ),
                         )
@@ -108,7 +108,7 @@ internal fun HomeNoteCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        note.summary.tags.take(2).forEach { tag -> HomeChip("#$tag") }
+                        note.summary.tags.take(2).forEach { tag -> HomeChip("#$tag", isSelected) }
                     }
                 }
             }
@@ -117,18 +117,36 @@ internal fun HomeNoteCard(
 }
 
 @Composable
-private fun HomeChip(label: String) {
+private fun HomeChip(label: String, onSelectedCard: Boolean) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = LoomaTokens.colors.chip,
+        color = if (onSelectedCard) LoomaTokens.colors.card else LoomaTokens.colors.chip,
     ) {
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             style = LoomaTokens.type.cardMeta,
-            color = LoomaTokens.colors.onChip,
+            color = if (onSelectedCard) LoomaTokens.colors.body else LoomaTokens.colors.onChip,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Immutable
+internal data class HomeCardColors(
+    val container: Color,
+    val title: Color,
+    val body: Color,
+)
+
+@Composable
+internal fun homeCardColors(isSelected: Boolean): HomeCardColors {
+    val scheme = MaterialTheme.colorScheme
+    val colors = LoomaTokens.colors
+    return if (isSelected) {
+        HomeCardColors(scheme.secondaryContainer, scheme.onSecondaryContainer, scheme.onSecondaryContainer)
+    } else {
+        HomeCardColors(colors.card, colors.title, colors.body)
     }
 }

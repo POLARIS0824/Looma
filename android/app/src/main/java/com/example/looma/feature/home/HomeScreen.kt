@@ -30,16 +30,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.LargeFloatingActionButton
+import androidx.compose.material3.FabPosition
+import androidx.compose.material3.FloatingToolbarDefaults
+import androidx.compose.material3.FloatingToolbarExitDirection
+import androidx.compose.material3.FloatingToolbarScrollBehavior
+import androidx.compose.material3.HorizontalFloatingToolbar
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -60,11 +67,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -231,6 +240,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
 ) {
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
+    val toolbarScrollBehavior = FloatingToolbarDefaults.exitAlwaysScrollBehavior(FloatingToolbarExitDirection.Bottom)
     var sortSheetVisible by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
@@ -254,7 +264,10 @@ fun HomeScreen(
 
     Box(modifier.fillMaxSize()) {
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .nestedScroll(toolbarScrollBehavior),
             containerColor = LoomaTokens.colors.page,
             topBar = {
                 AnimatedContent(
@@ -295,8 +308,6 @@ fun HomeScreen(
                             state = state,
                             scrollBehavior = scrollBehavior,
                             onQueryChange = actions.onQueryChange,
-                            onToggleLayout = actions.onToggleLayout,
-                            onSortClick = { sortSheetVisible = true },
                             onSearchSubmit = actions.onSearchSubmit,
                             onSearchResultClick = actions.onSearchResultClick,
                             onMenuClick = actions.onMenuClick,
@@ -307,13 +318,18 @@ fun HomeScreen(
             },
             floatingActionButton = {
                 if (!state.isSelecting) {
-                    HomeActionButtons(
+                    HomeActionToolbar(
                         isCreating = state.isCreating,
+                        isGridMode = state.isGridMode,
+                        scrollBehavior = toolbarScrollBehavior,
                         onCreateFolderClick = actions.onCreateFolderClick,
+                        onToggleLayout = actions.onToggleLayout,
+                        onSortClick = { sortSheetVisible = true },
                         onCreateNoteClick = actions.onCreateNoteClick,
                     )
                 }
             },
+            floatingActionButtonPosition = FabPosition.Center,
             snackbarHost = { SnackbarHost(snackbarHostState) },
         ) { innerPadding ->
             PullToRefreshBox(
@@ -335,6 +351,8 @@ fun HomeScreen(
                     actions = actions.copy(onRecentRevealed = { request ->
                         scrollBehavior.scrollState.scrollOffset = 0f
                         scrollBehavior.scrollState.contentOffset = 0f
+                        toolbarScrollBehavior.state.offset = 0f
+                        toolbarScrollBehavior.state.contentOffset = 0f
                         actions.onRecentRevealed(request)
                     }),
                 )
@@ -466,53 +484,55 @@ private fun HomeSortSheet(current: HomeSort, onSelect: (HomeSort) -> Unit) {
             color = LoomaTokens.colors.title,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
         )
-        HomeSortOption(
-            label = stringResource(R.string.home_sort_last_modified),
-            selected = current == HomeSort.LAST_MODIFIED,
-            onClick = { onSelect(HomeSort.LAST_MODIFIED) },
-        )
-        HomeSortOption(
-            label = stringResource(R.string.home_sort_title),
-            selected = current == HomeSort.TITLE,
-            onClick = { onSelect(HomeSort.TITLE) },
-        )
-        HomeSortOption(
-            label = stringResource(R.string.home_sort_title_descending),
-            selected = current == HomeSort.TITLE_DESCENDING,
-            onClick = { onSelect(HomeSort.TITLE_DESCENDING) },
-        )
+        Column(Modifier.selectableGroup()) {
+            HomeSortOption(
+                label = stringResource(R.string.home_sort_last_modified),
+                selected = current == HomeSort.LAST_MODIFIED,
+                onClick = { onSelect(HomeSort.LAST_MODIFIED) },
+            )
+            HomeSortOption(
+                label = stringResource(R.string.home_sort_title),
+                selected = current == HomeSort.TITLE,
+                onClick = { onSelect(HomeSort.TITLE) },
+            )
+            HomeSortOption(
+                label = stringResource(R.string.home_sort_title_descending),
+                selected = current == HomeSort.TITLE_DESCENDING,
+                onClick = { onSelect(HomeSort.TITLE_DESCENDING) },
+            )
+        }
     }
 }
 
 @Composable
 private fun HomeSortOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(28.dp),
-        color = if (selected) LoomaTokens.colors.chip else Color.Transparent,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+    val shape = RoundedCornerShape(28.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .clip(shape)
+            .background(if (selected) LoomaTokens.colors.chip else Color.Transparent)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (selected) {
-                LoomaIcon(
-                    iconRes = R.drawable.ic_check,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                    tint = LoomaTokens.colors.accent,
-                )
-            } else {
-                Spacer(Modifier.width(22.dp))
-            }
-            Spacer(Modifier.width(16.dp))
-            Text(
-                text = label,
-                style = LoomaTokens.type.body,
-                color = LoomaTokens.colors.title,
+        if (selected) {
+            LoomaIcon(
+                iconRes = R.drawable.ic_check,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = LoomaTokens.colors.onChip,
             )
+        } else {
+            Spacer(Modifier.width(22.dp))
         }
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text = label,
+            style = LoomaTokens.type.body,
+            color = if (selected) LoomaTokens.colors.onChip else LoomaTokens.colors.title,
+        )
     }
 }
 
@@ -608,25 +628,16 @@ private fun StalledRelocationBanner(
     isActionRunning: Boolean,
     onAbandonClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = stringResource(
-                R.string.home_stalled_relocation_banner,
-                stalled.sourcePath,
-                stalled.destinationPath,
-            ),
-            style = LoomaTokens.type.cardBody,
-            color = LoomaTokens.colors.error,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onAbandonClick, enabled = !isActionRunning) {
-            Text(stringResource(R.string.home_stalled_relocation_abandon))
-        }
-    }
+    HomeErrorContainer(
+        message = stringResource(
+            R.string.home_stalled_relocation_banner,
+            stalled.sourcePath,
+            stalled.destinationPath,
+        ),
+        actionLabel = stringResource(R.string.home_stalled_relocation_abandon),
+        actionEnabled = !isActionRunning,
+        onActionClick = onAbandonClick,
+    )
 }
 
 @Composable
@@ -636,66 +647,100 @@ private fun HomeErrorBanner(error: HomeError, onRetryClick: () -> Unit) {
         HomeError.LoadFailed -> stringResource(R.string.home_error_load)
         HomeError.CreateFailed -> stringResource(R.string.home_error_create)
     }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    HomeErrorContainer(
+        message = message,
+        actionLabel = stringResource(R.string.home_retry),
+        actionEnabled = true,
+        onActionClick = onRetryClick,
+    )
+}
+
+@Composable
+private fun HomeErrorContainer(
+    message: String,
+    actionLabel: String,
+    actionEnabled: Boolean,
+    onActionClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.large,
+        color = scheme.errorContainer,
+        contentColor = scheme.onErrorContainer,
     ) {
-        Text(
-            text = message,
-            style = LoomaTokens.type.cardBody,
-            color = LoomaTokens.colors.error,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onRetryClick) {
-            Text(stringResource(R.string.home_retry))
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = message,
+                style = LoomaTokens.type.cardBody,
+                color = scheme.onErrorContainer,
+                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+            )
+            TextButton(
+                onClick = onActionClick,
+                enabled = actionEnabled,
+                colors = ButtonDefaults.textButtonColors(contentColor = scheme.onErrorContainer),
+            ) {
+                Text(actionLabel)
+            }
         }
     }
 }
-
 @Composable
 private fun HomeCentered(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun HomeActionButtons(
+private fun HomeActionToolbar(
     isCreating: Boolean,
+    isGridMode: Boolean,
+    scrollBehavior: FloatingToolbarScrollBehavior,
     onCreateFolderClick: () -> Unit,
+    onToggleLayout: () -> Unit,
+    onSortClick: () -> Unit,
     onCreateNoteClick: () -> Unit,
 ) {
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    HorizontalFloatingToolbar(
+        expanded = true,
+        scrollBehavior = scrollBehavior,
+        floatingActionButton = {
+            FloatingToolbarDefaults.VibrantFloatingActionButton(onClick = onCreateNoteClick) {
+                if (isCreating) {
+                    LoomaLoadingIndicator(size = 32.dp, color = LocalContentColor.current)
+                } else {
+                    LoomaIcon(
+                        iconRes = R.drawable.ic_add,
+                        contentDescription = stringResource(R.string.home_create_note_description),
+                    )
+                }
+            }
+        },
     ) {
-        SmallFloatingActionButton(
-            onClick = onCreateFolderClick,
-            modifier = Modifier.size(58.dp),
-            shape = RoundedCornerShape(20.dp),
-            containerColor = LoomaTokens.colors.accentContainer,
-        ) {
+        IconButton(onClick = onCreateFolderClick) {
             LoomaIcon(
                 iconRes = R.drawable.ic_folder_plus,
                 contentDescription = stringResource(R.string.home_new_folder_description),
-                modifier = Modifier.size(26.dp),
             )
         }
-
-        LargeFloatingActionButton(
-            onClick = onCreateNoteClick,
-            modifier = Modifier.size(88.dp),
-            shape = RoundedCornerShape(28.dp),
-            containerColor = LoomaTokens.colors.accentContainer,
-        ) {
-            if (isCreating) {
-                CircularProgressIndicator(Modifier.size(28.dp))
-            } else {
-                LoomaIcon(
-                    iconRes = R.drawable.ic_add,
-                    contentDescription = stringResource(R.string.home_create_note_description),
-                    modifier = Modifier.size(38.dp),
-                )
-            }
+        IconButton(onClick = onToggleLayout) {
+            LoomaIcon(
+                iconRes = if (isGridMode) R.drawable.ic_view_agenda else R.drawable.ic_grid,
+                contentDescription = stringResource(
+                    if (isGridMode) R.string.home_switch_to_list_description else R.string.home_switch_to_grid_description,
+                ),
+            )
+        }
+        IconButton(onClick = onSortClick) {
+            LoomaIcon(
+                iconRes = R.drawable.ic_swap_vert,
+                contentDescription = stringResource(R.string.home_sort_description),
+            )
         }
     }
 }
