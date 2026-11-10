@@ -38,6 +38,7 @@ import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -93,8 +94,8 @@ import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.compose.animation.EnterExitState
 import com.example.looma.feature.note.components.WikiLinkPanel
 import com.example.looma.feature.note.components.wikiReferenceFor
+import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.components.LoomaLoadingIndicator
 import com.example.looma.ui.markdown.LocalImageSourceResolver
 import com.example.looma.ui.markdown.MarkdownBody
 import com.example.looma.ui.theme.LoomaTheme
@@ -623,7 +624,7 @@ private fun NoteLoadingScreen(
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentAlignment = Alignment.Center,
         ) {
-            LoomaLoadingIndicator()
+            DelayedLoadingIndicator(loading = true)
         }
     }
 }
@@ -655,9 +656,9 @@ private fun NoteLoadErrorScreen(
             Text(
                 text = stringResource(R.string.editor_load_failed),
                 style = LoomaTokens.type.supporting,
-                color = MaterialTheme.colorScheme.error,
+                color = MaterialTheme.colorScheme.onSurface,
             )
-            TextButton(onClick = onRetry) { Text(stringResource(R.string.editor_reload)) }
+            FilledTonalButton(onClick = onRetry) { Text(stringResource(R.string.editor_reload)) }
         }
     }
 }
