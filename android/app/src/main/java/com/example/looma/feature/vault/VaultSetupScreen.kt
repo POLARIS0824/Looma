@@ -11,9 +11,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,17 +20,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -40,8 +39,6 @@ import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -50,6 +47,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.ui.components.DelayedLoadingIndicator
+import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTheme
 import com.example.looma.ui.theme.LoomaTokens
 
@@ -72,9 +70,14 @@ fun VaultSetupScreen(
     }
     val motion = MaterialTheme.motionScheme
 
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
-            Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 24.dp),
+            Modifier
+                .fillMaxSize()
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = 640.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 24.dp),
         ) {
             Column(
                 modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -176,10 +179,10 @@ private fun VaultSetupHeader() {
             ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                painter = painterResource(R.drawable.folder_open_24px),
+            LoomaIcon(
+                iconRes = R.drawable.ic_folder,
                 contentDescription = null,
-                tint = Color.Unspecified,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.size(44.dp),
             )
         }
@@ -243,11 +246,11 @@ private fun VaultFolderCard(
                 )
             }
             if (pending && previousFolderName != null) {
-                HorizontalDivider(color = colors.onPrimaryContainer.copy(alpha = 0.16f))
+                HorizontalDivider(color = colors.outlineVariant)
                 Text(
                     text = stringResource(R.string.vault_setup_previous, previousFolderName),
                     style = MaterialTheme.typography.labelLarge,
-                    color = colors.onPrimaryContainer.copy(alpha = 0.72f),
+                    color = colors.onPrimaryContainer,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -292,78 +295,28 @@ private fun VaultSetupActions(
     val secondaryLabel = stringResource(
         if (content is VaultContent.Pending) R.string.vault_setup_reselect else R.string.vault_setup_change,
     )
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val narrow = maxWidth < 305.dp
-        if (narrow) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                PrimaryVaultButton(primaryLabel, busy, onConfirmClick, Modifier.fillMaxWidth())
-                FilledTonalButton(
-                    onClick = onChooseFolderClick,
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = height),
-                ) { Text(secondaryLabel) }
-            }
-        } else {
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(
-                    ButtonGroupDefaults.ConnectedSpaceBetween
-                ),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                FilledTonalButton(
-                    onClick = onChooseFolderClick,
-                    enabled = !busy,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = height),
-                    shape = ButtonGroupDefaults.connectedLeadingButtonShape,
-                    contentPadding = ButtonDefaults.contentPaddingFor(height),
-                ) {
-                    Text(
-                        text = secondaryLabel,
-                        style = ButtonDefaults.textStyleFor(height),
-                        maxLines = 1,
-                    )
-                }
-
-                PrimaryVaultButton(
-                    text = primaryLabel,
-                    busy = busy,
-                    onClick = onConfirmClick,
-                    modifier = Modifier.weight(1f),
-                    shape = ButtonGroupDefaults.connectedTrailingButtonShape,
-                )
-            }
-
-        }
-    }
-}
-
-@Composable
-private fun PrimaryVaultButton(
-    text: String,
-    busy: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    shape: androidx.compose.ui.graphics.Shape = ButtonDefaults.shape,
-) {
-    val height = ButtonDefaults.MediumContainerHeight
-    Button(
-        onClick = onClick,
-        enabled = !busy,
-        shape = shape,
-        contentPadding = ButtonDefaults.contentPaddingFor(height),
-        modifier = modifier.heightIn(min = height),
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            Text(
-                text = text,
-                style = ButtonDefaults.textStyleFor(height),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        FilledTonalButton(
+            onClick = onChooseFolderClick,
+            enabled = !busy,
+            shapes = ButtonDefaults.shapes(),
+            modifier = Modifier.weight(1f).heightIn(min = height),
+            contentPadding = ButtonDefaults.contentPaddingFor(height),
+        ) {
+            Text(text = secondaryLabel, style = ButtonDefaults.textStyleFor(height))
+        }
+        Button(
+            onClick = onConfirmClick,
+            enabled = !busy,
+            shapes = ButtonDefaults.shapes(),
+            modifier = Modifier.weight(1f).heightIn(min = height),
+            contentPadding = ButtonDefaults.contentPaddingFor(height),
+        ) {
+            Text(text = primaryLabel, style = ButtonDefaults.textStyleFor(height))
         }
     }
 }
