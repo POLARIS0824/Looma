@@ -11,14 +11,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.AnimationVector
-import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.FiniteAnimationSpec
-import androidx.compose.animation.core.TwoWayConverter
-import androidx.compose.animation.core.VectorConverter
-import androidx.compose.animation.core.VectorizedFiniteAnimationSpec
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -231,7 +223,9 @@ private fun NoteWorkspace(
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val modeFade = rememberFadeThrough()
+    val motion = MaterialTheme.motionScheme
+    val modeEnter = fadeIn(motion.defaultEffectsSpec())
+    val modeExit = fadeOut(motion.fastEffectsSpec())
     val appBarState = rememberTopAppBarState()
     val appBarScroll = TopAppBarDefaults.pinnedScrollBehavior(
         scrollableState = if (mode == NoteMode.Read) readScroll else editScroll,
@@ -345,7 +339,7 @@ private fun NoteWorkspace(
             AnimatedContent(
                 targetState = mode,
                 modifier = Modifier.weight(1f),
-                transitionSpec = { modeFade.enter togetherWith modeFade.exit using null },
+                transitionSpec = { modeEnter togetherWith modeExit using null },
                 label = "note-mode",
             ) { shownMode ->
                 when (shownMode) {
@@ -567,57 +561,6 @@ private fun imageErrorText(resources: Resources, error: NoteImageError): String 
 private const val MARKER_LENGTH = 3
 private const val CHECKED_MARKER = "[x]"
 private const val UNCHECKED_MARKER = "[ ]"
-
-private class FadeThrough(val enter: EnterTransition, val exit: ExitTransition)
-
-@Composable
-private fun rememberFadeThrough(): FadeThrough {
-    val motion = MaterialTheme.motionScheme
-    val outSpec = motion.fastEffectsSpec<Float>()
-    val inSpec = motion.defaultEffectsSpec<Float>()
-    return remember(outSpec, inSpec) {
-        val outNanos = outSpec.vectorize(Float.VectorConverter).getDurationNanos(
-            initialValue = AnimationVector1D(1f),
-            targetValue = AnimationVector1D(0f),
-            initialVelocity = AnimationVector1D(0f),
-        )
-        FadeThrough(
-            enter = fadeIn(DelayedSpec(inSpec, outNanos)),
-            exit = fadeOut(outSpec),
-        )
-    }
-}
-
-private class DelayedSpec<T>(
-    private val base: FiniteAnimationSpec<T>,
-    private val delayNanos: Long,
-) : FiniteAnimationSpec<T> {
-    override fun <V : AnimationVector> vectorize(
-        converter: TwoWayConverter<T, V>,
-    ): VectorizedFiniteAnimationSpec<V> = DelayedVectorizedSpec(base.vectorize(converter), delayNanos)
-}
-
-private class DelayedVectorizedSpec<V : AnimationVector>(
-    private val base: VectorizedFiniteAnimationSpec<V>,
-    private val delayNanos: Long,
-) : VectorizedFiniteAnimationSpec<V> {
-    override fun getValueFromNanos(playTimeNanos: Long, initialValue: V, targetValue: V, initialVelocity: V): V =
-        if (playTimeNanos < delayNanos) {
-            initialValue
-        } else {
-            base.getValueFromNanos(playTimeNanos - delayNanos, initialValue, targetValue, initialVelocity)
-        }
-
-    override fun getVelocityFromNanos(playTimeNanos: Long, initialValue: V, targetValue: V, initialVelocity: V): V =
-        if (playTimeNanos < delayNanos) {
-            initialVelocity
-        } else {
-            base.getVelocityFromNanos(playTimeNanos - delayNanos, initialValue, targetValue, initialVelocity)
-        }
-
-    override fun getDurationNanos(initialValue: V, targetValue: V, initialVelocity: V): Long =
-        delayNanos + base.getDurationNanos(initialValue, targetValue, initialVelocity)
-}
 
 @Composable
 private fun NoteLoadingScreen(
