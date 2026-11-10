@@ -133,6 +133,7 @@
     <string name="settings_dynamic_color_unavailable">Not supported on this version of Android</string>
     <string name="settings_theme">Color theme</string>
     <string name="settings_theme_wallpaper">Wallpaper</string>
+    <string name="settings_theme_wallpaper_hint">Choosing a theme turns off dynamic color</string>
     <string name="settings_theme_dialog_title">Color theme</string>
     <string name="settings_theme_default">Looma</string>
     <string name="settings_theme_indigo">Indigo</string>
