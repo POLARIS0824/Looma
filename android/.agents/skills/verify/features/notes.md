@@ -4,10 +4,15 @@ Users create or open a note, edit its Markdown in one field, format it, switch t
 
 ## Sub-features
 
-- `note-create-save`: New note creates `Untitled note.md` (then `Untitled note (1).md`, …) in the current folder and opens the editor; typed Markdown persists after leaving and relaunch.
+- `note-create-save`: New note creates `Untitled note.md` in the current folder and opens the editor with the title field focused and the default name selected; typed Markdown persists after leaving and relaunch.
+- `note-title`: the filename is an editable title. With Show inline title on it sits above the body in Edit and Read; off it moves to a centered, smaller top-bar field. Typing a new name and committing (Done or focus loss) renames the file and rewrites wiki links; a taken name shows a snackbar and reverts. A new note names its file by typing into the focused title, so `Untitled note (1).md` no longer accumulates.
 - `note-open`: Recent cards, Notes cards and search results each open the selected note in Edit mode.
+<<<<<<< Updated upstream
 - `note-read-edit`: the top-bar Read/Edit toggle preserves content. Read shows the inline title (the file name, display only and scrolling with the body), the rendered body and backlinks; tapping a checkbox rewrites `[ ]`/`[x]`.
 - `note-rename`: editing the file name in the inline title (or in the top bar when Show inline title is off) in Edit mode renames the file in place and retargets wiki links. Read never edits the name. A snackbar reports backlinks updated or failed.
+=======
+- `note-read-edit`: the top-bar Read/Edit toggle preserves content. Read shows the editable filename title, the rendered body and backlinks; tapping a checkbox rewrites `[ ]`/`[x]`.
+>>>>>>> Stashed changes
 - `note-format`: toolbar actions, Undo/Redo and the configured toolbar order change the Markdown.
 - `note-links`: Link a note inserts a wiki link; Read resolves it, opens the target, and the target lists `Backlinks · N`; a missing target shows a snackbar.
 - `note-images`: Insert image picks a photo, writes `<first 16 hex of SHA-256>.<ext>` at the vault root and inserts `![[…]]` (Local attachment), or uploads to S3 and inserts `![](url)` (Image bed). Read renders `![](…)`, `![[…]]` and sized `![[x.png|300]]`.
