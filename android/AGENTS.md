@@ -5,7 +5,7 @@
 - 除非明确说明，否则不要写文档和注释
 - 如果遇到决策问题，都优先和 Obsidian 对齐
 - 不用迁移数据库，还在个人开发阶段
-- 使用过 AVD 后记得关闭
+- 每次用完 AVD 都要关闭模拟器进程。用 verify skill 时执行 `v cleanup`，再确认 `adb devices` 里没有 `emulator-*`。
 
 ## 技术选型
 
@@ -65,7 +65,7 @@
     - `settings/`：设置页。`SettingsViewModel` 用 `stateIn(WhileSubscribed(5_000))`。
     - `vault/`：选择 vault。`VaultSetupViewModel` 是 Activity 级的，设置页也用它。没有权限时，`VaultPicker` 跳到“所有文件访问权限”页面。有权限后，它打开 `OpenDocumentTree`。
   - `ui/`
-    - `theme/`：`LoomaTheme` 套用 `MaterialExpressiveTheme`。Dynamic Color 开启且 API 31+ 时使用壁纸配色，忽略主题预设。`Palettes` 用 HSL 从种子色计算预设配色，每个 on 色都保证对比度（`PalettesTest`）。`Type.kt` 给每个 M3 字体角色设置 Google Sans Flex 可变字体的 `wght`、`wdth`、`opsz` 和 `ROND`。`LoomaTokens` 把 M3 角色映射成语义名，例如 `page`、`card`、`muted` 和 `noteBody`。页面通过 `LoomaTokens.colors` 和 `LoomaTokens.type` 取用。
+    - `theme/`：`LoomaTheme` 套用 `MaterialExpressiveTheme`。Dynamic Color 开启且 API 31+ 时使用壁纸配色，忽略主题预设。`Palettes.kt` 只按预设选浅色或深色，预设由 `tools/color/generate_preset_schemes.mjs` 用 `material-color-utilities` 的 `SchemeTonalSpot` 生成到 `PresetSchemes.kt`，`PalettesTest` 检查各角色配对的对比度和 surface container 的明暗顺序。`Type.kt` 给每个 M3 字体角色设置 Google Sans Flex 可变字体的 `wght`、`wdth`、`opsz` 和 `ROND`。`LoomaTokens` 把 M3 角色映射成语义名，例如 `page`、`card`、`muted` 和 `noteBody`。页面通过 `LoomaTokens.colors` 和 `LoomaTokens.type` 取用。
     - `markdown/`：用 mikepenz 的 `multiplatform-markdown-renderer-m3` 渲染，公式用 RaTeX 渲染。
       `MarkdownBody` 是阅读视图，checkbox 和 wiki link 都能点，并显示图片和公式。`MarkdownPreview` 是卡片预览，不显示图片。`LoomaMarkdown` 定义主题和自定义组件。单个换行渲染为换行（`eolAsNewLine`），与 Obsidian 一致。
       `SynthItalic` 给斜体文字加 `skewX`，没有斜体字形的文字（例如中文）也会倾斜。`WikiLinkText` 在渲染后的文本里标出 wiki link，未解析的链接也能点。`MarkdownImage` 的 `LocalImageSourceResolver` 默认返回 null，页面提供它之后才显示图片。
