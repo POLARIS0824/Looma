@@ -27,7 +27,7 @@ v launch --avd looma36 --port 5580
 
 On Linux/macOS use `./gradlew` for the build; the helper locates the SDK's platform-specific executables. Those hosts were not exercised during creation.
 
-`launch` starts one headless emulator with `-read-only -no-snapshot`, records its PID/serial and a guest ownership marker, removes any old Looma installation **only inside that disposable overlay**, installs the built APK, creates an empty `/sdcard/Documents/<run-name>` vault directory, and opens the real launcher. It waits for boot, the visible `Choose a Looma vault` screen, and doctor success. No app preferences, DB rows, vault paths, permission grants or note contents are injected. Connect the empty directory using the UI recipe in [vault.md](features/vault.md). Ready for feature drives means the connected Home has `New note` and the empty-vault message; a booted emulator alone is insufficient.
+`launch` starts one headless emulator with `-read-only -no-snapshot`, records its PID/serial and a guest ownership marker, removes any old Looma installation **only inside that disposable overlay**, installs the built APK, creates an empty `/sdcard/Documents/<run-name>` vault directory, and opens the real launcher. It waits for boot, the visible `Choose a Looma vault` screen, and doctor success. No app preferences, DB rows, vault paths, permission grants or note contents are injected. Connect the empty directory using the UI recipe in [vault.md](features/vault.md). Ready for feature drives means the connected Home has `Create new` and the empty-vault message; a booted emulator alone is insufficient.
 
 Keep this one instance alive and drive it serially. Do not share it with another agent or target a physical device. The helper refuses occupied emulator ports and reused run directories. Separate runs may use distinct even ports, run directories and read-only overlays; there must be only one UI driver per serial. Never point a recipe at a personal vault. A failed launch attempts cleanup automatically; inspect `session.json` and `emulator.log` if cleanup reports failure.
 
@@ -49,7 +49,8 @@ The standard-library ADB helper resolves **current** accessibility text, descrip
 
 ```nu
 v ui
-v tap --desc 'New note'
+v tap --desc 'Create new'
+v tap --text 'New note'
 v tap --class android.widget.EditText
 v text '# Verification note'
 v key KEYCODE_ENTER

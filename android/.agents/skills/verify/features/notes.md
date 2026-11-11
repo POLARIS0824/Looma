@@ -7,12 +7,8 @@ Users create or open a note, edit its Markdown in one field, format it, switch t
 - `note-create-save`: New note creates `Untitled note.md` in the current folder and opens the editor with the title field focused and the default name selected; typed Markdown persists after leaving and relaunch.
 - `note-title`: the filename is an editable title. With Show inline title on it sits above the body in Edit and Read; off it moves to a centered, smaller top-bar field. Typing a new name and committing (Done or focus loss) renames the file and rewrites wiki links; a taken name shows a snackbar and reverts. A new note names its file by typing into the focused title, so `Untitled note (1).md` no longer accumulates.
 - `note-open`: Recent cards, Notes cards and search results each open the selected note in Edit mode.
-<<<<<<< Updated upstream
 - `note-read-edit`: the top-bar Read/Edit toggle preserves content. Read shows the inline title (the file name, display only and scrolling with the body), the rendered body and backlinks; tapping a checkbox rewrites `[ ]`/`[x]`.
 - `note-rename`: editing the file name in the inline title (or in the top bar when Show inline title is off) in Edit mode renames the file in place and retargets wiki links. Read never edits the name. A snackbar reports backlinks updated or failed.
-=======
-- `note-read-edit`: the top-bar Read/Edit toggle preserves content. Read shows the editable filename title, the rendered body and backlinks; tapping a checkbox rewrites `[ ]`/`[x]`.
->>>>>>> Stashed changes
 - `note-format`: toolbar actions, Undo/Redo and the configured toolbar order change the Markdown.
 - `note-links`: Link a note inserts a wiki link; Read resolves it, opens the target, and the target lists `Backlinks · N`; a missing target shows a snackbar.
 - `note-images`: Insert image picks a photo, writes `<first 16 hex of SHA-256>.<ext>` at the vault root and inserts `![[…]]` (Local attachment), or uploads to S3 and inserts `![](url)` (Image bed). Read renders `![](…)`, `![[…]]` and sized `![[x.png|300]]`.
@@ -21,7 +17,7 @@ Users create or open a note, edit its Markdown in one field, format it, switch t
 
 ## How to get to it (user POV)
 
-- Home → New note (in the current folder).
+- Home → Create new → New note (in the current folder).
 - Tap a card in Recent, Notes or folder contents, or a search result.
 - A resolved wiki link or a backlink opens its target; Back returns to the prior note.
 
@@ -29,7 +25,7 @@ Users create or open a note, edit its Markdown in one field, format it, switch t
 
 Preconditions: connected empty Home, English UI, doctor passes. Create fixtures through New note.
 
-- **Create.** `v tap --desc 'New note'`. With Show inline title on (the default) the editor has two `android.widget.EditText` nodes: the single-line file name `Untitled note`, focused and selected on a new note, and the Markdown body with placeholder `Start writing Markdown…`. `v tap --class android.widget.EditText --index 1`; `v text '# Verification note'`; `v key KEYCODE_ENTER`; `v text 'Persistence marker #verify'`; `v key KEYCODE_ENTER`; `v tap --desc Bold`; `v text formatted`.
+- **Create.** `v tap --desc 'Create new'`; `v tap --text 'New note'`. With Show inline title on (the default) the editor has two `android.widget.EditText` nodes: the single-line file name `Untitled note`, focused and selected on a new note, and the Markdown body with placeholder `Start writing Markdown…`. `v tap --class android.widget.EditText --index 1`; `v text '# Verification note'`; `v key KEYCODE_ENTER`; `v text 'Persistence marker #verify'`; `v key KEYCODE_ENTER`; `v tap --desc Bold`; `v text formatted`.
 - **Read/save.** `v tap --desc Read`. Read shows the inline title `Untitled note` (the file name) above the heading `Verification note`, and the title scrolls with the body; `formatted` renders bold. `v tap --desc Back`; `v files note-saved`. The file is `Untitled note.md` with `# Verification note`, `Persistence marker #verify` and `**formatted**`. The heading never renames the file.
 - **Rename.** In Edit, `v tap --class android.widget.EditText --index 0`; `v select-all`; `v text 'Weekly notes'`; `v key KEYCODE_ENTER`. Done commits once, moves focus to the body and renames the file (`v files`). In Read the title is display only, so switch back to Edit to rename. When other notes linked to it, a snackbar reports the backlinks updated or failed. With Show inline title off the same field sits in the top bar, editable in Edit and static text in Read.
 - **Persistence/open entries.** `v relaunch`; `v ui`. Home shows each note twice (Recent and Notes), so pass `--index`. The field text is the full saved Markdown. Repeat from the other card and from a search result; record each entry separately.

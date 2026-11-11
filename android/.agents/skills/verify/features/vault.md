@@ -24,8 +24,8 @@ Preconditions: a fresh healthy session; its empty folder `Documents/<session.jso
 - **Gate.** `v assert --text 'Choose a Looma vault'`; `v assert --text Connect --absent`; `v capture vault-gate`.
 - **Permission.** `v tap --text 'Choose folder'`; `v doctor --system`. On API 36 tap `v tap --text 'Allow access to manage all files'`, then `v key KEYCODE_BACK`. With access granted, the folder picker opens; without it the setup screen shows `Grant all files access to use a vault`.
 - **Picker.** `v doctor --system`. DocumentsUI may remember an old folder (on `looma36` it opens `Looma/notes`); `v key KEYCODE_BACK` twice reaches primary storage. Then `v tap --text Documents`; `v tap --text <owner>`; `v tap --text 'USE THIS FOLDER'`; `v tap --text ALLOW`. Never select a remembered personal folder.
-- **Pending and connect.** `v doctor`; `v assert --text Pending`; `v assert --text 'Waiting for confirmation'`; `v assert --text Reselect`; `v tap --text Connect`; `v assert --desc 'New note'`; `v assert --text 'No notes yet. Tap + to create one'`; `v files vault-empty`.
-- **Relaunch.** `v relaunch`; `v assert --desc 'New note'`; `v assert --text 'Choose a Looma vault' --absent`.
+- **Pending and connect.** `v doctor`; `v assert --text Pending`; `v assert --text 'Waiting for confirmation'`; `v assert --text Reselect`; `v tap --text Connect`; `v assert --desc 'Create new'`; `v assert --text 'No notes yet. Tap + to create one'`; `v files vault-empty`.
+- **Relaunch.** `v relaunch`; `v assert --desc 'Create new'`; `v assert --text 'Choose a Looma vault' --absent`.
 - **Change entry.** `v tap --desc Settings`; `v assert --text <owner>`; `v tap --text 'Change vault'`; `v assert --text 'Current folder'`; `v assert --text Connected`; `v assert --text 'Choose folder' --absent`. `v key KEYCODE_BACK` returns to Settings unchanged. To prove switching, tap `Change`, create a second run-owned folder with the picker's New folder action, select it and Connect; the drawer header and Settings then show the new name.
 
 ## Gotchas

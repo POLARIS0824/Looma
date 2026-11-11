@@ -18,14 +18,14 @@ Users browse folders and recent notes, change list/grid and sorting, search titl
 - Connected Home shows `Recent` (root only, up to 10 newest notes), `Folders` (only when folders exist) and `Notes`. Inside a folder there are no headers; a breadcrumb `Home / <folder>` with `Go up one folder` replaces them.
 - The search field is an EditText with description `Search`; its placeholder `Search <vault>` has no semantics.
 - Show as list, Show as grid and Sort sit in the collapsed search bar.
-- Long-press a note or folder. `New folder` and `New note` are floating actions, hidden during selection.
+- Long-press a note or folder. `New folder` and `New note` are menu actions behind the `Create new` toggle, hidden during selection.
 
 ## Driving it with control.py
 
 Preconditions: doctor passes on connected Home. Create two notes via [notes.md](notes.md); for relinking, one must link to the other.
 
 - **Layout/sort.** `v tap --desc 'Show as list'`; `v assert --desc 'Show as grid'`; `v tap --desc 'Show as grid'`. `v tap --desc Sort`; `v assert --text 'Sort by'`; `v tap --text 'Title A–Z'` (U+2013 dash; plain `Title` matches nothing). Repeat `Title Z–A` and `Last modified`. Check the Notes order, not Recent, which is always newest first. Folders always sort by name.
-- **Folder.** `v tap --desc 'New folder'`; `v assert --text 'Folder name'`; the dialog's field is then the only EditText: `v tap --class android.widget.EditText`; `v text Projects`; `v tap --text Create`; `v assert --text 'Folder created'` (its Undo deletes the folder). `v tap --text Projects`; `v assert --text 'This folder is empty'`; `v assert --text 'Home / Projects'`; `v tap --desc 'Go up one folder'`.
+- **Folder.** `v tap --desc 'Create new'`; `v tap --text 'New folder'`; `v assert --text 'Folder name'`; the dialog's field is then the only EditText: `v tap --class android.widget.EditText`; `v text Projects`; `v tap --text Create`; `v assert --text 'Folder created'` (its Undo deletes the folder). `v tap --text Projects`; `v assert --text 'This folder is empty'`; `v assert --text 'Home / Projects'`; `v tap --desc 'Go up one folder'`.
 - **File info.** `v tap --text '<title>' --index 1 --long` (index 1 is the Notes card; 0 is Recent). `v tap --desc 'File info'`: rows `Location`, `Size`, `Modified`, `Words`, `Characters` and, with checkboxes, `Checklist` / `1 of 1 done`. Location uses `›` between folders. Close with `v tap --text OK`.
 - **Rename and relink.** Long-press the linked target; `v tap --desc Rename`; `v assert --text 'File name'`; `v tap --class android.widget.EditText`; `v select-all`; `v text Renamed`; `v tap --text Save`. Expect `Renamed, 1 backlink(s) updated` (plain `Renamed` when no link changed). `v files` shows `Renamed.md` and the referrer now holding `[[Renamed|…]]`. `v tap --text Undo` right away; `v assert --text Undone`; the file name and the link return.
 - **Move.** Long-press a note; `v tap --desc 'Move to…'`; `v doctor --system`. DocumentsUI opens at the vault folder: `v tap --text Projects`; `v tap --text 'USE THIS FOLDER'`; `v tap --text ALLOW`. Expect `1 moved` + Undo, and the file under `Projects/`. A link that uses the bare file name keeps resolving and is not rewritten. Undo expires after about 10 s; a `v files` pull before tapping it can take longer.
