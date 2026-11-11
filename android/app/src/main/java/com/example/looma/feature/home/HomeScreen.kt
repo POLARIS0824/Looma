@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -34,15 +35,15 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.LargeFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonMenu
+import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -50,6 +51,8 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleFloatingActionButton
+import androidx.compose.material3.ToggleFloatingActionButtonDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -67,10 +70,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -312,7 +317,7 @@ fun HomeScreen(
             },
             floatingActionButton = {
                 if (!state.isSelecting) {
-                    HomeActionButtons(
+                    HomeActionMenu(
                         isCreating = state.isCreating,
                         onCreateFolderClick = actions.onCreateFolderClick,
                         onCreateNoteClick = actions.onCreateNoteClick,
@@ -682,44 +687,65 @@ private fun HomeCentered(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun HomeActionButtons(
+private fun HomeActionMenu(
     isCreating: Boolean,
     onCreateFolderClick: () -> Unit,
     onCreateNoteClick: () -> Unit,
 ) {
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        SmallFloatingActionButton(
-            onClick = onCreateFolderClick,
-            modifier = Modifier.size(58.dp),
-            shape = RoundedCornerShape(20.dp),
-            containerColor = LoomaTokens.colors.accentContainer,
-        ) {
-            LoomaIcon(
-                iconRes = R.drawable.ic_folder_plus,
-                contentDescription = stringResource(R.string.home_new_folder_description),
-                modifier = Modifier.size(26.dp),
-            )
-        }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val menuOpen = expanded && !isCreating
+    // Scaffold already keeps 16dp from the edge; cancel the menu's own 16dp padding.
+    val layoutDirection = LocalLayoutDirection.current
+    val edgeOffset = if (layoutDirection == LayoutDirection.Rtl) (-16).dp else 16.dp
 
-        LargeFloatingActionButton(
-            onClick = onCreateNoteClick,
-            modifier = Modifier.size(88.dp),
-            shape = RoundedCornerShape(28.dp),
-            containerColor = LoomaTokens.colors.accentContainer,
-        ) {
-            if (isCreating) {
-                CircularProgressIndicator(Modifier.size(28.dp))
-            } else {
-                LoomaIcon(
-                    iconRes = R.drawable.ic_add,
-                    contentDescription = stringResource(R.string.home_create_note_description),
-                    modifier = Modifier.size(38.dp),
-                )
+    FloatingActionButtonMenu(
+        expanded = menuOpen,
+        modifier = Modifier.offset(x = edgeOffset),
+        button = {
+            ToggleFloatingActionButton(
+                checked = menuOpen,
+                onCheckedChange = { open -> if (!isCreating) expanded = open },
+                containerSize = ToggleFloatingActionButtonDefaults.containerSizeMedium(),
+                containerCornerRadius = ToggleFloatingActionButtonDefaults.containerCornerRadiusMedium(),
+            ) {
+                if (isCreating) {
+                    LoomaLoadingIndicator(size = 24.dp, color = LocalContentColor.current)
+                } else {
+                    val open = checkedProgress > 0.5f
+                    LoomaIcon(
+                        iconRes = if (open) R.drawable.ic_close else R.drawable.ic_add,
+                        contentDescription = stringResource(
+                            if (open) R.string.home_close_menu_description
+                            else R.string.home_create_menu_description,
+                        ),
+                        modifier = with(ToggleFloatingActionButtonDefaults) {
+                            Modifier.animateIcon(
+                                { checkedProgress },
+                                size = iconSize(initialSize = 36.dp, finalSize = 24.dp),
+                            )
+                        },
+                    )
+                }
             }
-        }
+        },
+    ) {
+        FloatingActionButtonMenuItem(
+            onClick = {
+                expanded = false
+                onCreateFolderClick()
+            },
+            text = { Text(stringResource(R.string.home_new_folder_description)) },
+            icon = { LoomaIcon(R.drawable.ic_folder_plus, contentDescription = null) },
+        )
+        FloatingActionButtonMenuItem(
+            onClick = {
+                expanded = false
+                onCreateNoteClick()
+            },
+            text = { Text(stringResource(R.string.home_create_note_description)) },
+            icon = { LoomaIcon(R.drawable.ic_add, contentDescription = null) },
+        )
     }
 }

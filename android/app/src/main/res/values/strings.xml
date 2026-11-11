@@ -33,6 +33,8 @@
     <string name="home_recent_searches">Recent searches</string>
     <string name="home_create_note_description">New note</string>
     <string name="home_new_folder_description">New folder</string>
+    <string name="home_create_menu_description">Create new</string>
+    <string name="home_close_menu_description">Close menu</string>
     <string name="home_retry">Retry</string>
     <string name="home_stalled_relocation_banner">A move or rename did not finish: %1$s → %2$s</string>
     <string name="home_stalled_relocation_abandon">Abandon</string>

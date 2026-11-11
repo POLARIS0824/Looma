@@ -11,6 +11,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Immutable
@@ -52,6 +54,12 @@ data class LoomaTypography(
     val noteBody: TextStyle,
     val noteHeadings: LoomaNoteHeadings,
     val noteCode: TextStyle,
+)
+
+@Immutable
+data class LoomaSpacing(
+    val pageMargin: Dp = 8.dp,
+    val gridGap: Dp = 8.dp,
 )
 
 @Immutable
@@ -147,4 +155,6 @@ object LoomaTokens {
 
     val type: LoomaTypography
         @Composable @ReadOnlyComposable get() = LocalLoomaTypography.current
+
+    val spacing: LoomaSpacing = LoomaSpacing()
 }
