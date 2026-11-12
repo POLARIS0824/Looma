@@ -69,6 +69,7 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -380,7 +381,9 @@ private fun NoteWorkspace(
                             NoteTitleField(
                                 fileName = state.fileName,
                                 isNewNote = state.isNewNote,
-                                textStyle = LoomaTokens.type.sectionTitle,
+                                textStyle = LoomaTokens.type.sectionTitle.copy(
+                                    textAlign = TextAlign.Center,
+                                ),
                                 focusRequester = titleFocus,
                                 onCommit = onCommitTitle,
                                 error = state.titleError,
