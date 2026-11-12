@@ -4,13 +4,13 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.example.looma.domain.markdown.MarkdownIndex
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
 import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.domain.wiki.normalizeWikiName
 import com.example.looma.ui.theme.LoomaTheme
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -29,10 +29,11 @@ class WikiLinkTapTest {
         WikiContext(mapOf(normalizeWikiName(name) to target))
 
     private fun show(markdown: String, wiki: WikiContext, onClick: (String) -> Unit) {
+        val preview = runBlocking { prepareMarkdown(markdown) } as PreparedMarkdown.Ready
         rule.setContent {
             LoomaTheme(dynamicColor = false) {
                 MarkdownBody(
-                    document = MarkdownIndex.index(markdown, "兜底"),
+                    preview = preview,
                     onCheckboxToggle = { _, _ -> },
                     wiki = wiki,
                     onWikiLinkClick = onClick,

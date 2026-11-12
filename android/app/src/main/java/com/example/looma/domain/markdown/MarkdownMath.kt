@@ -24,6 +24,11 @@ fun collectMathSpans(
         flavour = flavour,
         cancellationToken = CancellationToken.NonCancellable,
     ).buildMarkdownTreeFromString(body as CharSequence)
+    return collectMathSpans(body, tree)
+}
+
+internal fun collectMathSpans(body: String, tree: ASTNode): List<MathSpan> {
+    if ('$' !in body) return emptyList()
     val spans = mutableListOf<MathSpan>()
     fun visit(node: ASTNode) {
         when (node.type) {
@@ -68,9 +73,17 @@ fun preserveDisplayMathParagraphs(
     flavour: MarkdownFlavourDescriptor = WikiImageFlavour(),
 ): String {
     if ("$$" !in body) return body
-    val code = runCatching { codeRanges(body, flavour) }.getOrElse { return body }
+    val tree = runCatching {
+        MarkdownParser(flavour, cancellationToken = CancellationToken.NonCancellable)
+            .buildMarkdownTreeFromString(body as CharSequence)
+    }.getOrElse { return body }
+    return preserveDisplayMathParagraphs(body, tree)
+}
+
+internal fun preserveDisplayMathParagraphs(body: String, tree: ASTNode): String {
+    if ("$$" !in body) return body
     val inCode = BooleanArray(body.length)
-    code.forEach { range -> for (index in range) inCode[index] = true }
+    markCode(tree, inCode)
     val ranges = displayMathRanges(body, inCode)
     if (ranges.isEmpty()) return body
     val chars = body.toCharArray()
@@ -94,26 +107,17 @@ fun preserveDisplayMathParagraphs(
     return if (changed) String(chars) else body
 }
 
-private fun codeRanges(body: String, flavour: MarkdownFlavourDescriptor): List<IntRange> {
-    val tree = MarkdownParser(
-        flavour = flavour,
-        cancellationToken = CancellationToken.NonCancellable,
-    ).buildMarkdownTreeFromString(body as CharSequence)
-    val ranges = mutableListOf<IntRange>()
-    fun visit(node: ASTNode) {
-        when (node.type) {
-            MarkdownElementTypes.CODE_SPAN,
-            MarkdownElementTypes.CODE_FENCE,
-            MarkdownElementTypes.CODE_BLOCK,
-            -> {
-                ranges += node.startOffset until node.endOffset
-            }
-
-            else -> node.children.forEach(::visit)
+private fun markCode(node: ASTNode, inCode: BooleanArray) {
+    when (node.type) {
+        MarkdownElementTypes.CODE_SPAN,
+        MarkdownElementTypes.CODE_FENCE,
+        MarkdownElementTypes.CODE_BLOCK,
+        -> {
+            inCode.fill(true, node.startOffset, node.endOffset)
         }
+
+        else -> node.children.forEach { markCode(it, inCode) }
     }
-    visit(tree)
-    return ranges
 }
 
 private fun displayMathRanges(body: String, inCode: BooleanArray): List<IntRange> {

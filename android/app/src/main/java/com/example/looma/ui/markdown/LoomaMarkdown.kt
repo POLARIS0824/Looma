@@ -361,7 +361,7 @@ private fun LoomaMarkdownParagraph(
 }
 
 private fun MarkdownComponentModel.isChecked(): Boolean =
-    node.getTextInNode(content).contains("[x]")
+    node.getTextInNode(content).contains("[x]", ignoreCase = true)
 
 private fun ASTNode.inCheckedTask(content: String): Boolean {
     val item = parent?.takeIf { it.type == MarkdownElementTypes.LIST_ITEM } ?: return false

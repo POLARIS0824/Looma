@@ -80,17 +80,17 @@ class NoteRepository internal constructor(
     }
 
     suspend fun readNote(id: NoteId): Note = read(id.vaultId) { _, store ->
-        parser.savedNote(store.readNote(id)).toNote()
+        parser.note(store.readNote(id))
     }
 
     suspend fun imageContext(id: NoteId): ImageContext? = read(id.vaultId) { _, store -> store.imageContext(id) }
 
     suspend fun openNote(id: NoteId): Note = write(id.vaultId) { _, store ->
-        parser.savedNote(store.readNote(id)).toNote()
+        parser.note(store.readNote(id))
     }
 
     suspend fun reloadNote(id: NoteId): Note = write(id.vaultId) { _, store ->
-        parser.savedNote(store.readNote(id)).toNote()
+        parser.note(store.readNote(id))
     }
 
     suspend fun wikiContext(id: NoteId): WikiContext = read(id.vaultId) { _, _ ->
