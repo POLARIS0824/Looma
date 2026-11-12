@@ -347,7 +347,7 @@ private fun LoomaMarkdownParagraph(
 }
 
 private fun MarkdownComponentModel.isChecked(): Boolean =
-    node.getTextInNode(content).contains("[x]")
+    node.getTextInNode(content).contains("[x]", ignoreCase = true)
 
 @Composable
 private fun CheckboxMarker(
