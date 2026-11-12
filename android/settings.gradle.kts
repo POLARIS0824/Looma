@@ -24,4 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Looma"
 include(":app")
+include(":markdown-benchmark")
  
