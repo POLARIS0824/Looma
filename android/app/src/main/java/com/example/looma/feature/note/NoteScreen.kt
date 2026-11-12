@@ -16,10 +16,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,11 +59,12 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.looma.R
 import com.example.looma.data.note.resolveImageSource
+import com.example.looma.domain.markdown.CHECKED
+import com.example.looma.domain.markdown.MARKER_LENGTH
 import com.example.looma.domain.markdown.MarkdownEditing
-import com.example.looma.domain.markdown.MarkdownIndex
 import com.example.looma.domain.markdown.TextSelection
+import com.example.looma.domain.markdown.UNCHECKED
 import com.example.looma.domain.markdown.inlineTitleFor
-import com.example.looma.domain.markdown.withCheckboxChecked
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.domain.wiki.WikiNote
@@ -79,9 +82,15 @@ import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.LoomaLoadingIndicator
 import com.example.looma.ui.markdown.LocalImageSourceResolver
 import com.example.looma.ui.markdown.MarkdownBody
+import com.example.looma.ui.markdown.PreparedMarkdown
+import com.example.looma.ui.markdown.prepareMarkdown
+import com.example.looma.ui.markdown.prepareMarkdownOpening
 import com.example.looma.ui.theme.LoomaTheme
 import com.example.looma.ui.theme.LoomaTokens
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 fun NoteRoute(
@@ -198,9 +207,20 @@ private fun NoteWorkspace(
     modifier: Modifier = Modifier,
 ) {
     val contentBuffer = rememberEditorBuffer(state.reloadToken, state.content)
-    var mode by rememberSaveable { mutableStateOf(NoteMode.Edit) }
+    val formatState by remember(contentBuffer) {
+        derivedStateOf {
+            val selection = contentBuffer.selection
+            MarkdownEditing.formatState(
+                text = contentBuffer.text.toString(),
+                selection = TextSelection(selection.start, selection.end),
+            )
+        }
+    }
+    var mode by rememberSaveable {
+        mutableStateOf(if (state.content.length >= LARGE_NOTE_READ_THRESHOLD) NoteMode.Read else NoteMode.Edit)
+    }
     var linkPanelOpen by rememberSaveable { mutableStateOf(false) }
-    val readScroll = rememberScrollState()
+    val readScroll = rememberLazyListState()
     val editScroll = rememberScrollState()
     val bodyFocus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -238,6 +258,28 @@ private fun NoteWorkspace(
         }
     }
 
+    var preview by remember(contentBuffer) { mutableStateOf<PreparedMarkdown?>(null) }
+    LaunchedEffect(contentBuffer) {
+        var firstRequest = true
+        snapshotFlow { contentBuffer.text.toString() }.collectLatest { source ->
+            val preload = firstRequest
+            firstRequest = false
+            if (preview?.source == source && preview !is PreparedMarkdown.Opening) return@collectLatest
+            if (!preload && mode == NoteMode.Edit) {
+                withTimeoutOrNull(PREVIEW_EDIT_DELAY_MS) {
+                    snapshotFlow { mode }.first { it == NoteMode.Read }
+                }
+            }
+            if (
+                preload && mode == NoteMode.Read && readScroll.firstVisibleItemIndex == 0 &&
+                source.length >= LARGE_NOTE_READ_THRESHOLD
+            ) {
+                preview = prepareMarkdownOpening(source)
+            }
+            preview = prepareMarkdown(source)
+        }
+    }
+
     LaunchedEffect(mode) {
         if (mode == NoteMode.Edit) {
             if (isNew) {
@@ -261,15 +303,6 @@ private fun NoteWorkspace(
         val error = state.imageUploadError ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(imageErrorText(resources, error))
         onImageErrorShown()
-    }
-
-    val contentText = contentBuffer.text.toString()
-    val selection = contentBuffer.selection
-    val formatState = remember(contentText, selection) {
-        MarkdownEditing.formatState(
-            text = contentText,
-            selection = TextSelection(selection.start, selection.end),
-        )
     }
 
     Scaffold(
@@ -303,21 +336,23 @@ private fun NoteWorkspace(
 
             when (mode) {
                 NoteMode.Read -> NoteReadBody(
-                    content = contentText,
+                    preview = preview?.takeIf { it.source == contentBuffer.text.toString() },
                     fileName = fallbackTitle,
                     showInlineTitle = state.showInlineTitle,
                     scrollState = readScroll,
                     wiki = state.wiki,
                     onWikiLinkClick = onWikiLinkClick,
                     onOpenNote = onOpenNote,
-                    onCheckboxToggle = { position, checked ->
-                        val document = MarkdownIndex.index(contentBuffer.text.toString(), fallbackTitle)
-                        if (document.withCheckboxChecked(position, checked) != null) {
+                    onCheckboxToggle = { rendered, position, checked ->
+                        if (
+                            rendered.source == contentBuffer.text.toString() &&
+                            rendered.index.checkboxes.any { it.range.first == position && it.checked != checked }
+                        ) {
                             contentBuffer.edit {
                                 replace(
                                     position,
                                     position + MARKER_LENGTH,
-                                    if (checked) CHECKED_MARKER else UNCHECKED_MARKER,
+                                    if (checked) CHECKED else UNCHECKED,
                                 )
                             }
                         }
@@ -421,44 +456,70 @@ private fun NoteBodyEditor(
 
 @Composable
 private fun NoteReadBody(
-    content: String,
+    preview: PreparedMarkdown?,
     fileName: String,
     showInlineTitle: Boolean,
-    scrollState: ScrollState,
+    scrollState: LazyListState,
     wiki: WikiContext,
     onWikiLinkClick: (String) -> Unit,
     onOpenNote: (NoteId) -> Unit,
-    onCheckboxToggle: (position: Int, checked: Boolean) -> Unit,
+    onCheckboxToggle: (PreparedMarkdown.Ready, position: Int, checked: Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val document = remember(content, fileName) {
-        MarkdownIndex.index(content, fileName)
-    }
-    val inline = remember(fileName, document.heading, showInlineTitle) {
-        inlineTitleFor(fileName, document.heading, showInlineTitle)
-    }
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(scrollState)
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        inline?.let { title ->
-            Text(
-                text = title.text,
-                style = LoomaTokens.type.noteTitle,
-                color = LoomaTokens.colors.title,
-            )
+    val ready = when (preview) {
+        null -> {
+            Box(
+                modifier = modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                LoomaLoadingIndicator()
+            }
+            return
         }
-        MarkdownBody(
-            document = document,
-            onCheckboxToggle = onCheckboxToggle,
-            wiki = wiki,
-            onWikiLinkClick = onWikiLinkClick,
-        )
-        BacklinksSection(backlinks = wiki.backlinks, onOpen = onOpenNote)
+        is PreparedMarkdown.Failed -> {
+            Text(
+                text = stringResource(R.string.editor_load_failed),
+                modifier = modifier.padding(24.dp),
+                style = LoomaTokens.type.supporting,
+                color = MaterialTheme.colorScheme.error,
+            )
+            return
+        }
+        is PreparedMarkdown.Opening -> preview.preview
+        is PreparedMarkdown.Ready -> preview
     }
+    val inline = inlineTitleFor(fileName, ready.index.heading, showInlineTitle)
+    MarkdownBody(
+        preview = ready,
+        onCheckboxToggle = if (preview is PreparedMarkdown.Ready) {
+            { position, checked -> onCheckboxToggle(preview, position, checked) }
+        } else {
+            null
+        },
+        modifier = modifier,
+        wiki = wiki,
+        onWikiLinkClick = onWikiLinkClick,
+        scrollState = scrollState,
+        header = if (inline == null) null else {
+            {
+                Text(
+                    text = inline.text,
+                    style = LoomaTokens.type.noteTitle,
+                    color = LoomaTokens.colors.title,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+        },
+        footer = if (preview is PreparedMarkdown.Opening || wiki.backlinks.isEmpty()) null else {
+            {
+                BacklinksSection(
+                    backlinks = wiki.backlinks,
+                    onOpen = onOpenNote,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        },
+    )
 }
 
 private fun insertWikiLink(buffer: TextFieldState, reference: String) {
@@ -506,9 +567,8 @@ private fun imageErrorText(resources: Resources, error: NoteImageError): String 
     NoteImageError.Unknown -> resources.getString(R.string.note_image_error_unknown)
 }
 
-private const val MARKER_LENGTH = 3
-private const val CHECKED_MARKER = "[x]"
-private const val UNCHECKED_MARKER = "[ ]"
+private const val PREVIEW_EDIT_DELAY_MS = 250L
+private const val LARGE_NOTE_READ_THRESHOLD = 256 * 1024
 
 @Composable
 private fun NoteLoadingScreen(
