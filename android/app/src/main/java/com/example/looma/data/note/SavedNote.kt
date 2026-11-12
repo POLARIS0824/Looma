@@ -10,15 +10,23 @@ internal data class SavedNote(
     val content get() = stored.content
     val modifiedAt get() = stored.modifiedAt
 
-    fun toNote(): Note = Note(
-        id = stored.id,
-        title = metadata.title,
-        content = stored.content,
-        modifiedAt = stored.modifiedAt,
-        tags = metadata.tags,
-        revision = stored.revision,
-    )
+    fun toNote(): Note = stored.toNote(metadata.title, metadata.tags)
 }
 
 internal fun MarkdownParser.savedNote(stored: StoredMarkdown): SavedNote =
     SavedNote(stored, parse(stored.content, stored.file.nameWithoutExtension))
+
+internal fun MarkdownParser.note(stored: StoredMarkdown): Note =
+    stored.toNote(
+        title = title(stored.content, stored.file.nameWithoutExtension),
+        tags = tags(stored.content),
+    )
+
+private fun StoredMarkdown.toNote(title: String, tags: Set<String>): Note = Note(
+    id = id,
+    title = title,
+    content = content,
+    modifiedAt = modifiedAt,
+    tags = tags,
+    revision = revision,
+)

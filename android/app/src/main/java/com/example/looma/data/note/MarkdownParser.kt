@@ -24,8 +24,12 @@ data class MarkdownMetadata(
 internal val TAG_PATTERN = Regex("""(?<![\p{L}\p{N}])#([\p{L}\p{N}_/-]+)""")
 
 internal class MarkdownParser {
+    fun title(text: String, fallbackTitle: String): String = extractTitle(bodyLines(text), fallbackTitle)
+
+    fun tags(text: String): Set<String> = TAG_PATTERN.findAll(text).map { it.groupValues[1] }.toSet()
+
     fun parse(text: String, fallbackTitle: String): MarkdownMetadata {
-        val body = bodyLines(text)
+        val body = bodyLines(text).toList()
         val excerpt = body.asSequence()
             .filterNot { it.matches(HEADING) || it.matches(CHECKLIST) }
             .filterNot {
@@ -53,9 +57,9 @@ internal class MarkdownParser {
             ?: WIKI_IMAGE.find(text)?.groupValues?.get(1)
 
         return MarkdownMetadata(
-            title = extractTitle(body, fallbackTitle),
+            title = extractTitle(body.asSequence(), fallbackTitle),
             excerpt = excerpt,
-            tags = TAG_PATTERN.findAll(text).map { it.groupValues[1] }.toSet(),
+            tags = tags(text),
             checklist = checklist,
             links = links,
             firstImageReference = firstImageReference,
@@ -70,14 +74,14 @@ internal class MarkdownParser {
         .replace(EMPHASIS, "")
         .replace(CODE_SPAN, "$1")
 
-    private fun bodyLines(text: String): List<String> {
-        val lines = text.lines()
+    private fun bodyLines(text: String): Sequence<String> {
+        val lines = text.lineSequence()
         if (lines.firstOrNull()?.trim() != "---") return lines
         val end = lines.drop(1).indexOfFirst { it.trim() == "---" }
         return if (end >= 0) lines.drop(end + 2) else lines
     }
 
-    private fun extractTitle(lines: List<String>, fallback: String): String =
+    private fun extractTitle(lines: Sequence<String>, fallback: String): String =
         lines.firstOrNull { it.startsWith("# ") }
             ?.removePrefix("# ")?.trim()?.takeIf { it.isNotBlank() }
             ?: fallback
