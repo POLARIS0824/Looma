@@ -64,10 +64,9 @@ internal fun MarkdownBody(
         )
     }
 
-    val transformer = remember { CoilImageTransformer() }
     Markdown(
         state = preview.state,
-        imageTransformer = transformer,
+        imageTransformer = InlineMarkdownImageTransformer,
         annotator = annotator,
         colors = theme.colors,
         typography = theme.typography,

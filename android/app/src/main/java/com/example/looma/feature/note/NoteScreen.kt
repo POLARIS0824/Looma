@@ -6,7 +6,6 @@
 package com.example.looma.feature.note
 
 import android.content.res.Resources
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +47,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -63,11 +63,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,28 +117,30 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.roundToInt
 
 @Composable
 fun NoteRoute(
     viewModel: NoteViewModel,
+    noteId: NoteId,
+    retargetVersion: Long,
     onNavigateUp: () -> Unit,
     onOpenNote: (NoteId) -> Unit,
-    onRenameNavigate: (NoteId) -> Unit,
+    onRenameNavigate: (NoteId, NoteId) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val requestLeave = viewModel::requestLeave
     val navigateUp by rememberUpdatedState(onNavigateUp)
-    LaunchedEffect(state.leaveReady) {
+    LaunchedEffect(state.rename, state.leaveReady) {
+        state.rename?.let { rename ->
+            onRenameNavigate(rename.from, rename.to)
+            viewModel.onRenameNavigated()
+        }
         if (state.leaveReady) {
             viewModel.onLeaveReadyHandled()
             navigateUp()
         }
-    }
-    LaunchedEffect(state.renameTarget) {
-        val target = state.renameTarget ?: return@LaunchedEffect
-        viewModel.onRenameNavigated()
-        onRenameNavigate(target)
     }
     val editorActive = LocalNavAnimatedContentScope.current.transition.targetState == EnterExitState.Visible
     val imagePicker = rememberLauncherForActivityResult(
@@ -145,15 +153,10 @@ fun NoteRoute(
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
-        viewModel.syncWithDisk()
-        viewModel.refreshWiki()
+        viewModel.onRouteStarted(noteId, retargetVersion)
     }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.onEnterBackground() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onEnterBackground() }
-
-    BackHandler(enabled = state.needsLeaveGuard || state.willDiscardEmpty) {
-        viewModel.requestLeave()
-    }
 
     when {
         state.isLoading -> NoteLoadingScreen(
@@ -182,6 +185,7 @@ fun NoteRoute(
                 NoteWorkspace(
                     state = state,
                     onContentChanged = viewModel::onContentChanged,
+                    bindEditorBuffer = viewModel::bindEditorBuffer,
                     onCommitTitle = viewModel::commitTitle,
                     onTitleErrorShown = viewModel::onTitleErrorShown,
                     onRenameNoticeShown = viewModel::onRenameNoticeShown,
@@ -189,7 +193,9 @@ fun NoteRoute(
                     onRetrySave = viewModel::retrySave,
                     onOverwrite = viewModel::overwrite,
                     onReloadFromDisk = viewModel::reloadFromDisk,
-                    onOpenNote = onOpenNote,
+                    onOpenNote = { id ->
+                        if (viewModel.prepareToOpenLinkedNote()) onOpenNote(id)
+                    },
                     onPickImage = pickImage,
                     onImageInserted = viewModel::onImageInserted,
                     onImageErrorShown = viewModel::onImageErrorShown,
@@ -217,7 +223,8 @@ fun NoteRoute(
 @Composable
 private fun NoteWorkspace(
     state: NoteUiState,
-    onContentChanged: (String) -> Unit,
+    onContentChanged: (String, Int) -> Unit,
+    bindEditorBuffer: (Int, () -> String, (String) -> Unit) -> (() -> Unit),
     onCommitTitle: (String) -> Unit,
     onTitleErrorShown: () -> Unit,
     onRenameNoticeShown: () -> Unit,
@@ -246,8 +253,23 @@ private fun NoteWorkspace(
         mutableStateOf(if (state.content.length >= LARGE_NOTE_READ_THRESHOLD) NoteMode.Read else NoteMode.Edit)
     }
     var linkPanelOpen by rememberSaveable { mutableStateOf(false) }
+    var initialTitleFocusTaken by rememberSaveable { mutableStateOf(false) }
     val readScroll = rememberLazyListState()
     val editScroll = rememberScrollState()
+    val modeScroll = remember(contentBuffer, readScroll, editScroll) { NoteModeScroll(readScroll, editScroll) }
+    var pendingModeScroll by remember(contentBuffer) { mutableStateOf<ModeScrollRequest?>(null) }
+    var modeScrollReturn by remember(contentBuffer) { mutableStateOf<ModeScrollReturn?>(null) }
+    val modeScrollObserver = remember(contentBuffer) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && consumed.y != 0f) {
+                    pendingModeScroll = null
+                    modeScrollReturn = null
+                }
+                return Offset.Zero
+            }
+        }
+    }
     val bodyFocus = remember { FocusRequester() }
     val titleFocus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -283,12 +305,26 @@ private fun NoteWorkspace(
     }
 
     val notifyContentChanged by rememberUpdatedState(onContentChanged)
+    DisposableEffect(contentBuffer) {
+        val unbind = bindEditorBuffer(
+            state.reloadToken,
+            { contentBuffer.text.toString() },
+            { text ->
+                val caret = contentBuffer.selection
+                contentBuffer.edit {
+                    replace(0, length, text)
+                    selection = TextRange(caret.start.coerceAtMost(length), caret.end.coerceAtMost(length))
+                }
+            },
+        )
+        onDispose(unbind)
+    }
     LaunchedEffect(contentBuffer) {
         var lastContent = state.content
         snapshotFlow { contentBuffer.text.toString() }.collect { content ->
             if (content != lastContent) {
                 lastContent = content
-                notifyContentChanged(content)
+                notifyContentChanged(content, state.reloadToken)
             }
         }
     }
@@ -322,6 +358,37 @@ private fun NoteWorkspace(
             focusManager.clearFocus()
             keyboard?.hide()
         }
+    }
+
+    val editorText = contentBuffer.text.toString()
+    val currentPreview = preview?.takeIf { it.source == editorText }
+    val request = pendingModeScroll
+    val readRequest = request is ModeScrollRequest.Read || request is ModeScrollRequest.ReadOffset
+    val readPreview = if (readRequest) currentPreview else preview
+    val shownPreview = when (readPreview) {
+        is PreparedMarkdown.Ready -> readPreview
+        is PreparedMarkdown.Opening -> readPreview.preview
+        else -> null
+    }
+    LaunchedEffect(request, currentPreview.takeIf { readRequest }, editorText, state.showInlineTitle) {
+        if (readRequest && (currentPreview == null || currentPreview is PreparedMarkdown.Opening)) {
+            return@LaunchedEffect
+        }
+        when (request) {
+            is ModeScrollRequest.Read -> if (currentPreview is PreparedMarkdown.Ready) modeScroll.restoreRead(
+                position = request.position,
+                blocks = currentPreview.blocks,
+                bodyStart = currentPreview.index.bodyStart,
+                hasHeader = state.showInlineTitle,
+            )
+            is ModeScrollRequest.ReadOffset -> if (currentPreview is PreparedMarkdown.Ready) {
+                readScroll.scrollToItem(request.itemIndex, request.offset)
+            }
+            is ModeScrollRequest.Edit -> modeScroll.restoreEdit(request.anchor, editorText)
+            is ModeScrollRequest.EditOffset -> modeScroll.restoreEdit(request.offset, editorText)
+            null -> return@LaunchedEffect
+        }
+        if (pendingModeScroll === request) pendingModeScroll = null
     }
 
     LaunchedEffect(state.imageInsertion) {
@@ -372,7 +439,35 @@ private fun NoteWorkspace(
                 mode = mode,
                 onNavigateUp = leaveWorkspace,
                 onToggleMode = {
-                    mode = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
+                    val next = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
+                    val text = contentBuffer.text.toString()
+                    val returnPosition = modeScrollReturn?.takeIf { it.source == text }?.position
+                    pendingModeScroll = returnPosition ?: run {
+                        when (mode) {
+                            NoteMode.Read -> shownPreview?.let {
+                                modeScroll.captureRead(
+                                    blocks = it.blocks,
+                                    bodyStart = it.index.bodyStart,
+                                    hasHeader = state.showInlineTitle,
+                                )?.let { anchor -> ModeScrollRequest.Edit(anchor) }
+                            }
+                            NoteMode.Edit -> modeScroll.captureEdit(text)
+                                ?.let { position -> ModeScrollRequest.Read(position) }
+                        }
+                    }
+                    modeScrollReturn = if (returnPosition == null) {
+                        val position = when (mode) {
+                            NoteMode.Read -> ModeScrollRequest.ReadOffset(
+                                readScroll.firstVisibleItemIndex,
+                                readScroll.firstVisibleItemScrollOffset,
+                            )
+                            NoteMode.Edit -> ModeScrollRequest.EditOffset(editScroll.value)
+                        }
+                        ModeScrollReturn(text, position)
+                    } else {
+                        null
+                    }
+                    mode = next
                 },
                 scrollBehavior = appBarScroll,
                 title = {
@@ -386,6 +481,8 @@ private fun NoteWorkspace(
                                 ),
                                 focusRequester = titleFocus,
                                 onCommit = onCommitTitle,
+                                requestInitialFocus = state.isNewNote && !initialTitleFocusTaken,
+                                onInitialFocusShown = { initialTitleFocusTaken = true },
                                 error = state.titleError,
                                 onDone = { bodyFocus.requestFocus() },
                             )
@@ -420,13 +517,14 @@ private fun NoteWorkspace(
 
             AnimatedContent(
                 targetState = mode,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).nestedScroll(modeScrollObserver),
                 transitionSpec = { modeEnter togetherWith modeExit using null },
                 label = "note-mode",
             ) { shownMode ->
                 when (shownMode) {
                     NoteMode.Read -> NoteReadBody(
-                        preview = preview?.takeIf { it.source == contentBuffer.text.toString() },
+                        preview = readPreview,
+                        previewIsCurrent = readPreview != null && readPreview === currentPreview,
                         scrollState = readScroll,
                         wiki = state.wiki,
                         onWikiLinkClick = onWikiLinkClick,
@@ -477,6 +575,8 @@ private fun NoteWorkspace(
                                     textStyle = LoomaTokens.type.noteTitle,
                                     focusRequester = titleFocus,
                                     onCommit = onCommitTitle,
+                                    requestInitialFocus = state.isNewNote && !initialTitleFocusTaken,
+                                    onInitialFocusShown = { initialTitleFocusTaken = true },
                                     error = state.titleError,
                                     onDone = { bodyFocus.requestFocus() },
                                     modifier = Modifier
@@ -489,6 +589,8 @@ private fun NoteWorkspace(
                                 active = editorActive,
                                 buffer = contentBuffer,
                                 focusRequester = bodyFocus,
+                                onTextLayout = { modeScroll.editLayout = it },
+                                onTextTopInContent = { modeScroll.editTextOffset = it },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -550,6 +652,8 @@ private fun NoteBodyEditor(
     active: Boolean,
     buffer: TextFieldState,
     focusRequester: FocusRequester,
+    onTextLayout: (TextLayoutResult) -> Unit,
+    onTextTopInContent: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val placeholder = stringResource(R.string.editor_placeholder)
@@ -558,11 +662,13 @@ private fun NoteBodyEditor(
         active = active,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp)
+            .padding(horizontal = 20.dp, vertical = BodyVerticalPadding)
+            .onGloballyPositioned { onTextTopInContent(it.positionInParent().y.roundToInt()) }
             .focusRequester(focusRequester),
         textStyle = LoomaTokens.type.noteBody.copy(
             color = LoomaTokens.colors.title,
         ),
+        onTextLayout = onTextLayout,
         decorator = TextFieldDecorator { innerTextField ->
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                 Box(Modifier.widthIn(max = NoteColumnMaxWidth).fillMaxWidth()) {
@@ -583,6 +689,7 @@ private fun NoteBodyEditor(
 @Composable
 private fun NoteReadBody(
     preview: PreparedMarkdown?,
+    previewIsCurrent: Boolean,
     scrollState: LazyListState,
     wiki: WikiContext,
     onWikiLinkClick: (String) -> Unit,
@@ -616,7 +723,7 @@ private fun NoteReadBody(
     Box(modifier = modifier, contentAlignment = Alignment.TopCenter) {
         MarkdownBody(
             preview = ready,
-            onCheckboxToggle = if (preview is PreparedMarkdown.Ready) {
+            onCheckboxToggle = if (previewIsCurrent && preview is PreparedMarkdown.Ready) {
                 { position, checked -> onCheckboxToggle(preview, position, checked) }
             } else {
                 null
@@ -625,7 +732,7 @@ private fun NoteReadBody(
                 .widthIn(max = NoteColumnMaxWidth)
                 .fillMaxWidth(),
             wiki = wiki,
-            onWikiLinkClick = onWikiLinkClick,
+            onWikiLinkClick = if (previewIsCurrent) onWikiLinkClick else { _ -> },
             scrollState = scrollState,
             header = title,
             footer = if (preview is PreparedMarkdown.Opening || wiki.backlinks.isEmpty()) null else {
@@ -642,6 +749,7 @@ private fun NoteReadBody(
 }
 
 private val NoteColumnMaxWidth = 640.dp
+private val BodyVerticalPadding = 4.dp
 
 private fun insertWikiLink(buffer: TextFieldState, reference: String) {
     insertSnippet(buffer, "[[$reference]]")
@@ -695,6 +803,15 @@ private fun imageErrorText(resources: Resources, error: NoteImageError): String 
     )
     NoteImageError.Unknown -> resources.getString(R.string.note_image_error_unknown)
 }
+
+private sealed interface ModeScrollRequest {
+    data class Read(val position: EditScrollPosition) : ModeScrollRequest
+    data class ReadOffset(val itemIndex: Int, val offset: Int) : ModeScrollRequest
+    data class Edit(val anchor: ReadingAnchor) : ModeScrollRequest
+    data class EditOffset(val offset: Int) : ModeScrollRequest
+}
+
+private data class ModeScrollReturn(val source: String, val position: ModeScrollRequest)
 
 private const val PREVIEW_EDIT_DELAY_MS = 250L
 private const val LARGE_NOTE_READ_THRESHOLD = 256 * 1024
@@ -770,7 +887,8 @@ private fun NoteWorkspacePreview() {
                 saveState = NoteSaveState.Saved,
                 fileName = "周会记录",
             ),
-            onContentChanged = {},
+            onContentChanged = { _, _ -> },
+            bindEditorBuffer = { _, _, _ -> {} },
             onCommitTitle = {},
             onTitleErrorShown = {},
             onRenameNoticeShown = {},

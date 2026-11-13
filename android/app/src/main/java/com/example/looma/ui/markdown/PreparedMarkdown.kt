@@ -3,6 +3,7 @@ package com.example.looma.ui.markdown
 import com.example.looma.domain.markdown.MarkdownIndex
 import com.example.looma.domain.markdown.MarkdownReadingIndex
 import com.example.looma.domain.markdown.MathSpan
+import com.example.looma.domain.markdown.ReadingBlock
 import com.example.looma.domain.markdown.WikiImageFlavour
 import com.example.looma.domain.markdown.collectMathSpans
 import com.example.looma.domain.markdown.frontmatterEnd
@@ -13,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.parser.CancellationToken
 import org.intellij.markdown.parser.EmptyStreamingMarkdownFile
 import org.intellij.markdown.parser.MarkdownParser
@@ -25,6 +27,7 @@ internal sealed interface PreparedMarkdown {
         val index: MarkdownReadingIndex,
         val state: State.Success,
         val mathSpans: List<MathSpan>,
+        val blocks: List<ReadingBlock>,
     ) : PreparedMarkdown
 
     class Opening(
@@ -92,8 +95,15 @@ internal fun prepareMarkdownOnCurrentThread(
     val state = if (content === body) raw else parse(content)
     val index = MarkdownIndex.forReading(body, bodyStart, raw.node)
     val spans = collectMathSpans(state.content, state.node)
+    val blocks = state.node.children.map {
+        ReadingBlock(
+            start = it.startOffset,
+            end = it.endOffset,
+            hasContent = it.type != MarkdownTokenTypes.EOL && it.type != MarkdownTokenTypes.WHITE_SPACE,
+        )
+    }
     cancellation.checkCancelled()
-    PreparedMarkdown.Ready(source, index, state, spans)
+    PreparedMarkdown.Ready(source, index, state, spans, blocks)
 } catch (cancelled: CancellationException) {
     throw cancelled
 } catch (_: Exception) {

@@ -36,6 +36,8 @@ internal fun NoteTitleField(
     focusRequester: FocusRequester,
     onCommit: (String) -> Unit,
     modifier: Modifier = Modifier,
+    requestInitialFocus: Boolean = false,
+    onInitialFocusShown: () -> Unit = {},
     error: NoteTitleError? = null,
     onDone: () -> Unit = {},
 ) {
@@ -57,7 +59,8 @@ internal fun NoteTitleField(
     }
 
     LaunchedEffect(Unit) {
-        if (isNewNote) {
+        if (isNewNote && requestInitialFocus) {
+            onInitialFocusShown()
             focusRequester.requestFocus()
             buffer.edit { selection = TextRange(0, length) }
             keyboard?.show()

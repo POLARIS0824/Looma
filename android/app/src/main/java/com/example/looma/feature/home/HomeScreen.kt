@@ -95,6 +95,7 @@ import com.example.looma.feature.home.components.HomeSelectionBar
 import com.example.looma.feature.home.components.HomeTextInputDialog
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.LoomaLoadingIndicator
+import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.theme.LoomaTokens
 
 @Immutable
@@ -143,6 +144,7 @@ fun HomeRoute(
     onMenuClick: () -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
+    loadingFeedbackEnabled: Boolean = true,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val untitledTitle = stringResource(R.string.home_untitled_note)
@@ -175,6 +177,7 @@ fun HomeRoute(
 
     HomeScreen(
         state = state,
+        loadingFeedbackEnabled = loadingFeedbackEnabled,
         actions = HomeActions(
             onQueryChange = viewModel::setQuery,
             onSearchSubmit = viewModel::recordSearch,
@@ -239,6 +242,7 @@ fun HomeScreen(
     state: HomeUiState,
     actions: HomeActions,
     modifier: Modifier = Modifier,
+    loadingFeedbackEnabled: Boolean = true,
 ) {
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
     var sortSheetVisible by rememberSaveable { mutableStateOf(false) }
@@ -340,6 +344,7 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
             ) {
                 HomeContent(
+                    loadingFeedbackEnabled = loadingFeedbackEnabled,
                     state = state,
                     contentPadding = PaddingValues(),
                     actions = actions.copy(onRecentRevealed = { request ->
@@ -534,6 +539,7 @@ private fun HomeContent(
     state: HomeUiState,
     contentPadding: PaddingValues,
     actions: HomeActions,
+    loadingFeedbackEnabled: Boolean,
 ) {
     val motion = MaterialTheme.motionScheme
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
@@ -549,7 +555,7 @@ private fun HomeContent(
         }
         when {
             state.isLoading && state.notes.isEmpty() -> HomeCentered {
-                LoomaLoadingIndicator()
+                DelayedLoadingIndicator(loading = loadingFeedbackEnabled, size = 44.dp)
             }
 
             state.files.isAtRoot && state.files.isEmpty -> HomeCentered {

@@ -10,6 +10,7 @@ import com.example.looma.data.image.ImageUpload
 import com.example.looma.data.image.ImageUploadException
 import com.example.looma.data.image.ImageUploadFailure
 import com.example.looma.data.image.ImageUploader
+import com.example.looma.data.note.ConflictCopy
 import com.example.looma.data.note.NoteChangedExternallyException
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.note.RelocationStalledException
@@ -39,16 +40,24 @@ class NoteViewModel(
     isNewNote: Boolean,
 ) : ViewModel() {
     private var currentId: NoteId = initialId
+    private var retargetVersion = 0L
     private val _uiState = MutableStateFlow(NoteUiState(isNewNote = isNewNote))
     val uiState: StateFlow<NoteUiState> = _uiState.asStateFlow()
 
     private data class SaveRequest(val content: String, val mode: NoteWriteMode)
 
+    private data class EditorBuffer(
+        val reloadToken: Int,
+        val read: () -> String,
+        val replace: (String) -> Unit,
+    )
+
+    private var editorBuffer: EditorBuffer? = null
     private val editorWrites = Mutex()
     private var operationGeneration = 0
     private var loadJob: Job? = null
     private var leaving = false
-    private var lastConflictCopy: Note? = null
+    private var lastConflictCopy: ConflictCopy? = null
     private val scheduler = SaveScheduler(viewModelScope, onSave = { saveFromScheduler() })
 
     init {
@@ -110,33 +119,55 @@ class NoteViewModel(
         }
     }
 
-    fun syncWithDisk() {
-        val current = _uiState.value
-        if (current.isLoading || current.isDirty || current.isConflict || current.saveFailed) return
+    fun onRouteStarted(id: NoteId, routeVersion: Long) {
+        syncEditorBuffer()
         enqueue {
+            val retargeted = routeVersion > retargetVersion && currentId != id
+            if (routeVersion > retargetVersion) {
+                retargetVersion = routeVersion
+                currentId = id
+            }
+            if (retargeted) {
+                _uiState.update {
+                    it.copy(
+                        fileName = fileNameOf(currentId),
+                        isNewNote = false,
+                        imageContext = null,
+                    )
+                }
+            }
             try {
-                val disk = repository.readNote(currentId)
-                _uiState.update { state ->
-                    if (!state.canAdoptDiskRevision(disk.revision)) {
-                        state
-                    } else {
-                        state.copy(
-                            content = disk.content,
-                            savedContent = disk.content,
-                            modifiedAt = disk.modifiedAt,
-                            revision = disk.revision,
-                            fileName = fileNameOf(currentId),
-                            reloadToken = state.reloadToken + 1,
-                            saveState = NoteSaveState.Idle,
-                            saveFailed = false,
-                            isConflict = false,
-                        )
+                val state = _uiState.value
+                if (!state.isLoading && !state.isDirty && !state.isConflict && !state.saveFailed) {
+                    val disk = repository.readNote(currentId)
+                    syncEditorBuffer()
+                    _uiState.update {
+                        if (!it.canAdoptDiskRevision(disk.revision)) {
+                            it
+                        } else {
+                            it.copy(
+                                content = disk.content,
+                                savedContent = disk.content,
+                                modifiedAt = disk.modifiedAt,
+                                revision = disk.revision,
+                                fileName = fileNameOf(currentId),
+                                reloadToken = it.reloadToken + 1,
+                                saveState = NoteSaveState.Idle,
+                                saveFailed = false,
+                                isConflict = false,
+                            )
+                        }
                     }
+                }
+                if (retargeted) {
+                    val context = repository.imageContext(currentId)
+                    _uiState.update { it.copy(imageContext = context) }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
             }
+            refreshWiki()
         }
     }
 
@@ -192,8 +223,24 @@ class NoteViewModel(
         _uiState.update { it.copy(imageUploadError = null) }
     }
 
-    fun onContentChanged(value: String) {
+    internal fun bindEditorBuffer(
+        reloadToken: Int,
+        read: () -> String,
+        replace: (String) -> Unit,
+    ): () -> Unit {
+        val buffer = EditorBuffer(reloadToken, read, replace)
+        editorBuffer = buffer
+        return {
+            if (editorBuffer === buffer) {
+                onContentChanged(buffer.read(), buffer.reloadToken)
+                editorBuffer = null
+            }
+        }
+    }
+
+    fun onContentChanged(value: String, reloadToken: Int) {
         val current = _uiState.value
+        if (current.reloadToken != reloadToken) return
         if (current.isLoading || current.loadFailed || current.leaveReady || current.content == value) return
         _uiState.update {
             it.copy(
@@ -205,37 +252,49 @@ class NoteViewModel(
         scheduler.onEdit()
     }
 
+    private fun syncEditorBuffer() {
+        editorBuffer?.let { onContentChanged(it.read(), it.reloadToken) }
+    }
+
     fun commitTitle(raw: String) {
         enqueue { generation ->
+            syncEditorBuffer()
             val state = _uiState.value
-            if (state.isLoading || state.loadFailed || state.renameTarget != null) return@enqueue
+            if (state.isLoading || state.loadFailed || state.rename != null) return@enqueue
             if (state.isConflict || state.saveFailed) {
                 _uiState.update { it.copy(titleError = NoteTitleError.Blocked) }
                 return@enqueue
             }
             val name = titleEditFor(raw, state.fileName, lastCommitted = null).renameTo
                 ?: return@enqueue
-            scheduler.cancel()
-            if (state.isDirty && !saveCurrent(generation)) return@enqueue
-            if (generation != operationGeneration) return@enqueue
+            _uiState.update { it.copy(isRenaming = true) }
             try {
-                val outcome = repository.renameNote(currentId, name)
+                scheduler.cancel()
+                if (state.isDirty && !saveCurrent(generation)) return@enqueue
+                if (generation != operationGeneration) return@enqueue
+                val previousId = currentId
+                val outcome = repository.renameNote(previousId, name)
                 currentId = outcome.note.id
                 val imageContext = runCatching { repository.imageContext(currentId) }
                     .onFailure { if (it is CancellationException) throw it }
                     .getOrNull()
-                _uiState.update {
-                    it.copy(
-                        fileName = fileNameOf(currentId),
-                        modifiedAt = outcome.note.modifiedAt,
-                        revision = outcome.note.revision,
-                        isNewNote = false,
-                        imageContext = imageContext,
-                        renameNotice = RenameNotice(outcome.linksUpdated, outcome.linksFailed)
-                            .takeIf { outcome.linksUpdated > 0 || outcome.linksFailed > 0 },
-                        renameTarget = currentId,
-                        titleError = null,
-                    )
+                val current = _uiState.value
+                val buffer = editorBuffer?.takeIf { it.reloadToken == current.reloadToken }
+                val editorContent = buffer?.read() ?: current.content
+                val renamed = current.afterRename(outcome.note, editorContent)
+                if (renamed.content != editorContent) buffer?.replace?.invoke(renamed.content)
+                _uiState.value = renamed.copy(
+                    fileName = fileNameOf(currentId),
+                    isNewNote = false,
+                    imageContext = imageContext,
+                    renameNotice = RenameNotice(outcome.linksUpdated, outcome.linksFailed)
+                        .takeIf { outcome.linksUpdated > 0 || outcome.linksFailed > 0 },
+                    rename = NoteRename(previousId, currentId),
+                    titleError = null,
+                )
+                when {
+                    renamed.isConflict -> writeConflictCopy()
+                    renamed.isDirty -> scheduler.onEdit()
                 }
                 refreshWiki()
             } catch (e: CancellationException) {
@@ -246,6 +305,8 @@ class NoteViewModel(
                 _uiState.update { it.copy(titleError = NoteTitleError.Stalled) }
             } catch (_: Exception) {
                 _uiState.update { it.copy(titleError = NoteTitleError.Failed) }
+            } finally {
+                _uiState.update { it.copy(isRenaming = false) }
             }
         }
     }
@@ -259,10 +320,18 @@ class NoteViewModel(
     }
 
     fun onRenameNavigated() {
-        _uiState.update { it.copy(renameTarget = null) }
+        _uiState.update { it.copy(rename = null) }
+    }
+
+    fun prepareToOpenLinkedNote(): Boolean {
+        val state = _uiState.value
+        if (state.isRenaming || state.rename != null || leaving) return false
+        onEnterBackground()
+        return true
     }
 
     fun retrySave() {
+        syncEditorBuffer()
         scheduler.cancel()
         enqueue { generation ->
             if (!_uiState.value.isLoading) saveCurrent(generation)
@@ -271,6 +340,7 @@ class NoteViewModel(
 
     fun overwrite() {
         if (_uiState.value.isLoading) return
+        syncEditorBuffer()
         val request = overwriteRequest()
         scheduler.cancel()
         enqueue { generation -> saveCurrent(generation, request) }
@@ -285,14 +355,13 @@ class NoteViewModel(
                 isLoading = true,
                 leaveBlocked = false,
                 leaveReady = false,
-                conflictCopy = null,
             )
         }
-        lastConflictCopy = null
         loadJob = enqueue { generation ->
             try {
                 val note = repository.reloadNote(currentId)
                 if (generation != operationGeneration) return@enqueue
+                lastConflictCopy = null
                 _uiState.update {
                     it.copy(
                         content = note.content,
@@ -323,6 +392,7 @@ class NoteViewModel(
     }
 
     fun onEnterBackground() {
+        syncEditorBuffer()
         scheduler.cancel()
         enqueue { generation ->
             val state = _uiState.value
@@ -335,17 +405,20 @@ class NoteViewModel(
 
     fun saveThenLeave(force: Boolean = false) {
         if (leaving || _uiState.value.isLoading || _uiState.value.leaveReady) return
+        syncEditorBuffer()
         val request = if (force) overwriteRequest() else null
         leaving = true
         scheduler.cancel()
         enqueue { generation ->
             try {
+                syncEditorBuffer()
                 val state = _uiState.value
                 val saved = if (request == null && state.willDiscardEmpty) {
                     discardEmpty(state)
                 } else {
                     saveCurrent(generation, request)
                 }
+                if (!saved && _uiState.value.isConflict) writeConflictCopy()
                 if (generation == operationGeneration) {
                     _uiState.update { it.copy(leaveReady = saved, leaveBlocked = !saved) }
                 }
@@ -377,6 +450,7 @@ class NoteViewModel(
 
     private suspend fun saveFromScheduler() {
         enqueue { generation ->
+            syncEditorBuffer()
             val state = _uiState.value
             when {
                 state.isConflict -> writeConflictCopy()
@@ -397,8 +471,10 @@ class NoteViewModel(
     private suspend fun saveCurrent(generation: Int, request: SaveRequest? = null): Boolean {
         if (request != null && !persistOnce(request)) return false
         while (generation == operationGeneration) {
+            syncEditorBuffer()
             val state = _uiState.value
-            if (!state.isDirty && !state.isConflict && !state.saveFailed) return true
+            if (state.isConflict) return false
+            if (!state.isDirty && !state.saveFailed) return true
             if (!persistOnce(SaveRequest(state.content, NoteWriteMode.Checked(state.revision)))) return false
         }
         return false
@@ -426,9 +502,9 @@ class NoteViewModel(
                     conflictCopy = null,
                 )
             }
-            if (copy != null && copy.content == request.content) {
+            if (copy != null && copy.revision == updated.revision) {
                 try {
-                    repository.discardNote(copy.id, copy.revision)
+                    repository.discardConflictCopy(currentId, copy)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -447,9 +523,9 @@ class NoteViewModel(
     private suspend fun writeConflictCopy() {
         val state = _uiState.value
         val content = state.content
-        if (content == state.savedContent || content == lastConflictCopy?.content) return
+        if (content == state.savedContent) return
         try {
-            val copy = repository.saveConflictCopy(currentId, content, state.conflictCopy)
+            val copy = repository.saveConflictCopy(currentId, content, lastConflictCopy)
             lastConflictCopy = copy
             _uiState.update { it.copy(conflictCopy = copy.id.path) }
         } catch (e: CancellationException) {

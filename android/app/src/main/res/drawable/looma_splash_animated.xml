@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/looma_splash_base">
+    <target
+        android:name="red"
+        android:animation="@animator/splash_line_red" />
+    <target
+        android:name="green"
+        android:animation="@animator/splash_line_green" />
+    <target
+        android:name="blue"
+        android:animation="@animator/splash_line_blue" />
+    <target
+        android:name="yellow"
+        android:animation="@animator/splash_line_yellow" />
+    <target
+        android:name="patchBlueBottom"
+        android:animation="@animator/splash_patch_blue_bottom" />
+    <target
+        android:name="patchBlueTop"
+        android:animation="@animator/splash_patch_blue_top" />
+    <target
+        android:name="patchYellowBottom"
+        android:animation="@animator/splash_patch_yellow_bottom" />
+    <target
+        android:name="patchYellowTop"
+        android:animation="@animator/splash_patch_yellow_top" />
+</animated-vector>

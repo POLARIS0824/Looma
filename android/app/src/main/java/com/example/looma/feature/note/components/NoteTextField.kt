@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import kotlinx.coroutines.delay
 
@@ -43,6 +44,7 @@ internal fun NoteTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     onKeyboardAction: KeyboardActionHandler? = null,
     scrollState: ScrollState = rememberScrollState(),
+    onTextLayout: ((TextLayoutResult) -> Unit)? = null,
     decorator: TextFieldDecorator,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -88,6 +90,7 @@ internal fun NoteTextField(
             lineLimits = lineLimits,
             keyboardOptions = keyboardOptions,
             onKeyboardAction = onKeyboardAction,
+            onTextLayout = { layout -> layout()?.let { onTextLayout?.invoke(it) } },
             scrollState = scrollState,
             decorator = decorator,
         )

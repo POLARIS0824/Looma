@@ -13,6 +13,7 @@ kotlin {
             "com/example/looma/domain/markdown/MarkdownIndex.kt",
             "com/example/looma/domain/markdown/MarkdownMath.kt",
             "com/example/looma/domain/markdown/PermissiveMathParser.kt",
+            "com/example/looma/domain/markdown/ReadingBlocks.kt",
             "com/example/looma/domain/markdown/WikiImageFlavour.kt",
             "com/example/looma/domain/markdown/WikiLinks.kt",
             "com/example/looma/ui/markdown/PreparedMarkdown.kt",

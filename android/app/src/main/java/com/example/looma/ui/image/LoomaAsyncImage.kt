@@ -26,12 +26,11 @@ internal fun LoomaAsyncImage(
 }
 
 @Composable
-internal fun rememberImageRequest(source: ImageSource, maxEdgePx: Int? = null): ImageRequest {
+internal fun rememberImageRequest(source: ImageSource): ImageRequest {
     val context = LocalPlatformContext.current
-    return remember(context, source, maxEdgePx) {
+    return remember(context, source) {
         ImageRequest.Builder(context)
             .data(source.coilModel())
-            .apply { maxEdgePx?.let { size(it) } }
             .build()
     }
 }

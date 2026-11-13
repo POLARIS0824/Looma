@@ -112,12 +112,22 @@ class NoteRepository internal constructor(
         record(vault, fileStore.saveNote(id, content, mode))
     }
 
-    suspend fun saveConflictCopy(
+    internal suspend fun saveConflictCopy(
         id: NoteId,
         content: String,
-        existing: NotePath?,
-    ): Note = write(id.vaultId) { vault, fileStore ->
-        record(vault, fileStore.writeConflictCopy(id, content, existing))
+        previous: ConflictCopy?,
+    ): ConflictCopy = write(id.vaultId) { vault, fileStore ->
+        val stored = fileStore.writeConflictCopy(id, content, previous)
+        val copy = ConflictCopy(stored.id, stored.revision)
+        if (copy != previous) record(vault, stored)
+        copy
+    }
+
+    internal suspend fun discardConflictCopy(id: NoteId, copy: ConflictCopy) = write(id.vaultId) { vault, store ->
+        if (store.discardConflictCopy(id, copy)) {
+            textCache.remove(copy.id)
+            indexUpdater.apply(vault, IndexDelta(id.vaultId, removed = listOf(copy.id.path)))
+        }
     }
 
     suspend fun renameNote(id: NoteId, newFilename: String): RenameOutcome =
@@ -318,4 +328,3 @@ class NoteRepository internal constructor(
         return saved.toNote()
     }
 }
-

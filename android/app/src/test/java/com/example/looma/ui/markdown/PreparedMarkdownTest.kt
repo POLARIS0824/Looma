@@ -8,6 +8,18 @@ import org.junit.Test
 
 class PreparedMarkdownTest {
     @Test
+    fun `paragraph separators retain their item indexes and are skipped as anchors`() {
+        val source = "First paragraph\n\nSecond paragraph"
+        val preview = prepareMarkdownOnCurrentThread(source, CancellationToken.NonCancellable) as PreparedMarkdown.Ready
+
+        assertEquals(listOf(true, false, false, true), preview.blocks.map { it.hasContent })
+        assertEquals(
+            listOf("First paragraph", "\n", "\n", "Second paragraph"),
+            preview.blocks.map { source.substring(it.start, it.end) },
+        )
+    }
+
+    @Test
     fun `opening preview omits a fence that crosses the preview boundary`() {
         val source = "# Large note\n\n- [ ] First task\n\nExample follows.\n\n```text\n" +
             "contents of the fence\n".repeat(400) + "```\n"

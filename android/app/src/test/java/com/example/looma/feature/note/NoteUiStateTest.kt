@@ -1,9 +1,15 @@
 package com.example.looma.feature.note
 
+import com.example.looma.domain.model.Note
+import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteRevision
+import com.example.looma.domain.model.VaultId
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 class NoteUiStateTest {
 
@@ -100,6 +106,56 @@ class NoteUiStateTest {
         assertFalse(base.copy(saveFailed = true).canAdoptDiskRevision(revision("b")))
         assertFalse(base.copy(saveState = NoteSaveState.Saving).canAdoptDiskRevision(revision("b")))
     }
+
+    @Test
+    fun `rename adopts the rewritten note as the editor and saved baseline`() {
+        val renamed = note("[[Myself]]")
+        val state = renameBase.afterRename(renamed, editorContent = "[[Self]]")
+
+        assertEquals(renamed.content, state.content)
+        assertEquals(renamed.content, state.savedContent)
+        assertEquals(renamed.revision, state.revision)
+        assertFalse(state.isDirty)
+    }
+
+    @Test
+    fun `an edit made during rename stays pending when the disk text is unchanged`() {
+        val draft = "[[Self]]\nAdded while renaming"
+        val state = renameBase.afterRename(note("[[Self]]"), editorContent = draft)
+
+        assertEquals(draft, state.content)
+        assertEquals(NoteSaveState.Pending, state.saveState)
+        assertTrue(state.isDirty)
+        assertFalse(state.isConflict)
+    }
+
+    @Test
+    fun `an edit made during a self-link rewrite keeps both versions and requires resolution`() {
+        val renamed = note("[[Myself]]")
+        val draft = "[[Self]]\nAdded while renaming"
+        val state = renameBase.afterRename(renamed, editorContent = draft)
+
+        assertEquals(draft, state.content)
+        assertEquals(renamed.content, state.savedContent)
+        assertEquals(renamed.revision, state.conflictRevision)
+        assertTrue(state.isDirty)
+        assertTrue(state.isConflict)
+        assertTrue(state.saveFailed)
+    }
+
+    private val renameBase = NoteUiState(
+        content = "[[Self]]",
+        savedContent = "[[Self]]",
+        revision = revision("[[Self]]"),
+        isLoading = false,
+    )
+
+    private fun note(content: String) = Note(
+        id = NoteId(VaultId("vault"), NotePath("Myself.md")),
+        title = "Myself",
+        content = content,
+        modifiedAt = Instant.EPOCH,
+    )
 
     private fun revision(seed: String): NoteRevision =
         NoteRevision.of(seed.toByteArray(Charsets.UTF_8))

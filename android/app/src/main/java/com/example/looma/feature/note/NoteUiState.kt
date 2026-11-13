@@ -2,6 +2,7 @@ package com.example.looma.feature.note
 
 import com.example.looma.domain.markdown.ImageContext
 import com.example.looma.domain.markdown.ToolbarItem
+import com.example.looma.domain.model.Note
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteRevision
@@ -13,6 +14,7 @@ enum class NoteSaveState { Idle, Pending, Saving, Saved, Failed }
 data class ImageInsertion(val snippet: String, val token: Long)
 
 data class RenameNotice(val linksUpdated: Int, val linksFailed: Int)
+data class NoteRename(val from: NoteId, val to: NoteId)
 
 sealed interface NoteImageError {
     data object NotConfigured : NoteImageError
@@ -59,15 +61,10 @@ data class NoteUiState(
     val imageUploadError: NoteImageError? = null,
     val titleError: NoteTitleError? = null,
     val renameNotice: RenameNotice? = null,
-    val renameTarget: NoteId? = null,
+    val rename: NoteRename? = null,
+    val isRenaming: Boolean = false,
 ) {
     val isDirty: Boolean get() = !isLoading && content != savedContent
-
-    val needsLeaveGuard: Boolean
-        get() = isDirty ||
-            saveState == NoteSaveState.Pending ||
-            saveState == NoteSaveState.Saving ||
-            saveState == NoteSaveState.Failed
 
     val willDiscardEmpty: Boolean
         get() = isNewNote &&
@@ -84,6 +81,26 @@ data class NoteUiState(
             !leaveBlocked &&
             saveState != NoteSaveState.Saving &&
             diskRevision != revision
+
+    internal fun afterRename(note: Note, editorContent: String): NoteUiState {
+        val draft = if (editorContent == savedContent) note.content else editorContent
+        val pending = draft != note.content
+        val conflict = pending && note.content != savedContent
+        return copy(
+            content = draft,
+            savedContent = note.content,
+            modifiedAt = note.modifiedAt,
+            revision = note.revision,
+            conflictRevision = note.revision.takeIf { conflict },
+            saveState = when {
+                conflict -> NoteSaveState.Failed
+                pending -> NoteSaveState.Pending
+                else -> NoteSaveState.Saved
+            },
+            isConflict = conflict,
+            saveFailed = conflict,
+        )
+    }
 
     private val isContentBlank: Boolean
         get() = content.isBlank()

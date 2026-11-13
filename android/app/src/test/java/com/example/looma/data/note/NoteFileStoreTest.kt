@@ -188,10 +188,10 @@ class NoteFileStoreTest {
     }
 
     @Test
-    fun `an existing conflict copy is overwritten in place`() = runBlocking {
+    fun `an unchanged conflict copy is updated in place`() = runBlocking {
         val first = store.writeConflictCopy(id, "first", null)
 
-        val second = store.writeConflictCopy(id, "second", first.id.path)
+        val second = store.writeConflictCopy(id, "second", ConflictCopy(first.id, first.revision))
 
         assertEquals(first.file, second.file)
         assertEquals("second", first.file.readText())
@@ -199,15 +199,77 @@ class NoteFileStoreTest {
     }
 
     @Test
-    fun `a deleted conflict copy is created again`() = runBlocking {
+    fun `a changed conflict copy is preserved and autosave uses another file`() = runBlocking {
+        val first = store.writeConflictCopy(id, "first", null)
+        val external = "\uFEFFindependent\r\n".toByteArray() + byteArrayOf(0xFF.toByte())
+        first.file.writeBytes(external)
+
+        val second = store.writeConflictCopy(id, "second", ConflictCopy(first.id, first.revision))
+
+        assertNotEquals(first.file, second.file)
+        assertArrayEquals(external, first.file.readBytes())
+        assertEquals("second", second.file.readText())
+        assertEquals("alpha", file.readText())
+    }
+
+    @Test
+    fun `same buffer retries reuse an unchanged copy and recreate a changed copy`() = runBlocking {
+        val first = store.writeConflictCopy(id, "draft", null)
+        val previous = ConflictCopy(first.id, first.revision)
+        val same = store.writeConflictCopy(id, "draft", previous)
+
+        assertEquals(first, same)
+        assertEquals(1, conflictFiles().size)
+        first.file.writeText("external")
+
+        val second = store.writeConflictCopy(id, "draft", previous)
+
+        assertNotEquals(first.file, second.file)
+        assertEquals("external", first.file.readText())
+        assertEquals("draft", second.file.readText())
+    }
+
+    @Test
+    fun `a deleted conflict copy is recreated at a distinct path`() = runBlocking {
         val first = store.writeConflictCopy(id, "first", null)
         assertTrue(first.file.delete())
 
-        val second = store.writeConflictCopy(id, "second", first.id.path)
+        val second = store.writeConflictCopy(id, "first", ConflictCopy(first.id, first.revision))
 
+        assertNotEquals(first.file, second.file)
+        assertFalse(first.file.exists())
         assertTrue(second.file.isFile)
-        assertEquals("second", second.file.readText())
+        assertEquals("first", second.file.readText())
         assertEquals(1, conflictFiles().size)
+    }
+
+    @Test
+    fun `a conflict copy replaced by a directory leaves that directory untouched`() = runBlocking {
+        val first = store.writeConflictCopy(id, "draft", null)
+        assertTrue(first.file.delete())
+        assertTrue(first.file.mkdir())
+        val child = File(first.file, "independent.md").apply { writeText("external") }
+
+        val second = store.writeConflictCopy(id, "new draft", ConflictCopy(first.id, first.revision))
+
+        assertNotEquals(first.file, second.file)
+        assertEquals("external", child.readText())
+        assertEquals("new draft", second.file.readText())
+    }
+
+    @Test
+    fun `overwrite cleanup discards only an unchanged conflict copy`() = runBlocking {
+        val first = store.writeConflictCopy(id, "draft", null)
+        val previous = ConflictCopy(first.id, first.revision)
+        first.file.writeText("external")
+
+        assertFalse(store.discardConflictCopy(id, previous))
+        assertEquals("external", first.file.readText())
+
+        val second = store.writeConflictCopy(id, "new draft", previous)
+        assertTrue(store.discardConflictCopy(id, ConflictCopy(second.id, second.revision)))
+        assertFalse(second.file.exists())
+        assertEquals("external", first.file.readText())
     }
 
     @Test
