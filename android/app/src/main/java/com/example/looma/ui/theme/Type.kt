@@ -33,7 +33,7 @@ internal fun TextStyle.loomaFlex(fontId: Int?, heading: Boolean = false): TextSt
         ),
     )
 
-    val weights = if (weight >= 700) listOf(weight) else listOf(weight, 700)
+    val weights = listOf(weight, 400, 500, 600, 700, 750, 800).distinct()
     val fonts = buildList {
         for (axisWeight in weights) {
             add(flexFont(axisWeight, FontStyle.Normal, italic = false))

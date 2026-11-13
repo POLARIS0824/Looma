@@ -3,8 +3,9 @@ package com.example.looma.data.note
 import com.example.looma.data.index.IndexDelta
 import com.example.looma.data.index.IndexedNote
 import com.example.looma.data.index.NoteIndex
-import com.example.looma.data.index.VaultIndexer
+import com.example.looma.data.index.NoteIndexUpdater
 import com.example.looma.data.index.indexedNote
+import com.example.looma.data.index.toIndexedNote
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.markdown.ImageContext
 import com.example.looma.data.vault.VaultWriteCoordinator
@@ -39,6 +40,7 @@ class NoteRepository internal constructor(
 ) {
     private val parser = MarkdownParser()
     private val textCache = NoteTextCache()
+    private val indexUpdater = NoteIndexUpdater(index)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
     internal suspend fun listNotes(): NoteListResult {
@@ -47,7 +49,7 @@ class NoteRepository internal constructor(
             recoverPendingRelocations(current, retryStalled = true)
         }
         return read(current.id) { vault, _ ->
-            val scan = VaultIndexer(File(vault.rootPath), vault, index).scan()
+            val scan = indexUpdater.scan(vault)
             NoteListResult(
                 items = scan.notes
                     .map { it.toListEntry() }
@@ -77,34 +79,19 @@ class NoteRepository internal constructor(
         texts
     }
 
-    suspend fun readNote(id: NoteId): Note = read(id.vaultId) { _, store -> toNote(store.readNote(id)) }
+    suspend fun readNote(id: NoteId): Note = read(id.vaultId) { _, store ->
+        parser.note(store.readNote(id))
+    }
 
     suspend fun imageContext(id: NoteId): ImageContext? = read(id.vaultId) { _, store -> store.imageContext(id) }
 
-    suspend fun openNote(id: NoteId): OpenedNote = write(id.vaultId) { _, store ->
-        val stored = store.readNote(id)
-        val draft = store.readDraft(id)
-        if (draft == null || draft.content == stored.content) {
-            if (draft != null) store.deleteDraft(id)
-            OpenedNote(toNote(stored), stored.content, restoredDraft = false)
-        } else {
-            OpenedNote(
-                note = toNote(stored, draft.content).copy(revision = draft.baseRevision),
-                diskContent = stored.content,
-                restoredDraft = true,
-                conflictRevision = stored.revision.takeIf { it != draft.baseRevision },
-            )
-        }
+    suspend fun openNote(id: NoteId): Note = write(id.vaultId) { _, store ->
+        parser.note(store.readNote(id))
     }
 
     suspend fun reloadNote(id: NoteId): Note = write(id.vaultId) { _, store ->
-        val stored = store.readNote(id)
-        store.deleteDraft(id)
-        toNote(stored)
+        parser.note(store.readNote(id))
     }
-
-    suspend fun writeDraft(id: NoteId, content: String, baseRevision: NoteRevision) =
-        write(id.vaultId) { _, store -> store.writeDraft(id, content, baseRevision) }
 
     suspend fun wikiContext(id: NoteId): WikiContext = read(id.vaultId) { _, _ ->
         withContext(Dispatchers.Default) { wikiGraphOf(index.load(id.vaultId)).context(id) }
@@ -113,25 +100,34 @@ class NoteRepository internal constructor(
     suspend fun createNote(
         title: String,
         folder: FolderPath = FolderPath.Root,
-    ): Note = write { _, fileStore ->
-        val stored = fileStore.createNote(title, folder)
-        textCache.put(stored.id, stored.modifiedAt, stored.content)
-        writeThrough(IndexDelta(stored.id.vaultId, upserts = listOf(indexedOf(stored))))
-        toNote(stored)
+    ): Note = write { vault, fileStore ->
+        record(vault, fileStore.createNote(title, folder))
     }
 
     suspend fun saveNote(
         id: NoteId,
         content: String,
         mode: NoteWriteMode,
-    ): Note = write(id.vaultId) { _, fileStore ->
-        val stored = fileStore.saveNote(id, content, mode)
-        textCache.put(stored.id, stored.modifiedAt, stored.content)
-        writeThrough(IndexDelta(stored.id.vaultId, upserts = listOf(indexedOf(stored))))
-        runCatching {
-            if (fileStore.readDraft(id)?.content == content) fileStore.deleteDraft(id)
+    ): Note = write(id.vaultId) { vault, fileStore ->
+        record(vault, fileStore.saveNote(id, content, mode))
+    }
+
+    internal suspend fun saveConflictCopy(
+        id: NoteId,
+        content: String,
+        previous: ConflictCopy?,
+    ): ConflictCopy = write(id.vaultId) { vault, fileStore ->
+        val stored = fileStore.writeConflictCopy(id, content, previous)
+        val copy = ConflictCopy(stored.id, stored.revision)
+        if (copy != previous) record(vault, stored)
+        copy
+    }
+
+    internal suspend fun discardConflictCopy(id: NoteId, copy: ConflictCopy) = write(id.vaultId) { vault, store ->
+        if (store.discardConflictCopy(id, copy)) {
+            textCache.remove(copy.id)
+            indexUpdater.apply(vault, IndexDelta(id.vaultId, removed = listOf(copy.id.path)))
         }
-        toNote(stored)
     }
 
     suspend fun renameNote(id: NoteId, newFilename: String): RenameOutcome =
@@ -140,37 +136,33 @@ class NoteRepository internal constructor(
     suspend fun moveNote(id: NoteId, target: FolderPath): RenameOutcome =
         relocate(id) { it.moveNote(id, target) }
 
-    suspend fun deleteNote(id: NoteId): TrashedNote = write(id.vaultId) { _, store ->
+    suspend fun deleteNote(id: NoteId): TrashedNote = write(id.vaultId) { vault, store ->
         val trashed = store.deleteNote(id)
         textCache.remove(id)
-        writeThrough(IndexDelta(id.vaultId, removed = listOf(id.path)))
+        indexUpdater.apply(vault, IndexDelta(id.vaultId, removed = listOf(id.path)))
         trashed
     }
 
-    suspend fun discardNote(id: NoteId, expectedRevision: NoteRevision) = write(id.vaultId) { _, store ->
+    suspend fun discardNote(id: NoteId, expectedRevision: NoteRevision) = write(id.vaultId) { vault, store ->
         val current = store.readNote(id)
         if (current.revision != expectedRevision) throw NoteChangedExternallyException(current.revision)
         store.discardNote(id)
         textCache.remove(id)
-        writeThrough(IndexDelta(id.vaultId, removed = listOf(id.path)))
+        indexUpdater.apply(vault, IndexDelta(id.vaultId, removed = listOf(id.path)))
     }
 
     suspend fun listTrashedNotes(): List<TrashedNote> = read { _, store -> store.listTrashedNotes() }
 
-    suspend fun restoreNote(trashId: String): Note = write { _, store ->
-        val stored = store.restoreNote(trashId)
-        textCache.put(stored.id, stored.modifiedAt, stored.content)
-        writeThrough(IndexDelta(stored.id.vaultId, upserts = listOf(indexedOf(stored))))
-        toNote(stored)
+    suspend fun restoreNote(trashId: String): Note = write { vault, store ->
+        record(vault, store.restoreNote(trashId))
     }
 
     suspend fun deleteTrashedNote(trashId: String) = write { _, store -> store.deleteTrashedNote(trashId) }
 
-    suspend fun restoreTrashedNotes(trashIds: List<String>): TrashBulkOutcome = write { _, store ->
+    suspend fun restoreTrashedNotes(trashIds: List<String>): TrashBulkOutcome = write { vault, store ->
         val (restored, outcome) = store.restoreNotes(trashIds)
         for (stored in restored) {
-            textCache.put(stored.id, stored.modifiedAt, stored.content)
-            writeThrough(IndexDelta(stored.id.vaultId, upserts = listOf(indexedOf(stored))))
+            record(vault, stored)
         }
         outcome
     }
@@ -179,15 +171,15 @@ class NoteRepository internal constructor(
         write { _, store -> store.deleteTrashedNotes(trashIds) }
 
     suspend fun properties(id: NoteId): NoteProperties = read(id.vaultId) { _, fileStore ->
-        val note = toNote(fileStore.readNote(id))
+        val stored = fileStore.readNote(id)
+        val metadata = parser.savedNote(stored).metadata
         val stats = fileStore.noteStats(id)
-        val metadata = parser.parse(note.content, id.path.relativePath)
         NoteProperties(
             path = id.path,
             sizeBytes = stats.sizeBytes,
             modifiedAt = stats.modifiedAt,
-            words = NoteTextStats.words(note.content),
-            characters = NoteTextStats.characters(note.content),
+            words = NoteTextStats.words(stored.content),
+            characters = NoteTextStats.characters(stored.content),
             checkboxesDone = metadata.checklist.count { it.checked },
             checkboxesTotal = metadata.checklist.size,
         )
@@ -225,7 +217,7 @@ class NoteRepository internal constructor(
         write(id.vaultId) { vault, store ->
             val result = runRelocation(vault, operation)
             val stored = store.readNote(NoteId(vault.id, result.path))
-            RenameOutcome(toNote(stored), linksUpdated = result.linksUpdated, linksFailed = result.linksFailed)
+            RenameOutcome(parser.savedNote(stored).toNote(), linksUpdated = result.linksUpdated, linksFailed = result.linksFailed)
         }
 
     private suspend fun <P> runRelocation(
@@ -299,7 +291,7 @@ class NoteRepository internal constructor(
             }
         }
         val removed = changes.removedNotes.distinct().filterNot { it in changed }
-        writeThrough(IndexDelta(vault.id, upserts = upserts, removed = removed))
+        indexUpdater.apply(vault, IndexDelta(vault.id, upserts = upserts, removed = removed))
     }
 
     private fun folder(vault: Vault, path: FolderPath) = VaultFolder(
@@ -326,36 +318,13 @@ class NoteRepository internal constructor(
         searchText = snippet,
     )
 
-    private fun indexedOf(stored: StoredMarkdown): IndexedNote {
-        val metadata = parser.parse(stored.content, stored.file.nameWithoutExtension)
-        return indexedNote(stored.id.vaultId, stored.root, stored.file, stored.content, metadata)
-    }
-
-    private suspend fun writeThrough(delta: IndexDelta) {
-        runCatching { index.apply(delta) }.onFailure { error ->
-            if (error is CancellationException) throw error
-        }
-    }
-
-    private suspend fun toNote(
-        stored: StoredMarkdown,
-        content: String = stored.content,
-    ): Note = withContext(Dispatchers.Default) {
-        val metadata = parser.parse(content, stored.file.nameWithoutExtension)
-        Note(
-            id = stored.id,
-            title = metadata.title,
-            content = content,
-            modifiedAt = stored.modifiedAt,
-            tags = metadata.tags,
-            revision = stored.revision,
+    private suspend fun record(vault: Vault, stored: StoredMarkdown): Note {
+        val saved = parser.savedNote(stored)
+        textCache.put(saved.id, saved.modifiedAt, saved.content)
+        indexUpdater.apply(
+            vault,
+            IndexDelta(saved.id.vaultId, upserts = listOf(saved.toIndexedNote())),
         )
+        return saved.toNote()
     }
 }
-
-data class OpenedNote(
-    val note: Note,
-    val diskContent: String,
-    val restoredDraft: Boolean,
-    val conflictRevision: NoteRevision? = null,
-)

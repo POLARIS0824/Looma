@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -23,7 +25,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
-import com.example.looma.R
+import com.example.looma.LaunchGate
 import com.example.looma.data.folder.FolderRepository
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.image.ImageUploader
@@ -44,7 +46,7 @@ import com.example.looma.feature.trash.TrashViewModel
 import com.example.looma.feature.vault.VaultSetupRoute
 import com.example.looma.feature.vault.VaultSetupViewModel
 import com.example.looma.feature.vault.VaultState
-import com.example.looma.ui.components.LoomaLoadingIndicator
+import com.example.looma.ui.components.DelayedLoadingIndicator
 import kotlinx.coroutines.launch
 
 @Composable
@@ -56,15 +58,22 @@ fun LoomaNavGraph(
     settingsRepository: SettingsRepository,
     imageUploader: ImageUploader,
     vaultSetupViewModel: VaultSetupViewModel,
+    launchGate: LaunchGate,
     modifier: Modifier = Modifier,
 ) {
     val setupState by vaultSetupViewModel.uiState.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_START) { vaultSetupViewModel.refreshVaultStatus() }
     val status = setupState.vaultState
 
+    LaunchedEffect(status) {
+        if (status !is VaultState.Checking && status !is VaultState.Ready) {
+            launchGate.release()
+        }
+    }
+
     if (status is VaultState.Checking) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            LoomaLoadingIndicator()
+            DelayedLoadingIndicator(loading = launchGate.isReleased, size = 44.dp)
         }
         return
     }
@@ -85,7 +94,13 @@ fun LoomaNavGraph(
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val noteBackHandlers = remember { mutableMapOf<String, () -> Unit>() }
     val current = backStack.lastOrNull()
+    LaunchedEffect(status, current) {
+        if (status is VaultState.Ready && current != LoomaRoute.Home) {
+            launchGate.release()
+        }
+    }
     val destination = current.toDestination()
     val vault by vaultRepository.currentVaultFlow.collectAsStateWithLifecycle(initialValue = null)
 
@@ -119,7 +134,9 @@ fun LoomaNavGraph(
             backStack = backStack,
             onBack = {
                 if (backStack.size > 1) {
-                    backStack.removeLastOrNull()
+                    val route = backStack.lastOrNull() as? LoomaRoute.Note
+                    val handler = route?.let { noteBackHandlers[it.visitId] }
+                    if (handler != null) handler() else backStack.removeLastOrNull()
                 }
             },
 
@@ -146,8 +163,13 @@ fun LoomaNavGraph(
                             searchHistoryRepository = searchHistoryRepository,
                         ),
                     )
+                    val homeState by homeViewModel.uiState.collectAsStateWithLifecycle()
+                    LaunchedEffect(homeState.isLoading) {
+                        if (!homeState.isLoading) launchGate.release()
+                    }
                     HomeRoute(
                         viewModel = homeViewModel,
+                        loadingFeedbackEnabled = launchGate.isReleased,
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
                         onCreatedNote = { noteId ->
                             backStack.add(LoomaRoute.Note.from(noteId, isNew = true))
@@ -187,7 +209,7 @@ fun LoomaNavGraph(
                     )
                 }
 
-                entry<LoomaRoute.Note> { route ->
+                entry<LoomaRoute.Note>(clazzContentKey = { it.visitId }) { route ->
                     val noteId = NoteId(
                         vaultId = VaultId(route.vaultId),
                         path = NotePath(route.relativePath),
@@ -197,20 +219,34 @@ fun LoomaNavGraph(
                             repository = noteRepository,
                             settingsRepository = settingsRepository,
                             imageUploader = imageUploader,
-                            noteId = noteId,
+                            initialId = noteId,
                             isNewNote = route.isNew,
                         ),
                     )
+                    val navigateUp = {
+                        val active = backStack.lastOrNull() as? LoomaRoute.Note
+                        if (active?.visitId == route.visitId && backStack.size > 1) {
+                            backStack.removeLastOrNull()
+                        }
+                        Unit
+                    }
+                    DisposableEffect(route.visitId, noteViewModel) {
+                        noteBackHandlers[route.visitId] = {
+                            val state = noteViewModel.uiState.value
+                            if (state.isLoading || state.loadFailed) navigateUp()
+                            else noteViewModel.requestLeave()
+                        }
+                        onDispose { noteBackHandlers.remove(route.visitId) }
+                    }
                     NoteRoute(
                         viewModel = noteViewModel,
-                        fallbackTitle = if (route.isNew) {
-                            stringResource(R.string.home_untitled_note)
-                        } else {
-                            route.relativePath.substringAfterLast('/').substringBeforeLast('.')
-                        },
-                        isNew = route.isNew,
-                        onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                        noteId = noteId,
+                        retargetVersion = route.retargetVersion,
+                        onNavigateUp = navigateUp,
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
+                        onRenameNavigate = { from, to ->
+                            backStack.retargetNoteVisits(from, to, route.visitId)
+                        },
                     )
                 }
             },

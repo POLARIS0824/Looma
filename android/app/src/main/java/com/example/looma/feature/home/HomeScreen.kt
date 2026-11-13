@@ -25,21 +25,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.LargeFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonMenu
+import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -47,6 +51,8 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleFloatingActionButton
+import androidx.compose.material3.ToggleFloatingActionButtonDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -60,12 +66,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -85,6 +95,7 @@ import com.example.looma.feature.home.components.HomeSelectionBar
 import com.example.looma.feature.home.components.HomeTextInputDialog
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.LoomaLoadingIndicator
+import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.theme.LoomaTokens
 
 @Immutable
@@ -133,6 +144,7 @@ fun HomeRoute(
     onMenuClick: () -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
+    loadingFeedbackEnabled: Boolean = true,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val untitledTitle = stringResource(R.string.home_untitled_note)
@@ -165,6 +177,7 @@ fun HomeRoute(
 
     HomeScreen(
         state = state,
+        loadingFeedbackEnabled = loadingFeedbackEnabled,
         actions = HomeActions(
             onQueryChange = viewModel::setQuery,
             onSearchSubmit = viewModel::recordSearch,
@@ -229,6 +242,7 @@ fun HomeScreen(
     state: HomeUiState,
     actions: HomeActions,
     modifier: Modifier = Modifier,
+    loadingFeedbackEnabled: Boolean = true,
 ) {
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
     var sortSheetVisible by rememberSaveable { mutableStateOf(false) }
@@ -307,7 +321,7 @@ fun HomeScreen(
             },
             floatingActionButton = {
                 if (!state.isSelecting) {
-                    HomeActionButtons(
+                    HomeActionMenu(
                         isCreating = state.isCreating,
                         onCreateFolderClick = actions.onCreateFolderClick,
                         onCreateNoteClick = actions.onCreateNoteClick,
@@ -330,6 +344,7 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
             ) {
                 HomeContent(
+                    loadingFeedbackEnabled = loadingFeedbackEnabled,
                     state = state,
                     contentPadding = PaddingValues(),
                     actions = actions.copy(onRecentRevealed = { request ->
@@ -466,53 +481,55 @@ private fun HomeSortSheet(current: HomeSort, onSelect: (HomeSort) -> Unit) {
             color = LoomaTokens.colors.title,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
         )
-        HomeSortOption(
-            label = stringResource(R.string.home_sort_last_modified),
-            selected = current == HomeSort.LAST_MODIFIED,
-            onClick = { onSelect(HomeSort.LAST_MODIFIED) },
-        )
-        HomeSortOption(
-            label = stringResource(R.string.home_sort_title),
-            selected = current == HomeSort.TITLE,
-            onClick = { onSelect(HomeSort.TITLE) },
-        )
-        HomeSortOption(
-            label = stringResource(R.string.home_sort_title_descending),
-            selected = current == HomeSort.TITLE_DESCENDING,
-            onClick = { onSelect(HomeSort.TITLE_DESCENDING) },
-        )
+        Column(Modifier.selectableGroup()) {
+            HomeSortOption(
+                label = stringResource(R.string.home_sort_last_modified),
+                selected = current == HomeSort.LAST_MODIFIED,
+                onClick = { onSelect(HomeSort.LAST_MODIFIED) },
+            )
+            HomeSortOption(
+                label = stringResource(R.string.home_sort_title),
+                selected = current == HomeSort.TITLE,
+                onClick = { onSelect(HomeSort.TITLE) },
+            )
+            HomeSortOption(
+                label = stringResource(R.string.home_sort_title_descending),
+                selected = current == HomeSort.TITLE_DESCENDING,
+                onClick = { onSelect(HomeSort.TITLE_DESCENDING) },
+            )
+        }
     }
 }
 
 @Composable
 private fun HomeSortOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(28.dp),
-        color = if (selected) LoomaTokens.colors.chip else Color.Transparent,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+    val shape = RoundedCornerShape(28.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp)
+            .clip(shape)
+            .background(if (selected) LoomaTokens.colors.chip else Color.Transparent)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (selected) {
-                LoomaIcon(
-                    iconRes = R.drawable.ic_check,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                    tint = LoomaTokens.colors.accent,
-                )
-            } else {
-                Spacer(Modifier.width(22.dp))
-            }
-            Spacer(Modifier.width(16.dp))
-            Text(
-                text = label,
-                style = LoomaTokens.type.body,
-                color = LoomaTokens.colors.title,
+        if (selected) {
+            LoomaIcon(
+                iconRes = R.drawable.ic_check,
+                contentDescription = null,
+                modifier = Modifier.size(22.dp),
+                tint = LoomaTokens.colors.onChip,
             )
+        } else {
+            Spacer(Modifier.width(22.dp))
         }
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text = label,
+            style = LoomaTokens.type.body,
+            color = if (selected) LoomaTokens.colors.onChip else LoomaTokens.colors.title,
+        )
     }
 }
 
@@ -522,6 +539,7 @@ private fun HomeContent(
     state: HomeUiState,
     contentPadding: PaddingValues,
     actions: HomeActions,
+    loadingFeedbackEnabled: Boolean,
 ) {
     val motion = MaterialTheme.motionScheme
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
@@ -537,7 +555,7 @@ private fun HomeContent(
         }
         when {
             state.isLoading && state.notes.isEmpty() -> HomeCentered {
-                LoomaLoadingIndicator()
+                DelayedLoadingIndicator(loading = loadingFeedbackEnabled, size = 44.dp)
             }
 
             state.files.isAtRoot && state.files.isEmpty -> HomeCentered {
@@ -608,25 +626,16 @@ private fun StalledRelocationBanner(
     isActionRunning: Boolean,
     onAbandonClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = stringResource(
-                R.string.home_stalled_relocation_banner,
-                stalled.sourcePath,
-                stalled.destinationPath,
-            ),
-            style = LoomaTokens.type.cardBody,
-            color = LoomaTokens.colors.error,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onAbandonClick, enabled = !isActionRunning) {
-            Text(stringResource(R.string.home_stalled_relocation_abandon))
-        }
-    }
+    HomeErrorContainer(
+        message = stringResource(
+            R.string.home_stalled_relocation_banner,
+            stalled.sourcePath,
+            stalled.destinationPath,
+        ),
+        actionLabel = stringResource(R.string.home_stalled_relocation_abandon),
+        actionEnabled = !isActionRunning,
+        onActionClick = onAbandonClick,
+    )
 }
 
 @Composable
@@ -636,66 +645,113 @@ private fun HomeErrorBanner(error: HomeError, onRetryClick: () -> Unit) {
         HomeError.LoadFailed -> stringResource(R.string.home_error_load)
         HomeError.CreateFailed -> stringResource(R.string.home_error_create)
     }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    HomeErrorContainer(
+        message = message,
+        actionLabel = stringResource(R.string.home_retry),
+        actionEnabled = true,
+        onActionClick = onRetryClick,
+    )
+}
+
+@Composable
+private fun HomeErrorContainer(
+    message: String,
+    actionLabel: String,
+    actionEnabled: Boolean,
+    onActionClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.large,
+        color = scheme.errorContainer,
+        contentColor = scheme.onErrorContainer,
     ) {
-        Text(
-            text = message,
-            style = LoomaTokens.type.cardBody,
-            color = LoomaTokens.colors.error,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = onRetryClick) {
-            Text(stringResource(R.string.home_retry))
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = message,
+                style = LoomaTokens.type.cardBody,
+                color = scheme.onErrorContainer,
+                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+            )
+            TextButton(
+                onClick = onActionClick,
+                enabled = actionEnabled,
+                colors = ButtonDefaults.textButtonColors(contentColor = scheme.onErrorContainer),
+            ) {
+                Text(actionLabel)
+            }
         }
     }
 }
-
 @Composable
 private fun HomeCentered(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun HomeActionButtons(
+private fun HomeActionMenu(
     isCreating: Boolean,
     onCreateFolderClick: () -> Unit,
     onCreateNoteClick: () -> Unit,
 ) {
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        SmallFloatingActionButton(
-            onClick = onCreateFolderClick,
-            modifier = Modifier.size(58.dp),
-            shape = RoundedCornerShape(20.dp),
-            containerColor = LoomaTokens.colors.accentContainer,
-        ) {
-            LoomaIcon(
-                iconRes = R.drawable.ic_folder_plus,
-                contentDescription = stringResource(R.string.home_new_folder_description),
-                modifier = Modifier.size(26.dp),
-            )
-        }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val menuOpen = expanded && !isCreating
+    // Scaffold already keeps 16dp from the edge; cancel the menu's own 16dp padding.
+    val layoutDirection = LocalLayoutDirection.current
+    val edgeOffset = if (layoutDirection == LayoutDirection.Rtl) (-16).dp else 16.dp
 
-        LargeFloatingActionButton(
-            onClick = onCreateNoteClick,
-            modifier = Modifier.size(88.dp),
-            shape = RoundedCornerShape(28.dp),
-            containerColor = LoomaTokens.colors.accentContainer,
-        ) {
-            if (isCreating) {
-                CircularProgressIndicator(Modifier.size(28.dp))
-            } else {
-                LoomaIcon(
-                    iconRes = R.drawable.ic_add,
-                    contentDescription = stringResource(R.string.home_create_note_description),
-                    modifier = Modifier.size(38.dp),
-                )
+    FloatingActionButtonMenu(
+        expanded = menuOpen,
+        modifier = Modifier.offset(x = edgeOffset),
+        button = {
+            ToggleFloatingActionButton(
+                checked = menuOpen,
+                onCheckedChange = { open -> if (!isCreating) expanded = open },
+                containerSize = ToggleFloatingActionButtonDefaults.containerSizeMedium(),
+                containerCornerRadius = ToggleFloatingActionButtonDefaults.containerCornerRadiusMedium(),
+            ) {
+                if (isCreating) {
+                    LoomaLoadingIndicator(size = 24.dp, color = LocalContentColor.current)
+                } else {
+                    val open = checkedProgress > 0.5f
+                    LoomaIcon(
+                        iconRes = if (open) R.drawable.ic_close else R.drawable.ic_add,
+                        contentDescription = stringResource(
+                            if (open) R.string.home_close_menu_description
+                            else R.string.home_create_menu_description,
+                        ),
+                        modifier = with(ToggleFloatingActionButtonDefaults) {
+                            Modifier.animateIcon(
+                                { checkedProgress },
+                                size = iconSize(initialSize = 36.dp, finalSize = 24.dp),
+                            )
+                        },
+                    )
+                }
             }
-        }
+        },
+    ) {
+        FloatingActionButtonMenuItem(
+            onClick = {
+                expanded = false
+                onCreateFolderClick()
+            },
+            text = { Text(stringResource(R.string.home_new_folder_description)) },
+            icon = { LoomaIcon(R.drawable.ic_folder_plus, contentDescription = null) },
+        )
+        FloatingActionButtonMenuItem(
+            onClick = {
+                expanded = false
+                onCreateNoteClick()
+            },
+            text = { Text(stringResource(R.string.home_create_note_description)) },
+            icon = { LoomaIcon(R.drawable.ic_add, contentDescription = null) },
+        )
     }
 }

@@ -9,7 +9,8 @@ import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultId
 import java.io.File
 import java.io.IOException
-import java.util.Properties
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -73,12 +74,10 @@ class NoteFileStoreTest {
     @Test
     fun `same content is only a noop after validating revision`() = runBlocking {
         val opened = store.readNote(id)
-        store.writeDraft(id, "draft", opened.revision)
         val saved = store.saveNote(id, opened.content, NoteWriteMode.Checked(opened.revision))
 
         assertEquals(opened.revision, saved.revision)
         assertEquals(opened.modifiedAt, saved.modifiedAt)
-        assertEquals("draft", store.readDraft(id)?.content)
         assertFalse(File(root, ".looma/conflicts").exists())
         expectFailure<NoteChangedExternallyException> {
             store.saveNote(id, opened.content, NoteWriteMode.Checked(NoteRevision.Unknown))
@@ -87,15 +86,13 @@ class NoteFileStoreTest {
     }
 
     @Test
-    fun `checked save returns new raw revision and keeps draft for repository cleanup`() = runBlocking {
+    fun `checked save returns new raw revision`() = runBlocking {
         val opened = store.readNote(id)
-        store.writeDraft(id, "mine", opened.revision)
 
         val saved = store.saveNote(id, "mine", NoteWriteMode.Checked(opened.revision))
 
         assertEquals("mine", file.readText())
         assertEquals(NoteRevision.of(file.readBytes()), saved.revision)
-        assertEquals(StoredDraft("mine", opened.revision), store.readDraft(id))
     }
 
     @Test
@@ -178,112 +175,122 @@ class NoteFileStoreTest {
     }
 
     @Test
-    fun `recovered draft keeps its older mtime and original baseline`() = runBlocking {
-        val opened = store.readNote(id)
-        val content = "\uFEFF  笔记\nkey=value: #!\\\r\t"
-        store.writeDraft(id, content, opened.revision)
-        val draft = draftFile(root, id.path)
-        assertTrue(draft.setLastModified(1_000L))
-        file.writeText("external")
-        assertTrue(file.setLastModified(10_000L))
-        val restarted = NoteFileStore(vault)
+    fun `first conflict copy sits beside the original and leaves it untouched`() = runBlocking {
+        val original = file.readBytes()
 
-        assertEquals(StoredDraft(content, opened.revision), restarted.readDraft(id))
-        val properties = Properties().apply { draft.reader(Charsets.UTF_8).use { load(it) } }
-        assertEquals("1", properties.getProperty("version"))
-        assertEquals(content, properties.getProperty("content"))
-        assertEquals((opened.revision as NoteRevision.Known).sha256, properties.getProperty("baseRevision"))
-        assertEquals(listOf(draft.name), draft.parentFile.list()!!.toList())
+        val copy = store.writeConflictCopy(id, "unsaved\r\n工作", null)
+
+        assertEquals(root, copy.file.parentFile)
+        assertTrue(CONFLICTED_COPY.matches(copy.file.name))
+        assertTrue(copy.file.name.startsWith("note (conflicted copy "))
+        assertEquals("unsaved\r\n工作", copy.file.readText())
+        assertArrayEquals(original, file.readBytes())
     }
 
     @Test
-    fun `legacy draft has unknown baseline and remains until successful cleanup`() = runBlocking {
-        val legacy = legacyDraftFile(root, id.path)
-        assertTrue(legacy.parentFile.mkdirs())
-        val bytes = "\uFEFFlegacy edits".toByteArray()
-        legacy.writeBytes(bytes)
-        assertTrue(legacy.setLastModified(1_000L))
+    fun `an unchanged conflict copy is updated in place`() = runBlocking {
+        val first = store.writeConflictCopy(id, "first", null)
 
-        assertEquals(StoredDraft("\uFEFFlegacy edits", NoteRevision.Unknown), store.readDraft(id))
-        expectFailure<NoteChangedExternallyException> {
-            store.saveNote(id, "legacy edits", NoteWriteMode.Checked(NoteRevision.Unknown))
+        val second = store.writeConflictCopy(id, "second", ConflictCopy(first.id, first.revision))
+
+        assertEquals(first.file, second.file)
+        assertEquals("second", first.file.readText())
+        assertEquals(1, conflictFiles().size)
+    }
+
+    @Test
+    fun `a changed conflict copy is preserved and autosave uses another file`() = runBlocking {
+        val first = store.writeConflictCopy(id, "first", null)
+        val external = "\uFEFFindependent\r\n".toByteArray() + byteArrayOf(0xFF.toByte())
+        first.file.writeBytes(external)
+
+        val second = store.writeConflictCopy(id, "second", ConflictCopy(first.id, first.revision))
+
+        assertNotEquals(first.file, second.file)
+        assertArrayEquals(external, first.file.readBytes())
+        assertEquals("second", second.file.readText())
+        assertEquals("alpha", file.readText())
+    }
+
+    @Test
+    fun `same buffer retries reuse an unchanged copy and recreate a changed copy`() = runBlocking {
+        val first = store.writeConflictCopy(id, "draft", null)
+        val previous = ConflictCopy(first.id, first.revision)
+        val same = store.writeConflictCopy(id, "draft", previous)
+
+        assertEquals(first, same)
+        assertEquals(1, conflictFiles().size)
+        first.file.writeText("external")
+
+        val second = store.writeConflictCopy(id, "draft", previous)
+
+        assertNotEquals(first.file, second.file)
+        assertEquals("external", first.file.readText())
+        assertEquals("draft", second.file.readText())
+    }
+
+    @Test
+    fun `a deleted conflict copy is recreated at a distinct path`() = runBlocking {
+        val first = store.writeConflictCopy(id, "first", null)
+        assertTrue(first.file.delete())
+
+        val second = store.writeConflictCopy(id, "first", ConflictCopy(first.id, first.revision))
+
+        assertNotEquals(first.file, second.file)
+        assertFalse(first.file.exists())
+        assertTrue(second.file.isFile)
+        assertEquals("first", second.file.readText())
+        assertEquals(1, conflictFiles().size)
+    }
+
+    @Test
+    fun `a conflict copy replaced by a directory leaves that directory untouched`() = runBlocking {
+        val first = store.writeConflictCopy(id, "draft", null)
+        assertTrue(first.file.delete())
+        assertTrue(first.file.mkdir())
+        val child = File(first.file, "independent.md").apply { writeText("external") }
+
+        val second = store.writeConflictCopy(id, "new draft", ConflictCopy(first.id, first.revision))
+
+        assertNotEquals(first.file, second.file)
+        assertEquals("external", child.readText())
+        assertEquals("new draft", second.file.readText())
+    }
+
+    @Test
+    fun `overwrite cleanup discards only an unchanged conflict copy`() = runBlocking {
+        val first = store.writeConflictCopy(id, "draft", null)
+        val previous = ConflictCopy(first.id, first.revision)
+        first.file.writeText("external")
+
+        assertFalse(store.discardConflictCopy(id, previous))
+        assertEquals("external", first.file.readText())
+
+        val second = store.writeConflictCopy(id, "new draft", previous)
+        assertTrue(store.discardConflictCopy(id, ConflictCopy(second.id, second.revision)))
+        assertFalse(second.file.exists())
+        assertEquals("external", first.file.readText())
+    }
+
+    @Test
+    fun `a taken conflict name gets a numeric suffix`() = runBlocking {
+        var suffixed: StoredMarkdown? = null
+        repeat(5) {
+            if (suffixed != null) return@repeat
+            val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HHmmss"))
+            val blocker = File(root, "note (conflicted copy $timestamp).md").apply { writeText("blocker") }
+            val copy = store.writeConflictCopy(id, "mine", null)
+            if (copy.file.name.endsWith(" 2.md")) {
+                suffixed = copy
+            } else {
+                copy.file.delete()
+            }
+            blocker.delete()
         }
-        store.writeDraft(id, "continued editing", NoteRevision.Unknown)
-        assertEquals(StoredDraft("continued editing", NoteRevision.Unknown), store.readDraft(id))
-        assertArrayEquals(bytes, legacy.readBytes())
-        store.deleteDraft(id)
-        assertNull(store.readDraft(id))
-        assertFalse(legacy.exists())
-        assertFalse(draftFile(root, id.path).exists())
-    }
 
-    @Test
-    fun `checkpoint equal to disk removes obsolete primary and legacy drafts`() = runBlocking {
-        val opened = store.readNote(id)
-        store.writeDraft(id, "obsolete", opened.revision)
-        val legacy = legacyDraftFile(root, id.path).apply { writeText("older") }
-
-        store.writeDraft(id, opened.content, opened.revision)
-
-        assertNull(store.readDraft(id))
-        assertFalse(draftFile(root, id.path).exists())
-        assertFalse(legacy.exists())
-    }
-
-    @Test
-    fun `maximum draft body allows properties serialization overhead`() = runBlocking {
-        val content = "=".repeat(MAX_MARKDOWN_BYTES.toInt())
-        store.writeDraft(id, content, NoteRevision.Unknown)
-
-        assertTrue(draftFile(root, id.path).length() > MAX_MARKDOWN_BYTES)
-        assertTrue(draftFile(root, id.path).length() <= MAX_DRAFT_BYTES)
-        assertEquals(StoredDraft(content, NoteRevision.Unknown), store.readDraft(id))
-    }
-
-    @Test
-    fun `oversized draft writes preserve the previous record`() = runBlocking {
-        store.writeDraft(id, "kept", NoteRevision.Unknown)
-        val before = draftFile(root, id.path).readBytes()
-
-        expectFailure<NoteTooLargeException> {
-            store.writeDraft(id, "x".repeat(MAX_MARKDOWN_BYTES.toInt() + 1), NoteRevision.Unknown)
-        }
-
-        assertArrayEquals(before, draftFile(root, id.path).readBytes())
-    }
-
-    @Test
-    fun `oversized serialized drafts are rejected without deleting the record`() = runBlocking {
-        store.writeDraft(id, "kept", NoteRevision.Unknown)
-        val draft = draftFile(root, id.path)
-        val bytes = ByteArray(MAX_DRAFT_BYTES.toInt() + 1)
-        draft.writeBytes(bytes)
-
-        expectFailure<NoteTooLargeException> { store.readDraft(id) }
-
-        assertArrayEquals(bytes, draft.readBytes())
-    }
-
-    @Test
-    fun `invalid baseline cannot be guessed from disk or hidden by legacy fallback`() = runBlocking {
-        store.writeDraft(id, "kept", NoteRevision.Unknown)
-        val draft = draftFile(root, id.path)
-        draft.writeText("version=1\ncontent=edits\nbaseRevision=invalid\n")
-        val legacy = legacyDraftFile(root, id.path).apply { writeText("older") }
-
-        expectFailure<IOException> { store.readDraft(id) }
-
-        assertTrue(draft.exists())
-        assertEquals("older", legacy.readText())
-    }
-
-    @Test
-    fun `draft checkpoint still works when an external file exceeds the note limit`() = runBlocking {
-        file.writeBytes(ByteArray(MAX_MARKDOWN_BYTES.toInt() + 1))
-
-        store.writeDraft(id, "local edits", NoteRevision.Unknown)
-
-        assertEquals(StoredDraft("local edits", NoteRevision.Unknown), store.readDraft(id))
+        val copy = requireNotNull(suffixed)
+        assertTrue(CONFLICTED_COPY.matches(copy.file.name))
+        assertEquals("mine", copy.file.readText())
     }
 
     @Test
@@ -299,17 +306,7 @@ class NoteFileStoreTest {
         assertTrue(record.metaFile.isFile)
     }
 
-    @Test
-    fun `deleting then restoring a note keeps its unsaved draft`() = runBlocking {
-        val opened = store.readNote(id)
-        store.writeDraft(id, "unsaved", opened.revision)
 
-        val trashed = store.deleteNote(id)
-        assertNull(store.readDraft(id))
-        store.restoreNote(trashed.trashId)
-
-        assertEquals(StoredDraft("unsaved", opened.revision), store.readDraft(id))
-    }
 
     @Test
     fun `restore returns the raw revision`() = runBlocking {
@@ -338,6 +335,9 @@ class NoteFileStoreTest {
         assertEquals(VaultFileFailure.NOT_FOUND, failure.failure)
         assertEquals(vault.id, store.createNote("created").id.vaultId)
     }
+
+    private fun conflictFiles(): List<File> =
+        root.listFiles().orEmpty().filter { CONFLICTED_COPY.matches(it.name) }
 
     private inline fun <reified T : Throwable> expectFailure(block: () -> Unit): T {
         try {

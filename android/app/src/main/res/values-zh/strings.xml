@@ -33,6 +33,8 @@
     <string name="home_recent_searches">最近搜索</string>
     <string name="home_create_note_description">新建笔记</string>
     <string name="home_new_folder_description">新建文件夹</string>
+    <string name="home_create_menu_description">新建</string>
+    <string name="home_close_menu_description">关闭菜单</string>
     <string name="home_retry">重试</string>
     <string name="home_stalled_relocation_banner">移动或重命名未完成：%1$s → %2$s</string>
     <string name="home_stalled_relocation_abandon">放弃此操作</string>
@@ -130,6 +132,7 @@
     <string name="settings_dynamic_color_unavailable">当前 Android 版本不支持</string>
     <string name="settings_theme">色彩主题</string>
     <string name="settings_theme_wallpaper">壁纸取色</string>
+    <string name="settings_theme_wallpaper_hint">选择主题会关闭动态取色</string>
     <string name="settings_theme_dialog_title">色彩主题</string>
     <string name="settings_theme_default">Looma</string>
     <string name="settings_theme_indigo">靛蓝</string>
@@ -144,7 +147,7 @@
     <string name="settings_keep_empty_notes">保留空白笔记</string>
     <string name="settings_keep_empty_notes_desc">新笔记没有写任何内容也保留文件</string>
     <string name="settings_show_inline_title">显示内联标题</string>
-    <string name="settings_show_inline_title_desc">文件名与首个标题不同时，在笔记顶部显示文件名</string>
+    <string name="settings_show_inline_title_desc">在笔记上方显示文件名标题</string>
     <string name="settings_section_about">关于</string>
     <string name="settings_version">版本 %1$s</string>
     <string name="settings_vault_unavailable">笔记库当前不可访问</string>
@@ -200,6 +203,14 @@
     <string name="editor_reload">重新加载</string>
     <string name="editor_save_failed">保存这篇笔记失败</string>
     <string name="editor_load_failed">打开这篇笔记失败</string>
+    <string name="editor_title_hint">文件名</string>
+    <string name="editor_rename_invalid">名称不可用</string>
+    <string name="editor_rename_taken">已存在同名笔记</string>
+    <string name="editor_rename_stalled">请先在首页处理未完成的重命名</string>
+    <string name="editor_rename_blocked">请先解决保存问题再改名</string>
+    <string name="editor_rename_failed">无法重命名这篇笔记</string>
+    <string name="editor_rename_links">已重命名，更新了 %1$d 处引用</string>
+    <string name="editor_rename_links_failed">已重命名，%1$d 处引用未能更新</string>
     <string name="home_snackbar_renamed_links">已重命名，更新了 %1$d 处引用</string>
     <string name="home_snackbar_renamed_failed">已重命名，%1$d 处引用未能更新</string>
     <string name="note_backlinks_title">反向链接 · %1$d</string>
@@ -208,7 +219,8 @@
     <string name="editor_wikilink_search">搜索笔记</string>
     <string name="editor_wikilink_empty">没有匹配的笔记</string>
     <string name="editor_reload_from_disk">从磁盘重载</string>
-    <string name="editor_draft_restored">已恢复上次未保存的内容</string>
+    <string name="editor_save_failed_conflict_copy">保存失败，已将你的修改另存为「%1$s」。</string>
+    <string name="editor_conflict_conflict_copy">笔记已在外部变化，已将你的修改另存为「%1$s」。</string>
 
     <string name="home_folder_actions_description">文件夹操作</string>
     <string name="home_folder_rename_title">重命名文件夹</string>
@@ -253,6 +265,7 @@
     <string name="settings_image_bed_public_read">公共读 ACL</string>
     <string name="settings_image_bed_public_read_desc">上传时设置 public-read 权限</string>
     <string name="editor_insert_image">插入图片</string>
+    <string name="editor_uploading_image">正在上传图片</string>
     <string name="note_image_error_not_configured">请先在设置里配置 S3 图床</string>
     <string name="note_image_error_unsupported">仅支持 PNG、JPEG、WebP、GIF 和 BMP 图片</string>
     <string name="note_image_error_too_large">图片超过 12 MB</string>

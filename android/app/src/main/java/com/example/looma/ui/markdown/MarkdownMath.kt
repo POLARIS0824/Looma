@@ -22,7 +22,6 @@ import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.unit.TextUnit
 import com.example.looma.domain.markdown.MathSpan
-import com.example.looma.domain.markdown.collectMathSpans
 import com.mikepenz.markdown.model.MarkdownAnnotator
 import com.mikepenz.markdown.model.markdownAnnotator
 import io.ratex.DisplayList
@@ -30,61 +29,85 @@ import io.ratex.RaTeXEngine
 import io.ratex.RaTeXFontLoader
 import io.ratex.compose.RaTeX
 import io.ratex.measure
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.flavours.gfm.GFMElementTypes
 
 @Immutable
 internal class MathRenderState(
-    internal val spans: Map<Int, MathSpan>,
-    internal val displays: Map<Int, DisplayList>,
+    private val spans: List<MathSpan>,
+    private val displays: Map<Int, DisplayList>,
     val fontSize: TextUnit,
 ) {
-    fun span(start: Int): MathSpan? = spans[start]
+    fun span(start: Int): MathSpan? =
+        spans.getOrNull(spans.binarySearchBy(start) { it.range.first })
 
     fun display(start: Int): DisplayList? = displays[start]
 
     fun hasInlineMath(range: IntRange): Boolean =
-        spans.values.any { !it.block && it.range.first in range }
+        inlineMath(range).any()
+
+    fun inlineMath(range: IntRange): Sequence<MathSpan> {
+        val index = spans.binarySearchBy(range.first) { it.range.first }
+        val start = if (index >= 0) index else -index - 1
+        return (start until spans.size).asSequence()
+            .map(spans::get)
+            .takeWhile { it.range.first <= range.last }
+            .filterNot { it.block }
+    }
 
     fun tag(start: Int): String = mathTag(start)
 
     fun blockDisplay(node: ASTNode): DisplayList? {
         val math = node.children.firstOrNull { it.type == GFMElementTypes.BLOCK_MATH } ?: return null
-        if (spans[math.startOffset]?.block != true) return null
+        if (span(math.startOffset)?.block != true) return null
         return displays[math.startOffset]
     }
 }
 
 @Composable
 internal fun rememberMathRenderState(
-    body: String,
+    spans: List<MathSpan>,
     fontSize: TextUnit,
     color: Color,
 ): MathRenderState {
-    val spans = remember(body) { collectMathSpans(body) }
     val displayState = remember(spans, color) { mutableStateOf(emptyMap<Int, DisplayList>()) }
     LaunchedEffect(spans, color) {
-        displayState.value = emptyMap()
         if (spans.isEmpty()) return@LaunchedEffect
-        runCatching { RaTeXFontLoader.ensureLoaded() }
-        val parsed = LinkedHashMap<Int, DisplayList>()
-        spans.forEach { span ->
-            val display = mathDisplays.get(span.latex, span.display, color)
-                ?: runCatching { RaTeXEngine.parse(span.latex, span.display, color) }
-                    .getOrNull()
-                    ?.also { mathDisplays.put(span.latex, span.display, color, it) }
-            if (display != null) {
-                parsed[span.range.first] = display
-                displayState.value = parsed.toMap()
+        withContext(Dispatchers.Default) {
+            runCatching { RaTeXFontLoader.ensureLoaded() }
+                .onFailure { if (it is CancellationException) throw it }
+            val parsed = mutableMapOf<Int, DisplayList>()
+            var publishedCount = 0
+            suspend fun publish() {
+                val displays = parsed.toMap()
+                withContext(Dispatchers.Main) { displayState.value = displays }
+                publishedCount = displays.size
             }
+
+            for (span in spans) {
+                ensureActive()
+                val display = mathDisplays.get(span.latex, span.display, color)
+                    ?: runCatching { RaTeXEngine.parseBlocking(span.latex, span.display, color) }
+                        .getOrNull()
+                        ?.also { mathDisplays.put(span.latex, span.display, color, it) }
+                    ?: continue
+                parsed[span.range.first] = display
+                if (parsed.size >= publishedCount * 2) {
+                    publish()
+                }
+            }
+            if (parsed.size > publishedCount) publish()
         }
     }
     val displays = displayState.value
-    val spanByStart = remember(spans) { spans.associateBy { it.range.first } }
 
-    return remember(spanByStart, displays, fontSize) {
+    return remember(spans, displays, fontSize) {
         MathRenderState(
-            spans = spanByStart,
+            spans = spans,
             displays = displays,
             fontSize = fontSize,
         )
@@ -95,17 +118,16 @@ internal fun rememberMathRenderState(
 internal fun rememberMathInlineContent(
     state: MathRenderState,
     fontSize: TextUnit,
-    range: IntRange? = null,
+    range: IntRange,
     maxWidth: TextUnit? = null,
 ): Map<String, InlineTextContent> {
     val density = LocalDensity.current
     val fontSizePx = with(density) { fontSize.toPx() }
     return remember(state, fontSize, fontSizePx, density, range, maxWidth) {
         buildMap {
-            state.displays.forEach { (start, display) ->
-                if (range != null && start !in range) return@forEach
-                val span = state.spans[start] ?: return@forEach
-                if (span.block) return@forEach
+            state.inlineMath(range).forEach { span ->
+                val start = span.range.first
+                val display = state.display(start) ?: return@forEach
                 val measured = display.measure(fontSizePx)
                 val formulaWidth = with(density) { measured.widthPx.toSp() }
                 val placeholderWidth = when {

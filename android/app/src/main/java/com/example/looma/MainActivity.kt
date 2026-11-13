@@ -6,11 +6,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.getValue
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.example.looma.data.settings.AppSettings
 import com.example.looma.feature.vault.VaultSetupViewModel
 import com.example.looma.navigation.LoomaNavGraph
 import com.example.looma.ui.theme.LoomaTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
     private val container get() = application as LoomaApp
@@ -20,7 +24,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val launchGate = LaunchGate()
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        splashScreen.setKeepOnScreenCondition {
+            !launchGate.isReleased && launchGate.remainingMillis > 0
+        }
+        lifecycleScope.launch {
+            delay(launchGate.remainingMillis)
+            launchGate.release()
+        }
         enableEdgeToEdge()
         setContent {
             val settings by container.settingsRepository.settings
@@ -37,6 +50,7 @@ class MainActivity : AppCompatActivity() {
                     settingsRepository = container.settingsRepository,
                     imageUploader = container.imageUploader,
                     vaultSetupViewModel = vaultSetupViewModel,
+                    launchGate = launchGate,
                 )
             }
         }

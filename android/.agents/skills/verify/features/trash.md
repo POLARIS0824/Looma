@@ -1,35 +1,34 @@
 # Delete and restore notes
 
-Deleted notes leave normal browsing and appear in Trash with their original location. Users can restore them, undo a restore, delete permanently, restore all or empty the trash after confirmation.
+Deleted notes leave normal browsing and appear in Trash with their original location. Users can restore them, undo a restore, delete permanently, restore all or empty the trash.
 
 ## Sub-features
 
-- `trash-delete-undo`: Home selection Delete moves the file to trash; snackbar Undo restores it.
-- `trash-open-empty`: the drawer opens Trash, including the empty state.
-- `trash-restore`: individual Restore returns the note to its original path; its Undo moves it back.
-- `trash-permanent`: Delete permanently requires confirmation and removes note and metadata.
-- `trash-bulk`: Restore all and confirmed Empty trash act on all eligible items.
+- `trash-delete-undo`: Home selection Delete (no confirmation) moves notes to `.looma/trash`; snackbar Undo restores them. Folder delete trashes the folder's notes after confirming.
+- `trash-open-empty`: the drawer opens Trash; an empty trash shows `Trash is empty` and `Deleted notes stay here until you restore them`.
+- `trash-restore`: Restore returns a note to its original path, recreating missing folders; its Undo trashes it again.
+- `trash-permanent`: Delete permanently asks first and removes the note and its metadata.
+- `trash-bulk`: Restore all runs at once; Empty trash asks first.
 
 ## How to get to it (user POV)
 
-- Home: long-press note(s), choose Delete; snackbar offers Undo.
+- Home: long-press note(s) → Delete; snackbar `N moved to trash` with Undo.
 - Home → Open navigation → Trash.
-- Trash rows expose Restore and Delete permanently; its top bar offers Restore all and Empty trash when populated.
+- Each row shows the title, an excerpt, `From <original path>`, `Deleted <date>`, and the actions Restore and Delete permanently. The top bar offers Restore all and Empty trash while the list is not empty.
 
 ## Driving it with control.py
 
-Preconditions: connected Home, doctor passes. Create one nonempty fixture titled `Trash fixture` through New note and record its original `.md` path with `v files trash-before`. Create a second fixture before batch checks.
+Preconditions: connected Home, doctor passes, at least one note created through New note.
 
-- **Move to trash.** `v ui`; long-press the intended `Trash fixture` card using `v tap --text 'Trash fixture' --index 0 --long`; `v tap --desc Delete`; capture the moved-to-trash snackbar. `v files trash-moved` must show the original path absent and a matching `.looma/trash/<uuid>.md` plus `<uuid>.properties` containing original path and deletion time. Tap `v tap --text Undo` promptly for the undo branch; verify original bytes/path return. Delete it again for the remaining route.
-- **Drawer/row.** `v tap --desc 'Open navigation'`; `v tap --text Trash`; `v assert --text 'Trash fixture'`; `v capture trash-row`. Check the displayed original path, not only the title.
-- **Restore.** `v tap --desc Restore`; capture `trash-restored`; `v files trash-restored`. Require the original file bytes, removal of that trash record and `Trash is empty` when it was the sole item. The restore snackbar's Undo must put it back into Trash and remove the original again; capture both views. Use actual row indices if multiple Restore buttons exist.
-- **Permanent delete/cancel.** With the fixture back in Trash, `v tap --desc 'Delete permanently'`; `v assert --text 'Delete permanently?'`; first `v tap --text Cancel` and prove the record survives. Repeat and `v tap --text Delete`; `v files trash-permanent` must contain neither its original file nor the UUID's Markdown/properties pair. Capture the empty UI.
-- **Bulk.** Create and delete two fixtures through Home. In Trash `v tap --desc 'Restore all'`; require both original paths and intact bytes via `v files trash-all-restored`. Delete both again; `v tap --desc 'Empty trash'`; verify the displayed count and cancel once. Reopen and `v tap --text Empty`; assert `Trash is empty`, capture and copy files to prove both records and originals are absent.
+- **Move to trash.** `v tap --text '<title>' --index 1 --long`; `v tap --desc Delete`; `v assert --text '1 moved to trash'`. `v files` shows the original gone and `.looma/trash/<uuid>.md` plus `<uuid>.properties` holding `originalPath=<path>` and `deletedAt=<epoch ms>`. `v tap --text Undo`; `v assert --text Undone`.
+- **Row.** `v tap --desc 'Open navigation'`; `v tap --text Trash`; `v assert --text '<title>'`; `v assert --text 'From <original path>'`.
+- **Restore and undo.** `v tap --desc Restore`; `v assert --text 'Note restored'`; `v tap --text Undo`; `v assert --text 'Note moved back to the trash'`. The undo creates a **new** UUID pair; do not expect the old one.
+- **Permanent delete.** `v tap --desc 'Delete permanently'`; `v assert --text 'Delete permanently?'`; `v tap --text Cancel` keeps the row. Again, then `v tap --text Delete` → `Note deleted`. With several rows, pass `--index`.
+- **Bulk.** `v tap --desc 'Restore all'` (no dialog) → `Restored N note(s)`; partial failures read `Restored X, Y failed`. `v tap --desc 'Empty trash'`; `v assert --text 'Empty the trash?'`; the body is `N note(s) will be deleted permanently.`; `v tap --text Empty` → `Deleted N note(s) permanently` and `Trash is empty`. Prove each with `v files`.
 
 ## Gotchas
 
-- This app's trash directory is `.looma/trash`, not an Obsidian `.trash` folder. Confirm actual files; old documentation may describe a different path.
-- Permanent deletion and emptying are irreversible within the guest; use only this run's disposable vault. Cleanup must retain the pulled before/after proof.
-- Snackbar Undo expires; missing it is an unexercised undo branch, not a failure of restore.
-- Original-path collisions can prevent restoration without overwriting a current note. A collision check requires two genuinely conflicting files and must inspect both byte sets.
-- Long-press selection, drawer navigation and Trash Back are separate user routes; opening Trash directly through an internal route does not cover them.
+- The trash is `.looma/trash`, not Obsidian's `.trash`. Records whose `.properties` lacks a matching `.md`, or whose name is not a UUID, are hidden.
+- Restoring onto an existing file fails with `Could not restore that note` and overwrites nothing; Home Undo then shows `Could not undo that`.
+- Permanent deletion is irreversible in the guest; use only the run's disposable vault and keep the pulled before/after copies.
+- Snackbar Undo expires; a missed Undo is an unexercised branch, not a failure.

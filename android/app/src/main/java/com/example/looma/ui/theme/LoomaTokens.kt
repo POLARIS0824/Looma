@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Immutable
@@ -56,6 +58,12 @@ data class LoomaTypography(
 )
 
 @Immutable
+data class LoomaSpacing(
+    val pageMargin: Dp = 8.dp,
+    val gridGap: Dp = 8.dp,
+)
+
+@Immutable
 data class LoomaNoteHeadings(
     val h1: TextStyle,
     val h2: TextStyle,
@@ -72,23 +80,27 @@ data class LoomaPreviewTypography(
     val code: TextStyle,
 )
 
-fun loomaColors(scheme: ColorScheme): LoomaColors = LoomaColors(
-    page = scheme.surfaceContainerLow,
-    noteCanvas = if (scheme.surface.luminance() > 0.5f) Color.White else scheme.surface,
-    card = scheme.surfaceBright,
-    sheet = scheme.surfaceContainerLow,
-    searchField = scheme.surfaceBright,
-    title = scheme.onSurface,
-    body = scheme.onSurfaceVariant,
-    muted = scheme.onSurfaceVariant,
-    accent = scheme.primary,
-    accentContainer = scheme.primaryContainer,
-    avatarRing = scheme.primary,
-    chip = scheme.secondaryContainer,
-    onChip = scheme.onSecondaryContainer,
-    divider = scheme.outlineVariant,
-    error = scheme.error,
-)
+fun loomaColors(scheme: ColorScheme): LoomaColors {
+    val dark = scheme.surface.luminance() < 0.5f
+    val raised = if (dark) scheme.surfaceContainerHigh else scheme.surface
+    return LoomaColors(
+        page = if (dark) scheme.surface else scheme.surfaceContainer,
+        noteCanvas = scheme.surface,
+        card = raised,
+        sheet = scheme.surfaceContainerLow,
+        searchField = raised,
+        title = scheme.onSurface,
+        body = scheme.onSurfaceVariant,
+        muted = scheme.onSurfaceVariant,
+        accent = scheme.primary,
+        accentContainer = scheme.primaryContainer,
+        avatarRing = scheme.primary,
+        chip = scheme.secondaryContainer,
+        onChip = scheme.onSecondaryContainer,
+        divider = scheme.outlineVariant,
+        error = scheme.error,
+    )
+}
 
 fun loomaTypography(base: Typography): LoomaTypography = LoomaTypography(
     heroTitle = base.headlineLargeEmphasized.copy(fontWeight = FontWeight(BRAND_HERO_WEIGHT)),
@@ -120,7 +132,7 @@ fun loomaTypography(base: Typography): LoomaTypography = LoomaTypography(
     body = base.bodyLarge,
     supporting = base.bodyMedium,
     avatar = base.titleMediumEmphasized,
-    noteTitle = base.headlineMediumEmphasized,
+    noteTitle = base.headlineLargeEmphasized,
     noteBody = base.bodyLarge.copy(lineHeight = BODY_LINE_HEIGHT.sp),
     noteHeadings = LoomaNoteHeadings(
         h1 = base.headlineMediumEmphasized,
@@ -148,4 +160,6 @@ object LoomaTokens {
 
     val type: LoomaTypography
         @Composable @ReadOnlyComposable get() = LocalLoomaTypography.current
+
+    val spacing: LoomaSpacing = LoomaSpacing()
 }

@@ -33,6 +33,8 @@
     <string name="home_recent_searches">Recent searches</string>
     <string name="home_create_note_description">New note</string>
     <string name="home_new_folder_description">New folder</string>
+    <string name="home_create_menu_description">Create new</string>
+    <string name="home_close_menu_description">Close menu</string>
     <string name="home_retry">Retry</string>
     <string name="home_stalled_relocation_banner">A move or rename did not finish: %1$s → %2$s</string>
     <string name="home_stalled_relocation_abandon">Abandon</string>
@@ -133,6 +135,7 @@
     <string name="settings_dynamic_color_unavailable">Not supported on this version of Android</string>
     <string name="settings_theme">Color theme</string>
     <string name="settings_theme_wallpaper">Wallpaper</string>
+    <string name="settings_theme_wallpaper_hint">Choosing a theme turns off dynamic color</string>
     <string name="settings_theme_dialog_title">Color theme</string>
     <string name="settings_theme_default">Looma</string>
     <string name="settings_theme_indigo">Indigo</string>
@@ -147,7 +150,7 @@
     <string name="settings_keep_empty_notes">Keep empty notes</string>
     <string name="settings_keep_empty_notes_desc">Save a new note even when you write nothing</string>
     <string name="settings_show_inline_title">Show inline title</string>
-    <string name="settings_show_inline_title_desc">Show the file name above a note when it differs from the first heading</string>
+    <string name="settings_show_inline_title_desc">Show the file name as a title above the note</string>
     <string name="settings_section_about">About</string>
     <string name="settings_version">Version %1$s</string>
     <string name="settings_vault_unavailable">The vault folder is not available</string>
@@ -203,6 +206,14 @@
     <string name="editor_reload">Reload</string>
     <string name="editor_save_failed">Could not save this note</string>
     <string name="editor_load_failed">Could not open this note</string>
+    <string name="editor_title_hint">File name</string>
+    <string name="editor_rename_invalid">That name is not allowed</string>
+    <string name="editor_rename_taken">A note with that name already exists</string>
+    <string name="editor_rename_stalled">Finish the pending move on Home first</string>
+    <string name="editor_rename_blocked">Resolve the save problem before renaming</string>
+    <string name="editor_rename_failed">Could not rename this note</string>
+    <string name="editor_rename_links">Renamed, %1$d backlink(s) updated</string>
+    <string name="editor_rename_links_failed">Renamed, %1$d backlink(s) could not be updated</string>
     <string name="home_snackbar_renamed_links">Renamed, %1$d backlink(s) updated</string>
     <string name="home_snackbar_renamed_failed">Renamed, %1$d backlink(s) could not be updated</string>
     <string name="note_backlinks_title">Backlinks · %1$d</string>
@@ -211,7 +222,8 @@
     <string name="editor_wikilink_search">Search notes</string>
     <string name="editor_wikilink_empty">No notes match</string>
     <string name="editor_reload_from_disk">Reload from disk</string>
-    <string name="editor_draft_restored">Restored unsaved changes from last time</string>
+    <string name="editor_save_failed_conflict_copy">Save failed. Your changes were saved as “%1$s”.</string>
+    <string name="editor_conflict_conflict_copy">The note changed on disk. Your changes were saved as “%1$s”.</string>
 
     <string name="home_folder_actions_description">Folder actions</string>
     <string name="home_folder_rename_title">Rename folder</string>
@@ -258,6 +270,7 @@
     <string name="settings_image_bed_public_read">Public read ACL</string>
     <string name="settings_image_bed_public_read_desc">Upload objects with public-read access</string>
     <string name="editor_insert_image">Insert image</string>
+    <string name="editor_uploading_image">Uploading image</string>
     <string name="note_image_error_not_configured">Set up the S3 image bed in Settings first</string>
     <string name="note_image_error_unsupported">Only PNG, JPEG, WebP, GIF and BMP images are supported</string>
     <string name="note_image_error_too_large">Image is larger than 12 MB</string>

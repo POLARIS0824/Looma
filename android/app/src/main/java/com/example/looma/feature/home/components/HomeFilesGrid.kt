@@ -31,6 +31,8 @@ import com.example.looma.feature.home.HomeNoteItem
 import com.example.looma.feature.home.HomeSelection
 import com.example.looma.ui.theme.LoomaTokens
 
+private val HomeFabClearance = 96.dp
+
 @Composable
 internal fun HomeFilesGrid(
     files: HomeFilesState,
@@ -58,11 +60,16 @@ internal fun HomeFilesGrid(
     }
     LazyVerticalStaggeredGrid(
         state = gridState,
-        columns = StaggeredGridCells.Fixed(if (isGridMode) 2 else 1),
+        columns = if (isGridMode) StaggeredGridCells.Adaptive(minSize = 150.dp) else StaggeredGridCells.Fixed(1),
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 172.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalItemSpacing = 10.dp,
+        contentPadding = PaddingValues(
+            start = LoomaTokens.spacing.pageMargin,
+            end = LoomaTokens.spacing.pageMargin,
+            top = 8.dp,
+            bottom = HomeFabClearance,
+        ),
+        horizontalArrangement = Arrangement.spacedBy(LoomaTokens.spacing.gridGap),
+        verticalItemSpacing = LoomaTokens.spacing.gridGap,
     ) {
         if (files.isAtRoot) {
             if (files.recents.isNotEmpty()) {

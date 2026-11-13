@@ -2,23 +2,29 @@ package com.example.looma.ui.markdown
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +52,6 @@ import com.example.looma.ui.theme.LoomaTypography
 import com.example.looma.ui.theme.LoomaPreviewTypography
 import com.mikepenz.markdown.annotator.annotatorSettings
 import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString
-import com.mikepenz.markdown.compose.components.CurrentComponentsBridge
 import com.mikepenz.markdown.compose.components.MarkdownComponent
 import com.mikepenz.markdown.compose.components.MarkdownComponentModel
 import com.mikepenz.markdown.compose.components.MarkdownComponents
@@ -65,9 +70,12 @@ import com.mikepenz.markdown.model.markdownAnnotatorConfig
 import com.mikepenz.markdown.model.markdownInlineContent
 import com.mikepenz.markdown.model.markdownPadding
 import org.intellij.markdown.IElementType
+import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
+import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.ast.findChildOfType
 import org.intellij.markdown.ast.getTextInNode
+import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 
 @Immutable
 data class LoomaMarkdownTheme(
@@ -111,15 +119,16 @@ fun loomaMarkdownTheme(
     textColor: Color = LoomaTokens.colors.title,
 ): LoomaMarkdownTheme {
     val colors = LoomaTokens.colors
+    val scheme = MaterialTheme.colorScheme
     val type = LoomaTokens.type
     val scale = remember(type, compact, preview) { loomaMarkdownScale(type, compact, preview) }
     return LoomaMarkdownTheme(
         colors = markdownColor(
             text = textColor,
-            codeBackground = colors.chip.copy(alpha = 0.6f),
-            inlineCodeBackground = colors.chip.copy(alpha = 0.6f),
+            codeBackground = if (compact) scheme.surfaceContainerHighest else scheme.surfaceContainerHigh,
+            inlineCodeBackground = scheme.surfaceContainerHighest,
             dividerColor = colors.divider,
-            tableBackground = colors.card,
+            tableBackground = if (compact) colors.card else scheme.surfaceContainer,
             highlightText = colors.onChip,
             highlightBackground = colors.chip,
         ),
@@ -152,7 +161,10 @@ fun loomaMarkdownTheme(
     )
 }
 
-internal val loomaAnnotatorConfig = markdownAnnotatorConfig(eolAsNewLine = true)
+internal val loomaAnnotatorConfig = markdownAnnotatorConfig(
+    eolAsNewLine = true,
+    inlineImageAsBlock = false,
+)
 
 internal fun loomaMarkdownComponents(
     theme: LoomaMarkdownTheme,
@@ -166,6 +178,7 @@ internal fun loomaMarkdownComponents(
     resolvedLink: SpanStyle = SpanStyle(),
     missingLink: SpanStyle = SpanStyle(),
     math: MathRenderState? = null,
+    checkedText: Color? = null,
 ): MarkdownComponents {
     val checkSize = if (compact) 14.dp else 18.dp
     val checkGap = if (compact) 6.dp else 9.dp
@@ -211,7 +224,7 @@ internal fun loomaMarkdownComponents(
                 listModifier = { Modifier.weight(1f) },
             )
         },
-        paragraph = { model -> LoomaMarkdownParagraph(model, links, math) },
+        paragraph = { model -> LoomaMarkdownParagraph(model, links, math, checkedText, showImages) },
         checkbox = { model ->
             CheckboxMarker(
                 checked = model.isChecked(),
@@ -224,7 +237,7 @@ internal fun loomaMarkdownComponents(
             )
         },
         image = if (showImages) { model -> LoomaMarkdownImage(model) } else { _ -> },
-        inlineImage = if (showImages) CurrentComponentsBridge.inlineImage else { _ -> },
+        inlineImage = if (showImages) { model -> InlineMarkdownImage(model.content) } else { _ -> },
     )
 }
 
@@ -319,35 +332,162 @@ private fun LoomaMarkdownParagraph(
     model: MarkdownComponentModel,
     links: WikiAnnotator?,
     math: MathRenderState?,
+    checkedText: Color?,
+    showImages: Boolean,
 ) {
     val block = math?.blockDisplay(model.node)
     if (block != null) {
         MathBlock(block, math.fontSize, PaddingValues(vertical = LocalMarkdownPadding.current.block))
         return
     }
+    val style = if (checkedText != null && model.node.inCheckedTask(model.content)) {
+        model.typography.paragraph.copy(color = checkedText)
+    } else {
+        model.typography.paragraph
+    }
+    val parts = remember(model.node, showImages) {
+        if (showImages) paragraphParts(model.node.children) else emptyList()
+    }
+    if (parts.isEmpty()) {
+        ParagraphText(model, model.node.children, style, links, math)
+        return
+    }
+
+    Column {
+        for (part in parts) {
+            key(part.startOffset) {
+                when (part) {
+                    is ParagraphPart.Text -> ParagraphText(model, part.children, style, links, math)
+                    is ParagraphPart.Image -> {
+                        val image = model.copy(node = part.node)
+                        if (part.link == null) {
+                            LoomaMarkdownImage(image)
+                        } else {
+                            LinkedMarkdownImage(image, part.link) {
+                                ParagraphText(model, listOf(part.link), style, links, math)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LinkedMarkdownImage(
+    image: MarkdownComponentModel,
+    linkNode: ASTNode,
+    fallback: @Composable () -> Unit,
+) {
     val settings = annotatorSettings()
-    val annotated = remember(model.content, model.node, settings, links, math) {
+    val link = remember(image.content, linkNode, settings) {
+        val annotated = buildAnnotatedString {
+            buildMarkdownAnnotatedString(image.content, listOf(linkNode), settings)
+        }
+        annotated.getLinkAnnotations(0, annotated.length).singleOrNull()?.item
+    }
+    val listener = link?.linkInteractionListener
+    if (link != null && listener != null) {
+        LoomaMarkdownImage(image, Modifier.clickable { listener.onClick(link) })
+    } else {
+        fallback()
+    }
+}
+
+@Composable
+private fun ParagraphText(
+    model: MarkdownComponentModel,
+    children: List<ASTNode>,
+    style: TextStyle,
+    links: WikiAnnotator?,
+    math: MathRenderState?,
+) {
+    if (children.isEmpty()) return
+    val settings = annotatorSettings()
+    val annotated = remember(model.content, children, settings, links, math) {
         buildAnnotatedString {
-            buildMarkdownAnnotatedString(model.content, model.node, settings)
+            buildMarkdownAnnotatedString(model.content, children, settings)
         }.withSynthItalic().let { links?.invoke(it) ?: it }
     }
     if (annotated.isEmpty()) return
     MathInlineScope(
         math = math,
         fontSize = math?.fontSize,
-        range = model.node.startOffset until model.node.endOffset,
+        range = children.first().startOffset until children.last().endOffset,
     ) {
         MarkdownText(
             content = annotated,
             node = model.node,
-            style = model.typography.paragraph,
+            style = style,
             sourceContent = model.content,
         )
     }
 }
 
+private sealed interface ParagraphPart {
+    val startOffset: Int
+
+    data class Text(val children: List<ASTNode>) : ParagraphPart {
+        override val startOffset: Int get() = children.first().startOffset
+    }
+
+    data class Image(val node: ASTNode, val link: ASTNode? = null) : ParagraphPart {
+        override val startOffset: Int get() = link?.startOffset ?: node.startOffset
+    }
+}
+
+private fun paragraphParts(children: List<ASTNode>): List<ParagraphPart> = buildList {
+    var textStart = 0
+    children.forEachIndexed { index, child ->
+        val image = child.asParagraphImage() ?: return@forEachIndexed
+        var before = index - 1
+        while (before >= textStart && children[before].isImageLinePadding()) before--
+        if (before >= textStart && children[before].type != MarkdownTokenTypes.EOL) {
+            return@forEachIndexed
+        }
+        var after = index + 1
+        while (after < children.size && children[after].isImageLinePadding()) after++
+        if (after < children.size && children[after].type != MarkdownTokenTypes.EOL) {
+            return@forEachIndexed
+        }
+        val text = children.subList(textStart, maxOf(textStart, before))
+            .dropLastWhile { it.type == MarkdownTokenTypes.HARD_LINE_BREAK }
+        if (text.isNotEmpty()) add(ParagraphPart.Text(text))
+        add(image)
+        textStart = minOf(children.size, after + 1)
+    }
+    if (isNotEmpty() && textStart < children.size) {
+        add(ParagraphPart.Text(children.subList(textStart, children.size)))
+    }
+}
+
+private fun ASTNode.asParagraphImage(): ParagraphPart.Image? {
+    if (type == MarkdownElementTypes.IMAGE) return ParagraphPart.Image(this)
+    val labelType = when (type) {
+        MarkdownElementTypes.INLINE_LINK, MarkdownElementTypes.FULL_REFERENCE_LINK -> MarkdownElementTypes.LINK_TEXT
+        MarkdownElementTypes.SHORT_REFERENCE_LINK -> MarkdownElementTypes.LINK_LABEL
+        else -> return null
+    }
+    val image = findChildOfType(labelType)?.children
+        ?.drop(1)?.dropLast(1)?.filterNot { it.isImageLinePadding() }
+        ?.singleOrNull()?.takeIf { it.type == MarkdownElementTypes.IMAGE } ?: return null
+    return ParagraphPart.Image(image, link = this)
+}
+
+private fun ASTNode.isImageLinePadding(): Boolean = when (type) {
+    MarkdownTokenTypes.WHITE_SPACE, MarkdownTokenTypes.BLOCK_QUOTE, MarkdownTokenTypes.HARD_LINE_BREAK -> true
+    else -> false
+}
+
 private fun MarkdownComponentModel.isChecked(): Boolean =
-    node.getTextInNode(content).contains("[x]")
+    node.getTextInNode(content).contains("[x]", ignoreCase = true)
+
+private fun ASTNode.inCheckedTask(content: String): Boolean {
+    val item = parent?.takeIf { it.type == MarkdownElementTypes.LIST_ITEM } ?: return false
+    val box = item.children.getOrNull(1)?.takeIf { it.type == GFMTokenTypes.CHECK_BOX } ?: return false
+    return box.getTextInNode(content).contains("[x]")
+}
 
 @Composable
 private fun CheckboxMarker(
@@ -365,16 +505,27 @@ private fun CheckboxMarker(
     ) {
         val boxModifier = Modifier
             .size(size)
-            .clip(shape)
-            .border(1.5.dp, if (checked) colors.primary else colors.outline, shape)
-            .background(if (checked) colors.primary else Color.Transparent, shape)
             .then(
                 if (onToggle != null) {
-                    Modifier.toggleable(value = checked, role = Role.Checkbox, onValueChange = onToggle)
+                    Modifier
+                        .wrapContentSize(unbounded = true)
+                        .requiredSize(width = CheckboxTouchTarget, height = maxOf(lineHeight, size))
+                        .toggleable(
+                            value = checked,
+                            interactionSource = null,
+                            indication = ripple(bounded = false, radius = CheckboxTouchTarget / 2),
+                            role = Role.Checkbox,
+                            onValueChange = onToggle,
+                        )
+                        .wrapContentSize()
+                        .size(size)
                 } else {
                     Modifier
                 },
             )
+            .clip(shape)
+            .border(1.5.dp, if (checked) colors.primary else colors.outline, shape)
+            .background(if (checked) colors.primary else Color.Transparent, shape)
         Box(boxModifier, contentAlignment = Alignment.Center) {
             if (checked) {
                 Icon(
@@ -388,6 +539,8 @@ private fun CheckboxMarker(
         Spacer(Modifier.width(gap))
     }
 }
+
+private val CheckboxTouchTarget = 48.dp
 
 @Composable
 private fun lineHeightOf(style: TextStyle): Dp {
