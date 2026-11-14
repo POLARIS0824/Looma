@@ -16,6 +16,8 @@ internal data class FileFingerprint(
     val modifiedAtMillis: Long,
 )
 
+internal fun File.fingerprint() = FileFingerprint(length(), lastModified())
+
 internal data class IndexedNote(
     val id: NoteId,
     val title: String,
@@ -37,7 +39,11 @@ internal data class IndexDelta(
 internal interface NoteIndex {
     suspend fun load(vaultId: VaultId): List<IndexedNote>
 
+    suspend fun version(vaultId: VaultId): Long
+
     suspend fun apply(delta: IndexDelta)
+
+    suspend fun applyIfVersion(delta: IndexDelta, expectedVersion: Long): Boolean
 }
 
 internal fun indexedNote(
@@ -46,16 +52,16 @@ internal fun indexedNote(
     file: File,
     text: String,
     metadata: MarkdownMetadata,
+    fingerprint: FileFingerprint = file.fingerprint(),
 ): IndexedNote {
-    val modifiedAtMillis = file.lastModified()
     return IndexedNote(
         id = NoteId(vaultId, NotePath(file.relativeTo(root).invariantSeparatorsPath)),
         title = metadata.title,
         excerpt = metadata.excerpt,
         snippet = markdownSnippetOf(text, metadata.title),
         coverPath = resolveCover(root, file, metadata.firstImageReference),
-        modifiedAt = Instant.ofEpochMilli(modifiedAtMillis),
-        fingerprint = FileFingerprint(file.length(), modifiedAtMillis),
+        modifiedAt = Instant.ofEpochMilli(fingerprint.modifiedAtMillis),
+        fingerprint = fingerprint,
         tags = metadata.tags.toList(),
         links = metadata.links,
     )

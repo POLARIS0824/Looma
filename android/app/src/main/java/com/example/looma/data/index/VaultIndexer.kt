@@ -35,6 +35,11 @@ internal class VaultIndexer(
     private val parser = MarkdownParser()
 
     suspend fun scan(): IndexScan = withContext(Dispatchers.IO) {
+        scanAttempt(retryOnConflict = true)
+    }
+
+    private suspend fun scanAttempt(retryOnConflict: Boolean): IndexScan {
+        val version = index.version(vault.id)
         val ops = VaultFileOps(root)
         val rootDir = ops.rootDir
         val folders = mutableListOf<VaultFolder>()
@@ -71,7 +76,7 @@ internal class VaultIndexer(
             }
         }
 
-        val onDisk = files.mapValues { (_, file) -> FileFingerprint(file.length(), file.lastModified()) }
+        val onDisk = files.mapValues { (_, file) -> file.fingerprint() }
         val indexed = index.load(vault.id)
         val plan = planScan(indexed, onDisk).let { if (complete) it else it.copy(removed = emptyList()) }
         val indexedByPath = indexed.associateBy { it.id.path }
@@ -82,33 +87,40 @@ internal class VaultIndexer(
         var readCount = 0
         for (path in plan.toRead) {
             coroutineContext.ensureActive()
-            val file = files[path] ?: continue
+            val file = files.getValue(path)
+            val fingerprint = onDisk.getValue(path)
             readCount++
-            try {
+            val note = try {
                 val text = readMarkdown(file)
                 val metadata = parser.parse(text, file.nameWithoutExtension)
-                fresh += indexedNote(vault.id, rootDir, file, text, metadata)
+                indexedNote(vault.id, rootDir, file, text, metadata, fingerprint)
+                    .takeIf { file.isFile && file.fingerprint() == fingerprint }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
+                null
+            }
+            if (note != null) {
+                fresh += note
+            } else {
                 unreadable++
                 indexedByPath[path]?.let(retained::add)
             }
         }
 
-        val removed = plan.removed
-        if (fresh.isNotEmpty() || removed.isNotEmpty()) {
-            index.apply(IndexDelta(vaultId = vault.id, upserts = fresh, removed = removed))
-        }
+        val delta = IndexDelta(vaultId = vault.id, upserts = fresh, removed = plan.removed)
+        val applied = index.applyIfVersion(delta, expectedVersion = version)
+        if (!applied && retryOnConflict) return scanAttempt(retryOnConflict = false)
 
-        IndexScan(
-            notes = plan.kept + fresh + retained,
+        val notes = if (applied) plan.kept + fresh + retained else index.load(vault.id)
+        return IndexScan(
+            notes = notes,
             folders = folders.sortedBy { it.path.relativePath.lowercase() },
             unreadableCount = unreadable,
             report = ScanReport(
                 filesRead = readCount,
-                filesKept = plan.kept.size,
-                filesRemoved = removed.size,
+                filesKept = if (applied) plan.kept.size else notes.count { onDisk[it.id.path] == it.fingerprint },
+                filesRemoved = if (applied) plan.removed.size else 0,
             ),
         )
     }

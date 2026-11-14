@@ -44,6 +44,13 @@ class NoteIndexUpdaterTest {
 
         override suspend fun load(vaultId: VaultId): List<IndexedNote> = emptyList()
 
+        override suspend fun version(vaultId: VaultId): Long = 0
+
+        override suspend fun applyIfVersion(delta: IndexDelta, expectedVersion: Long): Boolean {
+            apply(delta)
+            return true
+        }
+
         override suspend fun apply(delta: IndexDelta) {
             if (failures > 0) {
                 failures--
