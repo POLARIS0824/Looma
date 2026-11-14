@@ -5,7 +5,6 @@ import android.os.Environment
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultId
 import java.io.File
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -53,36 +52,12 @@ class VaultRepository(
 
             val directory = requireValidDirectory(rootPath)
 
-            val currentVault = getCurrentVault()
-
-            val currentPath = currentVault?.rootPath?.let { path ->
-                runCatching {
-                    File(path).canonicalPath
-                }.getOrNull()
-            }
-
-            val id = if (
-                currentVault != null &&
-                currentPath == directory.path
-            ) {
-                currentVault.id.value
-            } else {
-                UUID.randomUUID().toString()
-            }
-
-            val vault = Vault(
-                id = VaultId(id),
-                name = extractVaultName(directory.path),
+            val name = extractVaultName(directory.path)
+            Vault(
+                id = VaultId(preferences.activateVault(name, directory.path)),
+                name = name,
                 rootPath = directory.path,
             )
-
-            preferences.saveVault(
-                id = vault.id.value,
-                name = vault.name,
-                path = vault.rootPath,
-            )
-
-            vault
         }
 
     suspend fun requireCurrentVault(): Vault =

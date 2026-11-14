@@ -449,6 +449,9 @@ private fun homeNoticeText(notice: HomeNotice): String = when (notice) {
     is HomeNotice.Deleted -> stringResource(R.string.home_snackbar_deleted, notice.count)
     is HomeNotice.Restored -> stringResource(R.string.home_snackbar_restored, notice.count)
     is HomeNotice.Moved -> stringResource(R.string.home_snackbar_moved, notice.count)
+    is HomeNotice.MovePartial -> stringResource(R.string.home_move_partial, notice.succeeded, notice.failed)
+    is HomeNotice.DeletePartial -> stringResource(R.string.home_delete_partial, notice.succeeded, notice.failed)
+    is HomeNotice.UndoPartial -> stringResource(R.string.home_undo_partial, notice.succeeded, notice.failed)
     is HomeNotice.Renamed -> when {
         notice.linksFailed > 0 -> stringResource(R.string.home_snackbar_renamed_failed, notice.linksFailed)
         notice.linksUpdated > 0 -> stringResource(R.string.home_snackbar_renamed_links, notice.linksUpdated)
@@ -461,6 +464,11 @@ private fun homeNoticeText(notice: HomeNotice): String = when (notice) {
         pluralStringResource(R.plurals.home_folder_snackbar_deleted, notice.notes, notice.notes)
     } else {
         stringResource(R.string.home_folder_snackbar_deleted_empty)
+    }
+    is HomeNotice.FolderKept -> when {
+        notice.failed > 0 -> stringResource(R.string.home_folder_kept_partial, notice.trashed, notice.failed)
+        notice.trashed > 0 -> pluralStringResource(R.plurals.home_folder_kept_trashed, notice.trashed, notice.trashed)
+        else -> stringResource(R.string.home_folder_kept_no_notes)
     }
     HomeNotice.NameTaken -> stringResource(R.string.home_error_duplicate_name)
     HomeNotice.ActionFailed -> stringResource(R.string.home_error_action)

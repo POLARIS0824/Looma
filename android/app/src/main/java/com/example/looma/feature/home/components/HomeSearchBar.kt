@@ -58,6 +58,7 @@ import com.example.looma.R
 import com.example.looma.domain.model.NoteId
 import com.example.looma.feature.home.HomeNoteItem
 import com.example.looma.feature.home.HomeUiState
+import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -223,6 +224,7 @@ internal fun HomeSearchBar(
             HomeSearchResults(
                 query = state.query,
                 notes = state.searchResults,
+                isSearching = state.isSearching,
                 recentSearches = state.recentSearches,
                 onNoteClick = { noteId ->
                     collapse()
@@ -317,6 +319,7 @@ internal fun HomeSearchResults(
     onNoteClick: (NoteId) -> Unit,
     recentSearches: List<String> = emptyList(),
     onRecentSearchClick: (String) -> Unit = {},
+    isSearching: Boolean = false,
 ) {
     when {
         query.isBlank() && recentSearches.isNotEmpty() -> LazyColumn(
@@ -352,6 +355,9 @@ internal fun HomeSearchResults(
         }
 
         query.isBlank() -> HomeSearchHint(stringResource(R.string.home_search_hint))
+        isSearching -> Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
+            DelayedLoadingIndicator(loading = true)
+        }
         notes.isEmpty() -> HomeSearchHint(stringResource(R.string.home_search_no_match))
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize(),

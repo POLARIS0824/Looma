@@ -1,5 +1,6 @@
 package com.example.looma.data.note
 
+import com.example.looma.data.index.FileFingerprint
 import com.example.looma.data.index.IndexDelta
 import com.example.looma.data.index.IndexedNote
 import com.example.looma.data.index.NoteIndex
@@ -27,6 +28,7 @@ import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.domain.wiki.WikiGraph
 import com.example.looma.domain.wiki.WikiNote
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -61,19 +63,27 @@ class NoteRepository internal constructor(
         }
     }
 
-    suspend fun readTexts(ids: List<NoteId>): Map<NoteId, String> = read { vault, fileStore ->
+    suspend fun readTexts(ids: List<NoteId>): Map<NoteId, String> = read { vault, _ ->
+        val ops = VaultFileOps(File(vault.rootPath))
         val texts = mutableMapOf<NoteId, String>()
-        for (id in ids.filter { it.vaultId == vault.id }) {
+        for (id in ids) {
             coroutineContext.ensureActive()
-            val modifiedAt = runCatching { fileStore.modifiedAt(id) }.getOrNull() ?: continue
-            val cached = textCache.get(id, modifiedAt)
-            if (cached != null) {
-                texts[id] = cached
-                continue
-            }
-            runCatching { fileStore.readText(id) }.onSuccess { (text, readAt) ->
-                textCache.put(id, readAt, text)
+            if (id.vaultId != vault.id) continue
+            try {
+                val file = ops.noteFile(id.path)
+                val fingerprint = FileFingerprint(file.length(), file.lastModified())
+                val cached = textCache.get(id, fingerprint)
+                if (cached != null) {
+                    texts[id] = cached
+                    continue
+                }
+                val text = readMarkdown(file)
+                if (fingerprint == FileFingerprint(file.length(), file.lastModified())) {
+                    textCache.put(id, fingerprint, text)
+                }
                 texts[id] = text
+            } catch (_: IOException) {
+                textCache.remove(id)
             }
         }
         texts
@@ -136,6 +146,15 @@ class NoteRepository internal constructor(
     suspend fun moveNote(id: NoteId, target: FolderPath): RenameOutcome =
         relocate(id) { it.moveNote(id, target) }
 
+    internal suspend fun relocateNote(id: NoteId, target: FolderPath): NoteId = write(id.vaultId) { vault, _ ->
+        val result = runRelocation(vault) { it.moveNote(id, target) }
+        NoteId(vault.id, result.path)
+    }
+
+    internal suspend fun moveNoteToOriginalPath(id: NoteId, originalPath: NotePath): Unit = write(id.vaultId) { vault, _ ->
+        runRelocation(vault) { it.moveNoteToOriginalPath(id, originalPath) }
+    }
+
     suspend fun deleteNote(id: NoteId): TrashedNote = write(id.vaultId) { vault, store ->
         val trashed = store.deleteNote(id)
         textCache.remove(id)
@@ -159,13 +178,14 @@ class NoteRepository internal constructor(
 
     suspend fun deleteTrashedNote(trashId: String) = write { _, store -> store.deleteTrashedNote(trashId) }
 
-    suspend fun restoreTrashedNotes(trashIds: List<String>): TrashBulkOutcome = write { vault, store ->
-        val (restored, outcome) = store.restoreNotes(trashIds)
-        for (stored in restored) {
-            record(vault, stored)
+    suspend fun restoreTrashedNotes(trashIds: List<String>, vaultId: VaultId? = null): TrashBulkOutcome =
+        write(vaultId) { vault, store ->
+            val (restored, outcome) = store.restoreNotes(trashIds)
+            for (stored in restored) {
+                record(vault, stored)
+            }
+            outcome
         }
-        outcome
-    }
 
     suspend fun deleteTrashedNotes(trashIds: List<String>): TrashBulkOutcome =
         write { _, store -> store.deleteTrashedNotes(trashIds) }
@@ -199,10 +219,15 @@ class NoteRepository internal constructor(
         folder(vault, runRelocation(vault) { it.moveFolder(path, destination) }.path)
     }
 
-    suspend fun deleteFolder(path: FolderPath): List<String> = write { vault, _ ->
-        val records = VaultFileOps(File(vault.rootPath)).deleteFolder(path)
-        reindex(vault, RelocationChanges(removedNotes = records.map { it.originalPath }))
-        records.map { it.trashId }
+    internal suspend fun deleteFolderWithOutcome(path: FolderPath, vaultId: VaultId): FolderDeleteOutcome =
+        write(vaultId) { vault, _ ->
+            val result = VaultFileOps(File(vault.rootPath)).deleteFolderWithOutcome(path)
+            reindex(vault, RelocationChanges(removedNotes = result.records.map { it.originalPath }))
+            FolderDeleteOutcome(result.records.map { it.trashId }, result.failed, result.directoryRemoved)
+        }
+
+    internal suspend fun deleteEmptyFolder(path: FolderPath, vaultId: VaultId): Boolean = write(vaultId) { vault, _ ->
+        VaultFileOps(File(vault.rootPath)).deleteEmptyFolder(path)
     }
 
     suspend fun abandonStalledRelocation(journalId: String) {
@@ -320,7 +345,7 @@ class NoteRepository internal constructor(
 
     private suspend fun record(vault: Vault, stored: StoredMarkdown): Note {
         val saved = parser.savedNote(stored)
-        textCache.put(saved.id, saved.modifiedAt, saved.content)
+        textCache.remove(saved.id)
         indexUpdater.apply(
             vault,
             IndexDelta(saved.id.vaultId, upserts = listOf(saved.toIndexedNote())),
@@ -328,3 +353,9 @@ class NoteRepository internal constructor(
         return saved.toNote()
     }
 }
+
+internal data class FolderDeleteOutcome(
+    val trashIds: List<String>,
+    val failed: Int,
+    val directoryRemoved: Boolean,
+)

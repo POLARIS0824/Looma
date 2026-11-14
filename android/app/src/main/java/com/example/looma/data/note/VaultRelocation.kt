@@ -97,6 +97,17 @@ internal class VaultRelocation(private val vault: Vault) {
         return relocate(source, ops.moveDestination(source, target), recovered, ::NotePath)
     }
 
+    fun moveNoteToOriginalPath(id: NoteId, originalPath: NotePath): RelocationResult<NotePath> {
+        val recovered = recoverOrThrow()
+        val source = noteFile(id)
+        validateNotePath(originalPath.relativePath)
+        val destination = safeFile(originalPath.relativePath)
+        if (destination != source && exists(destination)) {
+            throw VaultFileException(VaultFileFailure.RESTORE_CONFLICT)
+        }
+        return relocate(source, destination, recovered, ::NotePath)
+    }
+
     fun renameFolder(path: FolderPath, name: String): RelocationResult<FolderPath> {
         val recovered = recoverOrThrow()
         val source = safeFile(path.relativePath)
