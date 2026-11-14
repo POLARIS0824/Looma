@@ -40,6 +40,7 @@ class SettingsRepository(
                     publicRead = data.s3PublicRead ?: true,
                 ),
                 isLoaded = true,
+                s3CredentialsUnavailable = data.s3CredentialsUnavailable,
             )
         }
 

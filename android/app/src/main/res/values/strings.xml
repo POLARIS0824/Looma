@@ -36,6 +36,8 @@
     <string name="home_create_menu_description">Create new</string>
     <string name="home_close_menu_description">Close menu</string>
     <string name="home_retry">Retry</string>
+    <string name="markdown_image">Image</string>
+    <string name="markdown_image_retry">Retry</string>
     <string name="home_stalled_relocation_banner">A move or rename did not finish: %1$s → %2$s</string>
     <string name="home_stalled_relocation_abandon">Abandon</string>
     <string name="home_stalled_relocation_abandon_title">Abandon this move?</string>
@@ -82,6 +84,9 @@
     <string name="home_snackbar_moved">%1$d moved</string>
     <string name="action_undo">Undo</string>
     <string name="action_undo_failed">Could not undo that</string>
+    <string name="home_move_partial">Moved %1$d · %2$d could not be moved</string>
+    <string name="home_delete_partial">Moved %1$d to trash · %2$d could not be deleted</string>
+    <string name="home_undo_partial">Undid %1$d · %2$d could not be undone</string>
     <string name="action_undone">Undone</string>
     <string name="home_snackbar_restored">%1$d restored</string>
     <string name="home_move_invalid_target">Pick a folder inside the vault</string>
@@ -233,7 +238,8 @@
         <item quantity="one">%1$d note in this folder will move to the trash.</item>
         <item quantity="other">%1$d notes in this folder will move to the trash.</item>
     </plurals>
-    <string name="home_folder_delete_message_empty">This folder is empty and will be removed.</string>
+    <string name="home_folder_delete_message_empty">This folder has no indexed notes. Only empty folders are removed. Attachments and other files are kept.</string>
+    <string name="home_folder_delete_retains_files">Attachments and other files are kept. Only empty folders are removed.</string>
     <string name="home_folder_delete_confirm">Delete</string>
     <string name="home_folder_snackbar_renamed">Folder renamed</string>
     <string name="home_folder_snackbar_moved">Folder moved</string>
@@ -242,6 +248,12 @@
         <item quantity="other">Folder deleted · %1$d notes moved to trash</item>
     </plurals>
     <string name="home_folder_snackbar_deleted_empty">Folder deleted</string>
+    <plurals name="home_folder_kept_trashed">
+        <item quantity="one">Folder kept · %1$d note moved to trash</item>
+        <item quantity="other">Folder kept · %1$d notes moved to trash</item>
+    </plurals>
+    <string name="home_folder_kept_no_notes">Folder kept · No notes moved to trash</string>
+    <string name="home_folder_kept_partial">Folder kept · %1$d moved to trash · %2$d could not be deleted</string>
     <string name="settings_toolbar_order">Editor toolbar order</string>
     <string name="settings_toolbar_order_desc">Choose the order of formatting actions</string>
     <string name="toolbar_move_up">Move %1$s up</string>
@@ -257,6 +269,9 @@
     <string name="settings_image_bed">S3 image bed</string>
     <string name="settings_image_bed_configured">%1$s · %2$s</string>
     <string name="settings_image_bed_not_configured">Not configured</string>
+    <string name="settings_image_bed_credentials_unavailable">Saved credentials are unavailable. Enter your S3 keys again.</string>
+    <string name="settings_image_bed_credentials_hint">Use a dedicated key with upload permission limited to this bucket and path prefix. Grant object ACL permission only if you enable Public read ACL.</string>
+    <string name="settings_image_bed_save_failed">Couldn’t save the S3 settings. Try again.</string>
     <string name="settings_image_bed_sheet_title">S3 image bed</string>
     <string name="settings_image_bed_endpoint">Endpoint</string>
     <string name="settings_image_bed_region">Region</string>

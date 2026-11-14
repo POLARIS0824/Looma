@@ -53,8 +53,8 @@ class SettingsViewModel(
         viewModelScope.launch { repository.setImageUploadTarget(target) }
     }
 
-    fun setS3ImageBed(config: S3ImageBedConfig) {
-        viewModelScope.launch { repository.setS3ImageBed(config) }
+    suspend fun setS3ImageBed(config: S3ImageBedConfig) {
+        repository.setS3ImageBed(config)
     }
 
     companion object {

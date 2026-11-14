@@ -36,6 +36,8 @@
     <string name="home_create_menu_description">新建</string>
     <string name="home_close_menu_description">关闭菜单</string>
     <string name="home_retry">重试</string>
+    <string name="markdown_image">图片</string>
+    <string name="markdown_image_retry">重试</string>
     <string name="home_stalled_relocation_banner">移动或重命名未完成：%1$s → %2$s</string>
     <string name="home_stalled_relocation_abandon">放弃此操作</string>
     <string name="home_stalled_relocation_abandon_title">放弃这次移动？</string>
@@ -82,6 +84,9 @@
     <string name="home_snackbar_moved">已移动 %1$d 项</string>
     <string name="action_undo">撤回</string>
     <string name="action_undo_failed">撤销失败</string>
+    <string name="home_move_partial">已移动 %1$d 篇笔记，%2$d 篇未能移动</string>
+    <string name="home_delete_partial">%1$d 篇笔记已移入回收站，%2$d 篇未能删除</string>
+    <string name="home_undo_partial">已撤销 %1$d 项操作，%2$d 项未能撤销</string>
     <string name="action_undone">已撤销</string>
     <string name="home_snackbar_restored">已恢复 %1$d 项</string>
     <string name="home_move_invalid_target">请选择笔记库内的文件夹</string>
@@ -229,7 +234,8 @@
     <plurals name="home_folder_delete_message">
         <item quantity="other">文件夹里的 %1$d 篇笔记会移入回收站。</item>
     </plurals>
-    <string name="home_folder_delete_message_empty">这个文件夹是空的，删除后将直接移除。</string>
+    <string name="home_folder_delete_message_empty">此文件夹中没有已索引的笔记。只移除空文件夹，附件和其他文件会保留。</string>
+    <string name="home_folder_delete_retains_files">附件和其他文件会保留，只移除空文件夹。</string>
     <string name="home_folder_delete_confirm">删除</string>
     <string name="home_folder_snackbar_renamed">已重命名文件夹</string>
     <string name="home_folder_snackbar_moved">已移动文件夹</string>
@@ -237,6 +243,11 @@
         <item quantity="other">已删除文件夹，%1$d 篇笔记移入回收站</item>
     </plurals>
     <string name="home_folder_snackbar_deleted_empty">已删除文件夹</string>
+    <plurals name="home_folder_kept_trashed">
+        <item quantity="other">已保留文件夹，%1$d 篇笔记移入回收站</item>
+    </plurals>
+    <string name="home_folder_kept_no_notes">已保留文件夹，没有笔记移入回收站</string>
+    <string name="home_folder_kept_partial">已保留文件夹，%1$d 篇笔记移入回收站，%2$d 篇未能删除</string>
     <string name="settings_toolbar_order">编辑器工具栏顺序</string>
     <string name="settings_toolbar_order_desc">调整格式工具的排列顺序</string>
     <string name="toolbar_move_up">上移%1$s</string>
@@ -252,6 +263,9 @@
     <string name="settings_image_bed">S3 图床</string>
     <string name="settings_image_bed_configured">%1$s · %2$s</string>
     <string name="settings_image_bed_not_configured">未配置</string>
+    <string name="settings_image_bed_credentials_unavailable">已保存的凭据无法读取，请重新输入 S3 密钥。</string>
+    <string name="settings_image_bed_credentials_hint">请使用专用密钥，将上传权限限制在此存储桶和路径前缀内。仅在开启公共读 ACL 时授予对象 ACL 权限。</string>
+    <string name="settings_image_bed_save_failed">无法保存 S3 设置，请重试。</string>
     <string name="settings_image_bed_sheet_title">S3 图床</string>
     <string name="settings_image_bed_endpoint">Endpoint</string>
     <string name="settings_image_bed_region">区域</string>
