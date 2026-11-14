@@ -107,6 +107,7 @@ import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.LoomaLoadingIndicator
 import com.example.looma.ui.markdown.LocalImageSourceResolver
+import com.example.looma.ui.markdown.LocalImageSourceRetryResolver
 import com.example.looma.ui.markdown.MarkdownBody
 import com.example.looma.ui.markdown.PreparedMarkdown
 import com.example.looma.ui.markdown.prepareMarkdown
@@ -181,7 +182,17 @@ fun NoteRoute(
                     }
                 }
             }
-            CompositionLocalProvider(LocalImageSourceResolver provides resolver) {
+            val retryResolver = remember(imageContext) {
+                imageContext?.let { context ->
+                    { link: String ->
+                        resolveImageSource(context.vaultRoot, context.noteFile, link, refreshAttachments = true)
+                    }
+                }
+            }
+            CompositionLocalProvider(
+                LocalImageSourceResolver provides resolver,
+                LocalImageSourceRetryResolver provides retryResolver,
+            ) {
                 NoteWorkspace(
                     state = state,
                     onContentChanged = viewModel::onContentChanged,
