@@ -1,0 +1,34 @@
+[
+  {
+    "id": "multi-01",
+    "question": "一个索引扫描只走完一半就断开了，同时另一端把我正在编辑的文档改了但大小和日期未变。分别怎样决定能否删索引和直接保存？",
+    "parts": [
+      {"note": "目录普查", "reference": "zh-08", "query": "目录枚举失败后，哪些条件下可以清理本轮没有看到的索引项？"},
+      {"note": "外部改稿", "reference": "zh-01", "query": "磁盘上的版本字节数和日期一样却被编辑过，保存前如何检测冲突？"}
+    ]
+  },
+  {
+    "id": "multi-02",
+    "question": "后台补传附件中断过，界面已经提前显示了进度，而且上次提交可能在服务端成功了。分别怎样选择续传起点和避免重复对象？",
+    "parts": [
+      {"note": "附件分片", "reference": "cross-05", "query": "大文件上传中断后，客户端进度和服务端记录不同，应该从哪里开始续传？"},
+      {"note": "挂起上传", "reference": "en-08", "query": "服务端可能处理过首次附件上传，重试时什么标识应该保持不变？"}
+    ]
+  },
+  {
+    "id": "multi-03",
+    "question": "Before adding support for note moves and interactive rendered math, what parts of incoming cross-references survive relocation, and how should math markup keep checkbox positions usable?",
+    "parts": [
+      {"note": "atlas-links", "reference": "en-03", "query": "What should a rewritten inbound link preserve when its target moves?"},
+      {"note": "anex-render-tree", "reference": "zh-04", "query": "How does preprocessed math preserve the original task marker offset?"}
+    ]
+  },
+  {
+    "id": "multi-04",
+    "question": "连续输入时保存会被防抖，扫描提交也可能和较新的编辑交错。编辑器和索引发布端各用什么机制约束这一现象？",
+    "parts": [
+      {"note": "收班前备份", "reference": "zh-05", "query": "编辑器长期未空闲时怎样触发保存？"},
+      {"note": "catalog-commit", "reference": "en-01", "query": "How should an index publisher prevent a scan from overwriting newer catalog state?"}
+    ]
+  }
+]

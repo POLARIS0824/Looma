@@ -1,0 +1,26 @@
+[
+  {
+    "id": "literal-01",
+    "question": "搜索包含字面值 `#气候校准` 的笔记。",
+    "note": "标签关键词",
+    "anchor": "`#气候校准`"
+  },
+  {
+    "id": "literal-02",
+    "question": "找到含两字 `幂等` 的补传说明。",
+    "note": "挂起上传",
+    "anchor": "同一份附件的每次补传都使用最初生成的幂等键，避免重试创建重复对象。"
+  },
+  {
+    "id": "literal-03",
+    "question": "Find the snippet that contains `compare 471 against 472`.",
+    "note": "stale-shelf",
+    "anchor": "resume scan -> close page   -> compare 471 against 472"
+  },
+  {
+    "id": "literal-04",
+    "question": "Find the note about a `gateway ACK`.",
+    "note": "upload-burst",
+    "anchor": "An intermittent gateway ACK lost after upload completion led the field app to retry the same picture."
+  }
+]
