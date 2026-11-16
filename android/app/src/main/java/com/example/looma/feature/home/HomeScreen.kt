@@ -122,7 +122,7 @@ data class HomeActions(
     val onRenameClick: () -> Unit = {},
     val onInfoClick: () -> Unit = {},
     val onDeleteClick: () -> Unit = {},
-    val onConfirmRename: (String) -> Unit = {},
+    val onConfirmRename: (HomeFileDialog.Rename, String) -> Unit = { _, _ -> },
     val onConfirmNewFolder: (String) -> Unit = {},
     val onDialogDismiss: () -> Unit = {},
     val onUndo: (HomeUndo) -> Unit = {},
@@ -385,7 +385,7 @@ fun HomeScreen(
 @Composable
 private fun HomeFileDialogs(state: HomeUiState, actions: HomeActions) {
     when (val dialog = state.dialog) {
-        null -> Unit
+        null, is HomeFileDialog.LoadingProperties -> Unit
 
         is HomeFileDialog.Rename -> HomeTextInputDialog(
             title = stringResource(R.string.home_rename_title),
@@ -394,7 +394,7 @@ private fun HomeFileDialogs(state: HomeUiState, actions: HomeActions) {
             confirmLabel = stringResource(R.string.dialog_save),
             error = state.dialogError,
             busy = state.isActionRunning,
-            onConfirm = actions.onConfirmRename,
+            onConfirm = { name -> actions.onConfirmRename(dialog, name) },
             onDismiss = actions.onDialogDismiss,
         )
 

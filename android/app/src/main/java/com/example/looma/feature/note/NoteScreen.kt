@@ -133,13 +133,13 @@ fun NoteRoute(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val requestLeave = viewModel::requestLeave
     val navigateUp by rememberUpdatedState(onNavigateUp)
-    LaunchedEffect(state.rename, state.leaveReady) {
+    val leaveReady = state.leave == NoteLeave.Ready
+    LaunchedEffect(state.rename, leaveReady) {
         state.rename?.let { rename ->
             onRenameNavigate(rename.from, rename.to)
             viewModel.onRenameNavigated()
         }
-        if (state.leaveReady) {
-            viewModel.onLeaveReadyHandled()
+        if (leaveReady && viewModel.consumeLeaveReady()) {
             navigateUp()
         }
     }
@@ -217,7 +217,7 @@ fun NoteRoute(
         }
     }
 
-    if (state.leaveBlocked) {
+    if (state.leave == NoteLeave.Blocked) {
         NoteLeaveDialog(
             state = state,
             onRetry = { viewModel.saveThenLeave() },
@@ -889,13 +889,13 @@ private fun NoteLoadErrorScreen(
 @Preview(showBackground = true, heightDp = 780)
 @Composable
 private fun NoteWorkspacePreview() {
+    val content = "# 周会记录\n\n- [ ] 补充**设计稿**\n- [x] 对齐接口\n\n> 记得同步给 @所有人"
     LoomaTheme(dynamicColor = false) {
         NoteWorkspace(
             state = NoteUiState(
-                content = "# 周会记录\n\n- [ ] 补充**设计稿**\n- [x] 对齐接口\n\n> 记得同步给 @所有人",
-                savedContent = "# 周会记录\n\n- [ ] 补充**设计稿**\n- [x] 对齐接口\n\n> 记得同步给 @所有人",
+                content = content,
+                baseline = NoteBaseline(content),
                 isLoading = false,
-                saveState = NoteSaveState.Saved,
                 fileName = "周会记录",
             ),
             onContentChanged = { _, _ -> },

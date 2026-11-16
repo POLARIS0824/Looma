@@ -85,7 +85,8 @@ sealed interface HomeNotice {
 }
 
 sealed interface HomeFileDialog {
-    data class Rename(val initialName: String) : HomeFileDialog
+    class Rename(val noteId: NoteId, val initialName: String) : HomeFileDialog
+    class LoadingProperties(val noteId: NoteId) : HomeFileDialog
     data class Properties(val properties: NoteProperties) : HomeFileDialog
     data object NewFolder : HomeFileDialog
 
@@ -156,6 +157,21 @@ data class HomeUiState(
     val isSelecting: Boolean get() = selection != HomeSelection.None
     val selectedFolder: HomeFolderItem? get() = selection.folder
     val selectedKeys: Set<String> get() = selection.noteKeys
+
+    internal fun finishProperties(
+        request: HomeFileDialog.LoadingProperties,
+        properties: NoteProperties?,
+    ): HomeUiState {
+        if (dialog !== request) return this
+        if (vaultId != request.noteId.vaultId || selectedNotes.singleOrNull()?.id != request.noteId) {
+            return copy(dialog = null)
+        }
+        return if (properties != null) {
+            copy(dialog = HomeFileDialog.Properties(properties))
+        } else {
+            copy(dialog = null, message = HomeMessage(HomeNotice.ActionFailed))
+        }
+    }
 }
 
 internal fun List<HomeNoteItem>.matching(query: String): List<HomeNoteItem> {

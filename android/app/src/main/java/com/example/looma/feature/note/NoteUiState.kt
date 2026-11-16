@@ -7,9 +7,21 @@ import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.wiki.WikiContext
-import java.time.Instant
 
-enum class NoteSaveState { Idle, Pending, Saving, Saved, Failed }
+data class NoteBaseline(
+    val content: String = "",
+    val revision: NoteRevision = NoteRevision.Unknown,
+)
+
+sealed interface NoteSaveProblem {
+    data object WriteFailed : NoteSaveProblem
+    data class Conflict(
+        val actualRevision: NoteRevision,
+        val showBanner: Boolean = true,
+    ) : NoteSaveProblem
+}
+
+enum class NoteLeave { Idle, Saving, Blocked, Ready }
 
 data class ImageInsertion(val snippet: String, val token: Long)
 
@@ -36,17 +48,11 @@ sealed interface NoteTitleError {
 
 data class NoteUiState(
     val content: String = "",
-    val savedContent: String = "",
-    val modifiedAt: Instant? = null,
-    val revision: NoteRevision = NoteRevision.Unknown,
-    val conflictRevision: NoteRevision? = null,
-    val leaveReady: Boolean = false,
+    val baseline: NoteBaseline = NoteBaseline(),
+    val saveProblem: NoteSaveProblem? = null,
+    val leave: NoteLeave = NoteLeave.Idle,
     val isLoading: Boolean = true,
     val loadFailed: Boolean = false,
-    val saveState: NoteSaveState = NoteSaveState.Idle,
-    val saveFailed: Boolean = false,
-    val isConflict: Boolean = false,
-    val leaveBlocked: Boolean = false,
     val keepEmptyNotes: Boolean = true,
     val isNewNote: Boolean = false,
     val fileName: String = "",
@@ -64,7 +70,16 @@ data class NoteUiState(
     val rename: NoteRename? = null,
     val isRenaming: Boolean = false,
 ) {
-    val isDirty: Boolean get() = !isLoading && content != savedContent
+    val isDirty: Boolean get() = !isLoading && content != baseline.content
+
+    val isConflict: Boolean get() = saveProblem is NoteSaveProblem.Conflict
+
+    val showSaveBanner: Boolean
+        get() = when (val problem = saveProblem) {
+            null -> false
+            NoteSaveProblem.WriteFailed -> true
+            is NoteSaveProblem.Conflict -> problem.showBanner
+        }
 
     val willDiscardEmpty: Boolean
         get() = isNewNote &&
@@ -75,30 +90,38 @@ data class NoteUiState(
     fun canAdoptDiskRevision(diskRevision: NoteRevision): Boolean =
         !isLoading &&
             !isDirty &&
-            !isConflict &&
-            !saveFailed &&
-            !leaveReady &&
-            !leaveBlocked &&
-            saveState != NoteSaveState.Saving &&
-            diskRevision != revision
+            saveProblem == null &&
+            leave != NoteLeave.Ready &&
+            leave != NoteLeave.Blocked &&
+            diskRevision != baseline.revision
+
+    internal fun afterEdit(value: String): NoteUiState =
+        copy(content = value, saveProblem = saveProblem as? NoteSaveProblem.Conflict)
+
+    internal fun whenSaveStarts(): NoteUiState =
+        copy(saveProblem = (saveProblem as? NoteSaveProblem.Conflict)?.copy(showBanner = false))
+
+    internal fun afterSave(writtenContent: String, revision: NoteRevision): NoteUiState =
+        copy(
+            baseline = NoteBaseline(writtenContent, revision),
+            saveProblem = null,
+            conflictCopy = null,
+        )
+
+    internal fun afterSaveFailure(actualRevision: NoteRevision? = null): NoteUiState {
+        val conflict = saveProblem as? NoteSaveProblem.Conflict
+        val revision = actualRevision ?: conflict?.actualRevision
+        val problem = revision?.let { NoteSaveProblem.Conflict(it) } ?: NoteSaveProblem.WriteFailed
+        return copy(saveProblem = problem)
+    }
 
     internal fun afterRename(note: Note, editorContent: String): NoteUiState {
-        val draft = if (editorContent == savedContent) note.content else editorContent
-        val pending = draft != note.content
-        val conflict = pending && note.content != savedContent
+        val draft = if (editorContent == baseline.content) note.content else editorContent
+        val conflict = draft != note.content && note.content != baseline.content
         return copy(
             content = draft,
-            savedContent = note.content,
-            modifiedAt = note.modifiedAt,
-            revision = note.revision,
-            conflictRevision = note.revision.takeIf { conflict },
-            saveState = when {
-                conflict -> NoteSaveState.Failed
-                pending -> NoteSaveState.Pending
-                else -> NoteSaveState.Saved
-            },
-            isConflict = conflict,
-            saveFailed = conflict,
+            baseline = NoteBaseline(note.content, note.revision),
+            saveProblem = note.revision.takeIf { conflict }?.let { NoteSaveProblem.Conflict(it) },
         )
     }
 

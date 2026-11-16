@@ -21,14 +21,22 @@ enum class VaultSetupError {
     GENERIC,
 }
 
+data class VaultFolderChoice(val path: String, val name: String)
+
+sealed interface VaultSelection {
+    data object Idle : VaultSelection
+    data class Pending(val folder: VaultFolderChoice) : VaultSelection
+    data class Activating(val folder: VaultFolderChoice?) : VaultSelection
+    class Activated(val vault: Vault) : VaultSelection
+}
+
 data class VaultSetupUiState(
     val vaultState: VaultState = VaultState.Checking,
-    val pendingVaultPath: String? = null,
-    val pendingVaultName: String? = null,
-    val isBusy: Boolean = false,
+    val selection: VaultSelection = VaultSelection.Idle,
     val actionError: VaultSetupError? = null,
-    val selectionSaved: Boolean = false,
 ) {
+    val isBusy: Boolean get() = selection is VaultSelection.Activating
+
     val isInitializing: Boolean
         get() = vaultState is VaultState.Checking
 
@@ -39,10 +47,14 @@ data class VaultSetupUiState(
         get() = (vaultState as? VaultState.Ready)?.vault?.rootPath
 
     val selectedFolderName: String?
-        get() = pendingVaultName
+        get() = when (selection) {
+            is VaultSelection.Pending -> selection.folder.name
+            is VaultSelection.Activating -> selection.folder?.name
+            else -> null
+        }
 
     val error: VaultSetupError?
-        get() = if (pendingVaultName != null) {
+        get() = if (selectedFolderName != null) {
             actionError
         } else {
             if (vaultState is VaultState.Unavailable) VaultSetupError.UNAVAILABLE else actionError

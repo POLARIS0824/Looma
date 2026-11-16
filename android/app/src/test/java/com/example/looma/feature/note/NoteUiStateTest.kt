@@ -63,7 +63,7 @@ class NoteUiStateTest {
                 content = "",
                 isNewNote = true,
                 keepEmptyNotes = false,
-                isConflict = true,
+                saveProblem = NoteSaveProblem.Conflict(revision("external")),
             ).willDiscardEmpty,
         )
     }
@@ -72,9 +72,8 @@ class NoteUiStateTest {
     fun `a clean note adopts a different revision from disk`() {
         val state = NoteUiState(
             content = "旧内容",
-            savedContent = "旧内容",
+            baseline = NoteBaseline("旧内容", revision("a")),
             isLoading = false,
-            revision = revision("a"),
         )
 
         assertTrue(state.canAdoptDiskRevision(revision("b")))
@@ -85,26 +84,69 @@ class NoteUiStateTest {
     fun `local edits are never replaced by the disk version`() {
         val state = NoteUiState(
             content = "新内容",
-            savedContent = "旧内容",
+            baseline = NoteBaseline("旧内容", revision("a")),
             isLoading = false,
-            revision = revision("a"),
         )
 
         assertFalse(state.canAdoptDiskRevision(revision("b")))
     }
 
     @Test
-    fun `a conflict or pending save keeps the editor buffer`() {
+    fun `save problems and completed leave attempts keep the editor buffer`() {
         val base = NoteUiState(
             content = "内容",
-            savedContent = "内容",
+            baseline = NoteBaseline("内容", revision("a")),
             isLoading = false,
-            revision = revision("a"),
         )
 
-        assertFalse(base.copy(isConflict = true).canAdoptDiskRevision(revision("b")))
-        assertFalse(base.copy(saveFailed = true).canAdoptDiskRevision(revision("b")))
-        assertFalse(base.copy(saveState = NoteSaveState.Saving).canAdoptDiskRevision(revision("b")))
+        val diskRevision = revision("b")
+        assertFalse(base.afterSaveFailure(diskRevision).whenSaveStarts().canAdoptDiskRevision(diskRevision))
+        assertFalse(base.afterSaveFailure().canAdoptDiskRevision(diskRevision))
+        assertFalse(base.copy(leave = NoteLeave.Blocked).canAdoptDiskRevision(diskRevision))
+        assertFalse(base.copy(leave = NoteLeave.Ready).canAdoptDiskRevision(diskRevision))
+    }
+
+    @Test
+    fun `editing clears a write failure and preserves a conflict`() {
+        val failed = renameBase.afterSaveFailure()
+        assertTrue(failed.showSaveBanner)
+        assertFalse(failed.afterEdit("draft").showSaveBanner)
+
+        val conflict = renameBase.afterSaveFailure(revision("external"))
+        val editedConflict = conflict.afterEdit("draft")
+        assertEquals(conflict.saveProblem, editedConflict.saveProblem)
+        assertTrue(editedConflict.showSaveBanner)
+    }
+
+    @Test
+    fun `an overwrite hides the banner and a write failure restores the current conflict`() {
+        val externalRevision = revision("external")
+        val conflict = renameBase.afterSaveFailure(externalRevision)
+        val saving = conflict.whenSaveStarts().afterEdit("draft")
+
+        assertTrue(saving.isConflict)
+        assertFalse(saving.showSaveBanner)
+        val failed = saving.afterSaveFailure()
+        assertEquals(NoteSaveProblem.Conflict(externalRevision), failed.saveProblem)
+        assertTrue(failed.showSaveBanner)
+
+        val newerRevision = revision("newer external")
+        assertEquals(NoteSaveProblem.Conflict(newerRevision), saving.afterSaveFailure(newerRevision).saveProblem)
+    }
+
+    @Test
+    fun `completing an older write keeps the later draft dirty against the saved request`() {
+        val written = "written content"
+        val writtenRevision = revision(written)
+        val laterDraft = "edited during the write"
+        val saving = renameBase.afterEdit(written).whenSaveStarts()
+        val saved = saving.afterEdit(laterDraft).afterSave(written, writtenRevision)
+
+        assertEquals(laterDraft, saved.content)
+        assertEquals(NoteBaseline(written, writtenRevision), saved.baseline)
+        assertTrue(saved.isDirty)
+        assertFalse(saved.showSaveBanner)
+        assertFalse(saved.afterSave(laterDraft, revision(laterDraft)).isDirty)
     }
 
     @Test
@@ -113,8 +155,7 @@ class NoteUiStateTest {
         val state = renameBase.afterRename(renamed, editorContent = "[[Self]]")
 
         assertEquals(renamed.content, state.content)
-        assertEquals(renamed.content, state.savedContent)
-        assertEquals(renamed.revision, state.revision)
+        assertEquals(NoteBaseline(renamed.content, renamed.revision), state.baseline)
         assertFalse(state.isDirty)
     }
 
@@ -124,7 +165,6 @@ class NoteUiStateTest {
         val state = renameBase.afterRename(note("[[Self]]"), editorContent = draft)
 
         assertEquals(draft, state.content)
-        assertEquals(NoteSaveState.Pending, state.saveState)
         assertTrue(state.isDirty)
         assertFalse(state.isConflict)
     }
@@ -136,17 +176,16 @@ class NoteUiStateTest {
         val state = renameBase.afterRename(renamed, editorContent = draft)
 
         assertEquals(draft, state.content)
-        assertEquals(renamed.content, state.savedContent)
-        assertEquals(renamed.revision, state.conflictRevision)
+        assertEquals(NoteBaseline(renamed.content, renamed.revision), state.baseline)
+        assertEquals(NoteSaveProblem.Conflict(renamed.revision), state.saveProblem)
         assertTrue(state.isDirty)
         assertTrue(state.isConflict)
-        assertTrue(state.saveFailed)
+        assertTrue(state.showSaveBanner)
     }
 
     private val renameBase = NoteUiState(
         content = "[[Self]]",
-        savedContent = "[[Self]]",
-        revision = revision("[[Self]]"),
+        baseline = NoteBaseline("[[Self]]", revision("[[Self]]")),
         isLoading = false,
     )
 

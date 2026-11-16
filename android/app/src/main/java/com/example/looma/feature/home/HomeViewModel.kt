@@ -139,6 +139,8 @@ class HomeViewModel(
                 files = index.files(path, it.sort),
                 selection = HomeSelection.None,
                 selectedNotes = emptyList(),
+                dialog = null,
+                dialogError = null,
             )
         }
     }
@@ -300,25 +302,23 @@ class HomeViewModel(
     fun startRename() {
         val item = _uiState.value.singleNote() ?: return
         _uiState.update {
-            it.copy(dialog = HomeFileDialog.Rename(item.fileName), dialogError = null)
+            it.copy(dialog = HomeFileDialog.Rename(item.id, item.fileName), dialogError = null)
         }
     }
 
     fun startProperties() {
         val item = _uiState.value.singleNote() ?: return
+        val request = HomeFileDialog.LoadingProperties(item.id)
+        _uiState.update { it.copy(dialog = request, dialogError = null) }
         viewModelScope.launch {
-            try {
-                val properties = noteRepository.properties(item.id)
-                _uiState.update {
-                    it.copy(dialog = HomeFileDialog.Properties(properties), dialogError = null)
-                }
+            val properties = try {
+                noteRepository.properties(request.noteId)
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(message = HomeMessage(HomeNotice.ActionFailed))
-                }
+            } catch (_: Exception) {
+                null
             }
+            _uiState.update { it.finishProperties(request, properties) }
         }
     }
 
@@ -328,19 +328,18 @@ class HomeViewModel(
 
     fun dismissDialog() = _uiState.update { it.copy(dialog = null, dialogError = null) }
 
-    fun confirmRename(name: String) {
-        val item = _uiState.value.singleNote() ?: return
+    fun confirmRename(dialog: HomeFileDialog.Rename, name: String) {
+        if (_uiState.value.dialog !== dialog) return
         val trimmed = name.trim()
         if (trimmed.isEmpty()) {
             _uiState.update { it.copy(dialogError = HomeFileError.EMPTY_NAME) }
             return
         }
-        val previousName = item.fileName
         runDialogAction {
-            val outcome = noteRepository.renameNote(item.id, trimmed)
+            val outcome = noteRepository.renameNote(dialog.noteId, trimmed)
             HomeMessage(
                 notice = HomeNotice.Renamed(outcome.linksUpdated, outcome.linksFailed),
-                undo = HomeUndo.RenameNote(outcome.note.id, previousName),
+                undo = HomeUndo.RenameNote(outcome.note.id, dialog.initialName),
             )
         }
     }
@@ -612,22 +611,23 @@ class HomeViewModel(
     }
 
     private fun runDialogAction(message: suspend () -> HomeMessage) {
-        if (_uiState.value.isActionRunning) return
+        val state = _uiState.value
+        if (state.isActionRunning) return
+        _uiState.update { it.copy(isActionRunning = true, dialogError = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isActionRunning = true, dialogError = null) }
             try {
                 finishAction(message())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RelocationStalledException) {
                 reportStalledRelocation(e.stalled)
-            } catch (e: VaultFileException) {
-                _uiState.update {
-                    it.copy(isActionRunning = false, dialogError = e.failure.toHomeFileError())
-                }
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(isActionRunning = false, dialogError = HomeFileError.GENERIC)
+                val error = (e as? VaultFileException)?.failure?.toHomeFileError() ?: HomeFileError.GENERIC
+                _uiState.update { current ->
+                    current.copy(
+                        isActionRunning = false,
+                        dialogError = error.takeIf { current.dialog === state.dialog },
+                    )
                 }
             }
         }

@@ -43,6 +43,7 @@ import com.example.looma.feature.settings.SettingsRoute
 import com.example.looma.feature.settings.SettingsViewModel
 import com.example.looma.feature.trash.TrashRoute
 import com.example.looma.feature.trash.TrashViewModel
+import com.example.looma.feature.vault.VaultSelection
 import com.example.looma.feature.vault.VaultSetupRoute
 import com.example.looma.feature.vault.VaultSetupViewModel
 import com.example.looma.feature.vault.VaultState
@@ -80,17 +81,18 @@ fun LoomaNavGraph(
 
     val start: NavKey = if (status is VaultState.Ready) LoomaRoute.Home else LoomaRoute.VaultSetup
     val backStack = rememberNavBackStack(start)
+    val reset = setupState.vaultStackReset(backStack)
 
-    LaunchedEffect(setupState.selectionSaved, status) {
-        if (setupState.selectionSaved && status is VaultState.Ready) {
-            backStack.clear()
-            backStack.add(LoomaRoute.Home)
-            vaultSetupViewModel.onNavigationHandled()
-        } else if (status !is VaultState.Ready && backStack.lastOrNull() != LoomaRoute.VaultSetup) {
-            backStack.clear()
-            backStack.add(LoomaRoute.VaultSetup)
+    LaunchedEffect(setupState.selection as? VaultSelection.Activated, reset) {
+        val latest = vaultSetupViewModel.uiState.value
+        val root = latest.vaultStackReset(backStack) ?: return@LaunchedEffect
+        backStack.clear()
+        backStack.add(root)
+        if (root == LoomaRoute.Home) {
+            (latest.selection as? VaultSelection.Activated)?.let(vaultSetupViewModel::onActivationHandled)
         }
     }
+    if (reset == LoomaRoute.VaultSetup) return
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -102,7 +104,7 @@ fun LoomaNavGraph(
         }
     }
     val destination = current.toDestination()
-    val vault by vaultRepository.currentVaultFlow.collectAsStateWithLifecycle(initialValue = null)
+    val vault = (status as? VaultState.Ready)?.vault
 
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
@@ -133,7 +135,7 @@ fun LoomaNavGraph(
 
             backStack = backStack,
             onBack = {
-                if (backStack.size > 1) {
+                if (backStack.size > 1 && !setupState.isBusy) {
                     val route = backStack.lastOrNull() as? LoomaRoute.Note
                     val handler = route?.let { noteBackHandlers[it.visitId] }
                     if (handler != null) handler() else backStack.removeLastOrNull()
@@ -154,7 +156,7 @@ fun LoomaNavGraph(
                     )
                 }
 
-                entry<LoomaRoute.Home> {
+                entry<LoomaRoute.Home>(clazzContentKey = { "home/${vault?.id?.value.orEmpty()}" }) {
                     val homeViewModel: HomeViewModel = viewModel(
                         factory = HomeViewModel.factory(
                             vaultRepository = vaultRepository,

@@ -2,6 +2,9 @@ package com.example.looma.navigation
 
 import androidx.navigation3.runtime.NavKey
 import com.example.looma.domain.model.NoteId
+import com.example.looma.feature.vault.VaultSelection
+import com.example.looma.feature.vault.VaultSetupUiState
+import com.example.looma.feature.vault.VaultState
 import java.util.UUID
 import kotlinx.serialization.Serializable
 
@@ -36,6 +39,15 @@ sealed interface LoomaRoute : NavKey {
         }
     }
 }
+
+internal fun VaultSetupUiState.vaultStackReset(backStack: List<NavKey>): LoomaRoute? =
+    when (val status = vaultState) {
+        VaultState.Checking -> null
+        VaultState.None, is VaultState.Unavailable ->
+            LoomaRoute.VaultSetup.takeUnless { backStack.singleOrNull() == LoomaRoute.VaultSetup }
+        is VaultState.Ready ->
+            LoomaRoute.Home.takeIf { (selection as? VaultSelection.Activated)?.vault == status.vault }
+    }
 
 internal fun MutableList<NavKey>.retargetNoteVisits(from: NoteId, to: NoteId, originatingVisitId: String) {
     if (from == to) return
