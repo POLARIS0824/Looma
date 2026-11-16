@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
@@ -40,10 +42,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -56,7 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.domain.model.NoteId
-import com.example.looma.feature.home.HomeNoteItem
+import com.example.looma.feature.home.HomeSearchResult
 import com.example.looma.feature.home.HomeUiState
 import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
@@ -120,6 +128,13 @@ internal fun HomeSearchBar(
             .collect { textFieldState.setTextAndPlaceCursorAtEnd("") }
     }
 
+    val resultsFocusRequester = remember { FocusRequester() }
+    var keyboardDismissRequest by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(keyboardDismissRequest) {
+        if (keyboardDismissRequest > 0) resultsFocusRequester.requestFocus()
+    }
+
     val inputField: @Composable () -> Unit = {
         val expanded = searchBarState.currentValue == SearchBarValue.Expanded
         SearchBarDefaults.InputField(
@@ -130,8 +145,7 @@ internal fun HomeSearchBar(
             textStyle = LoomaTokens.type.body,
             onSearch = {
                 onSearchSubmit()
-                keyboard?.hide()
-                scope.launch { searchBarState.animateToCollapsed() }
+                if (expanded) keyboardDismissRequest++
             },
             placeholder = {
                 HomeSearchPlaceholder(
@@ -220,10 +234,14 @@ internal fun HomeSearchBar(
         collapsedShape = CircleShape,
         colors = searchBarColors,
     ) {
-        HomeSearchPanel(progress = searchBarState.progress) {
+        HomeSearchPanel(
+            progress = searchBarState.progress,
+            focusRequester = resultsFocusRequester,
+        ) {
             HomeSearchResults(
                 query = state.query,
-                notes = state.searchResults,
+                results = state.searchResults,
+                isGridMode = state.isGridMode,
                 isSearching = state.isSearching,
                 recentSearches = state.recentSearches,
                 onNoteClick = { noteId ->
@@ -295,11 +313,17 @@ private fun HomeAvatarButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun HomeSearchPanel(progress: Float, content: @Composable () -> Unit) {
+private fun HomeSearchPanel(
+    progress: Float,
+    focusRequester: FocusRequester,
+    content: @Composable () -> Unit,
+) {
     val lift = ((progress - 0.5f) / 0.5f).coerceIn(0f, 1f)
     Box(
         Modifier
             .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
             .graphicsLayer { translationY = (1f - lift) * 12.dp.toPx() },
     ) {
         content()
@@ -315,7 +339,8 @@ private fun searchIconExit(align: Alignment.Horizontal): ExitTransition =
 @Composable
 internal fun HomeSearchResults(
     query: String,
-    notes: List<HomeNoteItem>,
+    results: List<HomeSearchResult>,
+    isGridMode: Boolean,
     onNoteClick: (NoteId) -> Unit,
     recentSearches: List<String> = emptyList(),
     onRecentSearchClick: (String) -> Unit = {},
@@ -358,38 +383,22 @@ internal fun HomeSearchResults(
         isSearching -> Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
             DelayedLoadingIndicator(loading = true)
         }
-        notes.isEmpty() -> HomeSearchHint(stringResource(R.string.home_search_no_match))
-        else -> LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
+        results.isEmpty() -> HomeSearchHint(stringResource(R.string.home_search_no_match))
+        else -> HomeNoteGrid(
+            isGridMode = isGridMode,
+            contentPadding = PaddingValues(
+                start = LoomaTokens.spacing.pageMargin,
+                end = LoomaTokens.spacing.pageMargin,
+                top = 8.dp,
+                bottom = 24.dp,
+            ),
         ) {
-            items(notes, key = { it.listKey }) { note ->
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            text = note.summary.title,
-                            style = LoomaTokens.type.cardTitle,
-                            color = LoomaTokens.colors.title,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    supportingContent = {
-                        Text(
-                            text = note.summary.excerpt.ifEmpty { note.id.path.relativePath },
-                            style = LoomaTokens.type.cardBody,
-                            color = LoomaTokens.colors.body,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    leadingContent = { LoomaIcon(R.drawable.ic_search, contentDescription = null) },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClickLabel = stringResource(R.string.home_open_note_label)) {
-                            onNoteClick(note.id)
-                        },
+            gridItems(results, key = { "search:${it.listKey}" }) { result ->
+                HomeNoteCard(
+                    note = result.note,
+                    isSelected = false,
+                    onClick = { onNoteClick(result.id) },
+                    search = result,
                 )
             }
         }

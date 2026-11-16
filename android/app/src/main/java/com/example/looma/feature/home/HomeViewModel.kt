@@ -178,10 +178,7 @@ class HomeViewModel(
             val texts = searchTexts(notes)
             val sort = _uiState.value.sort
             val results = withContext(Dispatchers.Default) {
-                notes.filter { note ->
-                    coroutineContext.ensureActive()
-                    note.matchesSearch(keyword, texts[note.id] ?: note.searchableText)
-                }.orderedBy(sort)
+                searchNotes(notes, texts, keyword) { ensureActive() }.orderedBy(sort)
             }
             _uiState.update { current ->
                 if (current.query != value) {

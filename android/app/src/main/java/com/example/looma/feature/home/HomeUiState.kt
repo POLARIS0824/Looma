@@ -131,7 +131,7 @@ data class HomeUiState(
     val vaultName: String = "Looma",
     val vaultRootPath: String? = null,
     val notes: List<HomeNoteItem> = emptyList(),
-    val searchResults: List<HomeNoteItem> = emptyList(),
+    val searchResults: List<HomeSearchResult> = emptyList(),
     val query: String = "",
     val isSearching: Boolean = false,
     val recentSearches: List<String> = emptyList(),
@@ -173,17 +173,6 @@ data class HomeUiState(
         }
     }
 }
-
-internal fun List<HomeNoteItem>.matching(query: String): List<HomeNoteItem> {
-    val keyword = query.trim()
-    if (keyword.isEmpty()) return this
-    return filter { it.matchesSearch(keyword, it.searchableText) }
-}
-
-internal fun HomeNoteItem.matchesSearch(keyword: String, text: String): Boolean =
-    summary.title.contains(keyword, ignoreCase = true) ||
-        summary.tags.any { it.contains(keyword, ignoreCase = true) } ||
-        text.contains(keyword, ignoreCase = true)
 
 internal fun List<HomeNoteItem>.orderedBy(sort: HomeSort): List<HomeNoteItem> = when (sort) {
     HomeSort.LAST_MODIFIED -> sortedWith(compareByDescending<HomeNoteItem> { it.summary.modifiedAt }.thenBy { it.listKey })
