@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    kotlin("kapt")
 }
 
 kotlin {
@@ -26,6 +27,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.jmh.core)
     annotationProcessor(libs.jmh.generator)
+    testImplementation(kotlin("test"))
 }
 
 tasks.register<JavaExec>("jmh") {

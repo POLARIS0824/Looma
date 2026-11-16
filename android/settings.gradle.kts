@@ -10,6 +10,9 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+    plugins {
+        kotlin("kapt") version "2.4.21"
+    }
 }
 plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
