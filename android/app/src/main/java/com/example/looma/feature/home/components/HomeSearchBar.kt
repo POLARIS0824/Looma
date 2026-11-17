@@ -5,6 +5,7 @@
 
 package com.example.looma.feature.home.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -13,6 +14,7 @@ import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -34,11 +36,14 @@ import androidx.compose.material3.ExpandedFullScreenSearchBar
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SearchBarScrollBehavior
 import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,6 +82,8 @@ import kotlinx.coroutines.launch
 internal fun HomeSearchBar(
     state: HomeUiState,
     scrollBehavior: SearchBarScrollBehavior,
+    folderScrollBehavior: TopAppBarScrollBehavior,
+    onNavigateUp: () -> Unit,
     onQueryChange: (String) -> Unit,
     onToggleLayout: () -> Unit,
     onSortClick: () -> Unit,
@@ -169,7 +176,7 @@ internal fun HomeSearchBar(
             trailingIcon = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     AnimatedVisibility(
-                        visible = !expanded,
+                        visible = !expanded && state.files.isAtRoot,
                         enter = searchIconEnter(Alignment.End),
                         exit = searchIconExit(Alignment.End),
                     ) {
@@ -198,31 +205,75 @@ internal fun HomeSearchBar(
         )
     }
 
-    AppBarWithSearch(
-        state = searchBarState,
-        scrollBehavior = scrollBehavior,
-        colors = appBarColors,
-        inputField = inputField,
-        navigationIcon = {
-            Box(Modifier.graphicsLayer { alpha = 1f - searchBarState.progress }) {
-                IconButton(onClick = onMenuClick) {
-                    LoomaIcon(
-                        iconRes = R.drawable.ic_menu,
-                        contentDescription = stringResource(R.string.home_menu_description),
+    val motion = MaterialTheme.motionScheme
+    AnimatedContent(
+        targetState = state.files,
+        contentKey = { it.path },
+        transitionSpec = {
+            fadeIn(motion.defaultEffectsSpec()).togetherWith(fadeOut(motion.defaultEffectsSpec())).using(null)
+        },
+        label = "home-app-bar",
+    ) { files ->
+        if (files.isAtRoot) {
+            AppBarWithSearch(
+                state = searchBarState,
+                scrollBehavior = scrollBehavior,
+                colors = appBarColors,
+                inputField = inputField,
+                navigationIcon = {
+                    Box(Modifier.graphicsLayer { alpha = 1f - searchBarState.progress }) {
+                        IconButton(onClick = onMenuClick) {
+                            LoomaIcon(
+                                iconRes = R.drawable.ic_menu,
+                                contentDescription = stringResource(R.string.home_menu_description),
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    Box(
+                        Modifier
+                            .graphicsLayer { alpha = 1f - searchBarState.progress }
+                            .padding(start = 8.dp, end = 8.dp),
+                    ) {
+                        HomeAvatarButton(onClick = onAvatarClick)
+                    }
+                },
+            )
+        } else {
+            HomeFolderTopBar(
+                crumbs = files.crumbs,
+                scrollBehavior = folderScrollBehavior,
+                onNavigateUp = onNavigateUp,
+                actions = {
+                    SearchBar(
+                        state = searchBarState,
+                        inputField = {
+                            IconButton(onClick = { scope.launch { searchBarState.animateToExpanded() } }) {
+                                LoomaIcon(
+                                    iconRes = R.drawable.ic_search,
+                                    contentDescription = stringResource(
+                                        R.string.home_search_placeholder,
+                                        state.vaultName,
+                                    ),
+                                )
+                            }
+                        },
+                        modifier = Modifier.graphicsLayer { alpha = 1f - searchBarState.progress },
+                        shape = CircleShape,
+                        colors = SearchBarDefaults.colors(containerColor = Color.Transparent),
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
                     )
-                }
-            }
-        },
-        actions = {
-            Box(
-                Modifier
-                    .graphicsLayer { alpha = 1f - searchBarState.progress }
-                    .padding(start = 8.dp, end = 8.dp),
-            ) {
-                HomeAvatarButton(onClick = onAvatarClick)
-            }
-        },
-    )
+                    HomeListControls(
+                        isGridMode = state.isGridMode,
+                        onToggleLayout = onToggleLayout,
+                        onSortClick = onSortClick,
+                    )
+                },
+            )
+        }
+    }
 
     ExpandedFullScreenSearchBar(
         state = searchBarState,

@@ -53,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.material3.ToggleFloatingActionButtonDefaults
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -86,7 +87,6 @@ import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.feature.home.components.HomeAbandonStalledRelocationDialog
-import com.example.looma.feature.home.components.HomeBreadcrumb
 import com.example.looma.feature.home.components.HomeDeleteFolderDialog
 import com.example.looma.feature.home.components.HomeFilesGrid
 import com.example.looma.feature.home.components.HomePropertiesDialog
@@ -245,6 +245,11 @@ fun HomeScreen(
     loadingFeedbackEnabled: Boolean = true,
 ) {
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
+    val folderScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    LaunchedEffect(state.files.path) {
+        folderScrollBehavior.state.heightOffset = 0f
+        folderScrollBehavior.state.contentOffset = 0f
+    }
     var sortSheetVisible by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
@@ -268,7 +273,9 @@ fun HomeScreen(
 
     Box(modifier.fillMaxSize()) {
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+            modifier = Modifier.fillMaxSize().nestedScroll(
+                if (state.isBrowsing) folderScrollBehavior.nestedScrollConnection else scrollBehavior.nestedScrollConnection,
+            ),
             containerColor = LoomaTokens.colors.page,
             topBar = {
                 AnimatedContent(
@@ -308,6 +315,8 @@ fun HomeScreen(
                         HomeSearchBar(
                             state = state,
                             scrollBehavior = scrollBehavior,
+                            folderScrollBehavior = folderScrollBehavior,
+                            onNavigateUp = actions.onNavigateUp,
                             onQueryChange = actions.onQueryChange,
                             onToggleLayout = actions.onToggleLayout,
                             onSortClick = { sortSheetVisible = true },
@@ -356,12 +365,14 @@ fun HomeScreen(
             }
         }
 
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsTopHeight(WindowInsets.statusBars)
-                .background(LoomaTokens.colors.page),
-        )
+        if (!state.isBrowsing) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsTopHeight(WindowInsets.statusBars)
+                    .background(LoomaTokens.colors.page),
+            )
+        }
     }
 
     if (sortSheetVisible) {
@@ -592,9 +603,6 @@ private fun HomeContent(
                 label = "home-folder",
             ) { snapshot ->
                 Column(Modifier.fillMaxSize()) {
-                    if (!snapshot.files.isAtRoot) {
-                        HomeBreadcrumb(crumbs = snapshot.files.crumbs, onBack = actions.onNavigateUp)
-                    }
                     Box(
                         Modifier
                             .fillMaxSize()
