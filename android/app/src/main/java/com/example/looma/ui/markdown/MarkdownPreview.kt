@@ -49,12 +49,10 @@ internal fun MarkdownPreview(
         preview = typography,
         textColor = textColor,
     )
-    val dividerColor = LoomaTokens.colors.divider
-    val components = remember(theme, dividerColor) {
+    val components = remember(theme) {
         loomaMarkdownComponents(
             theme = theme,
             compact = true,
-            dividerColor = dividerColor,
             showImages = false,
         )
     }
@@ -65,6 +63,7 @@ internal fun MarkdownPreview(
         colors = theme.colors,
         typography = theme.typography,
         padding = theme.padding,
+        extendedSpans = theme.extendedSpans,
         components = components,
         modifier = modifier.fillMaxWidth(),
     )

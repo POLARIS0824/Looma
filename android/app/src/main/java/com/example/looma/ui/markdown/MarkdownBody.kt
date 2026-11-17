@@ -37,7 +37,6 @@ internal fun MarkdownBody(
     val theme = loomaMarkdownTheme(
         base = LoomaTokens.type.noteBody,
     )
-    val dividerColor = LoomaTokens.colors.divider
     val accent = LoomaTokens.colors.accent
     val muted = LoomaTokens.colors.muted
     val checkedText = MaterialTheme.colorScheme.onSurfaceVariant
@@ -48,11 +47,10 @@ internal fun MarkdownBody(
     )
     val annotator = remember(math) { mathAnnotator(math) }
     val bodyStart = preview.index.bodyStart
-    val components = remember(theme, dividerColor, bodyStart, wiki, accent, muted, math, onCheckboxToggle, checkedText) {
+    val components = remember(theme, bodyStart, wiki, accent, muted, math, onCheckboxToggle, checkedText) {
         loomaMarkdownComponents(
             theme = theme,
             compact = false,
-            dividerColor = dividerColor,
             bodyStart = bodyStart,
             onCheckboxToggle = onCheckboxToggle,
             wiki = wiki,
@@ -71,6 +69,7 @@ internal fun MarkdownBody(
         colors = theme.colors,
         typography = theme.typography,
         padding = theme.padding,
+        extendedSpans = theme.extendedSpans,
         components = components,
         modifier = modifier.fillMaxWidth(),
         success = { state, activeComponents, bodyModifier ->
