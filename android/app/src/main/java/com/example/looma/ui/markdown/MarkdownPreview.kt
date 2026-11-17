@@ -2,31 +2,53 @@ package com.example.looma.ui.markdown
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import com.example.looma.ui.theme.LoomaTokens
-import com.example.looma.ui.theme.LoomaPreviewTypography
+import androidx.compose.ui.platform.LocalInspectionMode
 import com.example.looma.domain.markdown.WikiImageFlavour
+import com.example.looma.ui.theme.LoomaPreviewTypography
+import com.example.looma.ui.theme.LoomaTokens
 import com.mikepenz.markdown.compose.Markdown
+import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.markdownAnnotator
+import com.mikepenz.markdown.model.parseMarkdown
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.intellij.markdown.MarkdownElementTypes
 
 @Composable
-fun MarkdownPreview(
+internal fun MarkdownPreview(
     markdown: String,
     modifier: Modifier = Modifier,
     typography: LoomaPreviewTypography? = null,
     textColor: Color = LoomaTokens.colors.title,
 ) {
     if (markdown.isBlank()) return
+    val inspection = LocalInspectionMode.current
+    var parsed by remember(markdown, inspection) {
+        mutableStateOf(
+            if (inspection) parsePreview(markdown) else markdownPreviewCache.get(markdown),
+        )
+    }
+    val state = parsed
+    if (state == null) {
+        LaunchedEffect(markdown) {
+            parsed = markdownPreviewCache.load(markdown)
+        }
+        return
+    }
+
     val theme = loomaMarkdownTheme(
         base = typography?.body ?: LoomaTokens.type.cardBody,
         compact = true,
         preview = typography,
         textColor = textColor,
     )
-    val flavour = remember { WikiImageFlavour() }
     val dividerColor = LoomaTokens.colors.divider
     val components = remember(theme, dividerColor) {
         loomaMarkdownComponents(
@@ -38,8 +60,7 @@ fun MarkdownPreview(
     }
 
     Markdown(
-        content = markdown,
-        flavour = flavour,
+        state = state,
         annotator = previewMarkdownAnnotator,
         colors = theme.colors,
         typography = theme.typography,
@@ -48,6 +69,27 @@ fun MarkdownPreview(
         modifier = modifier.fillMaxWidth(),
     )
 }
+
+private val markdownPreviewCache = MarkdownPreviewCache(capacity = 128)
+
+internal class MarkdownPreviewCache(private val capacity: Int) {
+    private val states = LinkedHashMap<String, State.Success>(capacity, 0.75f, true)
+    private val dispatcher = Dispatchers.Default.limitedParallelism(1)
+
+    fun get(markdown: String): State.Success? = synchronized(states) { states[markdown] }
+
+    suspend fun load(markdown: String): State = withContext(dispatcher) {
+        get(markdown) ?: parsePreview(markdown).also { state ->
+            if (state is State.Success) synchronized(states) {
+                states[markdown] = state
+                if (states.size > capacity) states.remove(states.keys.first())
+            }
+        }
+    }
+}
+
+private fun parsePreview(markdown: String): State =
+    parseMarkdown(content = markdown, flavour = WikiImageFlavour())
 
 internal val previewMarkdownAnnotator =
     markdownAnnotator(config = loomaAnnotatorConfig) { _, node ->
