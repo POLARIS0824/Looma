@@ -92,6 +92,14 @@ class VaultIndexerTest {
         assertEquals(1, fourth.report.filesRemoved)
         assertEquals(1, fourth.notes.size)
         assertEquals(listOf("tagged.md"), fourth.notes.map { it.id.path.relativePath })
+
+        val externalFolder = File(vaultDir, "external").apply { mkdir() }
+        File(externalFolder, "new.MD").writeText("# Added externally\n")
+        val fifth = indexer.scan()
+        assertEquals(1, fifth.report.filesRead)
+        assertEquals(1, fifth.report.filesKept)
+        assertEquals(setOf("tagged.md", "external/new.MD"), fifth.notes.map { it.id.path.relativePath }.toSet())
+        assertEquals(listOf("external"), fifth.folders.map { it.path.relativePath })
     }
 
     @Test

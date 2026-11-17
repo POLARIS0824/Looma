@@ -12,7 +12,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -30,18 +29,19 @@ import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
 internal fun NoteTitleField(
+    buffer: TextFieldState,
     fileName: String,
     isNewNote: Boolean,
     textStyle: TextStyle,
     focusRequester: FocusRequester,
     onCommit: (String) -> Unit,
+    onFocusChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     requestInitialFocus: Boolean = false,
     onInitialFocusShown: () -> Unit = {},
     error: NoteTitleError? = null,
     onDone: () -> Unit = {},
 ) {
-    val buffer = rememberSaveable(saver = TextFieldState.Saver) { TextFieldState(fileName) }
     var focused by remember { mutableStateOf(false) }
     var lastCommitted by remember { mutableStateOf<String?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -88,6 +88,7 @@ internal fun NoteTitleField(
             .onFocusChanged { focusState ->
                 val wasFocused = focused
                 focused = focusState.isFocused
+                onFocusChange(focused)
                 if (wasFocused && !focusState.isFocused) {
                     commitDraft()
                 } else if (!wasFocused && focusState.isFocused) {

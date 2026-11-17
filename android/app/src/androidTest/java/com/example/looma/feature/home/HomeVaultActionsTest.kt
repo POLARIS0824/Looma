@@ -61,7 +61,6 @@ class HomeVaultActionsTest {
         database = Room.inMemoryDatabaseBuilder(context, NoteIndexDatabase::class.java).build()
         notes = NoteRepository(vaults, RoomNoteIndex(database))
         val factory = HomeViewModel.factory(
-            vaults,
             notes,
             FolderRepository(notes),
             SearchHistoryRepository(vaults, database.searchHistoryDao()),

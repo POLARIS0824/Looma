@@ -9,6 +9,7 @@ import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
 import java.io.File
+import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 
 internal data class FileFingerprint(
@@ -17,6 +18,8 @@ internal data class FileFingerprint(
 )
 
 internal fun File.fingerprint() = FileFingerprint(length(), lastModified())
+
+internal fun BasicFileAttributes.fingerprint() = FileFingerprint(size(), lastModifiedTime().toMillis())
 
 internal data class IndexedNote(
     val id: NoteId,

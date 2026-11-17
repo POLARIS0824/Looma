@@ -2,16 +2,10 @@ package com.example.looma.feature.note
 
 import com.example.looma.domain.markdown.ImageContext
 import com.example.looma.domain.markdown.ToolbarItem
-import com.example.looma.domain.model.Note
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.wiki.WikiContext
-
-data class NoteBaseline(
-    val content: String = "",
-    val revision: NoteRevision = NoteRevision.Unknown,
-)
 
 sealed interface NoteSaveProblem {
     data object WriteFailed : NoteSaveProblem
@@ -47,8 +41,6 @@ sealed interface NoteTitleError {
 }
 
 data class NoteUiState(
-    val content: String = "",
-    val baseline: NoteBaseline = NoteBaseline(),
     val saveProblem: NoteSaveProblem? = null,
     val leave: NoteLeave = NoteLeave.Idle,
     val isLoading: Boolean = true,
@@ -59,7 +51,6 @@ data class NoteUiState(
     val wiki: WikiContext = WikiContext.Empty,
     val imageContext: ImageContext? = null,
     val conflictCopy: NotePath? = null,
-    val reloadToken: Int = 0,
     val showInlineTitle: Boolean = true,
     val toolbarOrder: List<ToolbarItem> = ToolbarItem.DEFAULT_ORDER,
     val isUploadingImage: Boolean = false,
@@ -70,8 +61,6 @@ data class NoteUiState(
     val rename: NoteRename? = null,
     val isRenaming: Boolean = false,
 ) {
-    val isDirty: Boolean get() = !isLoading && content != baseline.content
-
     val isConflict: Boolean get() = saveProblem is NoteSaveProblem.Conflict
 
     val showSaveBanner: Boolean
@@ -81,32 +70,18 @@ data class NoteUiState(
             is NoteSaveProblem.Conflict -> problem.showBanner
         }
 
-    val willDiscardEmpty: Boolean
-        get() = isNewNote &&
-            !keepEmptyNotes &&
-            !isConflict &&
-            isContentBlank
+    internal fun shouldDiscardEmpty(content: CharSequence): Boolean =
+        isNewNote && !keepEmptyNotes && !isConflict && content.isBlank()
 
-    fun canAdoptDiskRevision(diskRevision: NoteRevision): Boolean =
-        !isLoading &&
-            !isDirty &&
-            saveProblem == null &&
-            leave != NoteLeave.Ready &&
-            leave != NoteLeave.Blocked &&
-            diskRevision != baseline.revision
+    internal fun canRefreshDraft(hasEdits: Boolean): Boolean =
+        !isLoading && !loadFailed && !hasEdits && saveProblem == null &&
+            leave != NoteLeave.Ready && leave != NoteLeave.Blocked
 
-    internal fun afterEdit(value: String): NoteUiState =
-        copy(content = value, saveProblem = saveProblem as? NoteSaveProblem.Conflict)
+    internal fun afterEditorEdit(): NoteUiState =
+        if (saveProblem == NoteSaveProblem.WriteFailed) copy(saveProblem = null) else this
 
     internal fun whenSaveStarts(): NoteUiState =
         copy(saveProblem = (saveProblem as? NoteSaveProblem.Conflict)?.copy(showBanner = false))
-
-    internal fun afterSave(writtenContent: String, revision: NoteRevision): NoteUiState =
-        copy(
-            baseline = NoteBaseline(writtenContent, revision),
-            saveProblem = null,
-            conflictCopy = null,
-        )
 
     internal fun afterSaveFailure(actualRevision: NoteRevision? = null): NoteUiState {
         val conflict = saveProblem as? NoteSaveProblem.Conflict
@@ -114,17 +89,4 @@ data class NoteUiState(
         val problem = revision?.let { NoteSaveProblem.Conflict(it) } ?: NoteSaveProblem.WriteFailed
         return copy(saveProblem = problem)
     }
-
-    internal fun afterRename(note: Note, editorContent: String): NoteUiState {
-        val draft = if (editorContent == baseline.content) note.content else editorContent
-        val conflict = draft != note.content && note.content != baseline.content
-        return copy(
-            content = draft,
-            baseline = NoteBaseline(note.content, note.revision),
-            saveProblem = note.revision.takeIf { conflict }?.let { NoteSaveProblem.Conflict(it) },
-        )
-    }
-
-    private val isContentBlank: Boolean
-        get() = content.isBlank()
 }

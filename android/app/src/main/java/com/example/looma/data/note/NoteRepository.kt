@@ -1,10 +1,10 @@
 package com.example.looma.data.note
 
-import com.example.looma.data.index.FileFingerprint
 import com.example.looma.data.index.IndexDelta
 import com.example.looma.data.index.IndexedNote
 import com.example.looma.data.index.NoteIndex
 import com.example.looma.data.index.NoteIndexUpdater
+import com.example.looma.data.index.fingerprint
 import com.example.looma.data.index.indexedNote
 import com.example.looma.data.index.toIndexedNote
 import com.example.looma.data.vault.VaultRepository
@@ -29,6 +29,8 @@ import com.example.looma.domain.wiki.WikiGraph
 import com.example.looma.domain.wiki.WikiNote
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +55,7 @@ class NoteRepository internal constructor(
         return read(current.id) { vault, _ ->
             val scan = indexUpdater.scan(vault)
             NoteListResult(
+                vault = vault,
                 items = scan.notes
                     .map { it.toListEntry() }
                     .sortedByDescending { it.summary.modifiedAt },
@@ -71,14 +74,20 @@ class NoteRepository internal constructor(
             if (id.vaultId != vault.id) continue
             try {
                 val file = ops.noteFile(id.path)
-                val fingerprint = FileFingerprint(file.length(), file.lastModified())
+                val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
+                if (!attributes.isRegularFile) {
+                    textCache.remove(id)
+                    continue
+                }
+                val fingerprint = attributes.fingerprint()
                 val cached = textCache.get(id, fingerprint)
                 if (cached != null) {
                     texts[id] = cached
                     continue
                 }
                 val text = readMarkdown(file)
-                if (fingerprint == FileFingerprint(file.length(), file.lastModified())) {
+                val updated = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
+                if (updated.isRegularFile && updated.fingerprint() == fingerprint) {
                     textCache.put(id, fingerprint, text)
                 }
                 texts[id] = text

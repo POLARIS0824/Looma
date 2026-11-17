@@ -12,7 +12,6 @@ import com.example.looma.data.note.RelocationStalledException
 import com.example.looma.data.note.VaultFileException
 import com.example.looma.data.note.VaultFileFailure
 import com.example.looma.data.search.SearchHistoryRepository
-import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.StalledRelocation
@@ -35,7 +34,6 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 class HomeViewModel(
-    private val vaultRepository: VaultRepository,
     private val noteRepository: NoteRepository,
     private val folderRepository: FolderRepository,
     private val searchHistoryRepository: SearchHistoryRepository,
@@ -54,8 +52,8 @@ class HomeViewModel(
         refreshJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                val vault = vaultRepository.requireCurrentVault()
                 val result = noteRepository.listNotes()
+                val vault = result.vault
                 val notes = result.items.map { it.toHomeItem() }
                 index = HomeVaultIndex.build(result.folders, notes)
                 _uiState.update { current ->
@@ -671,14 +669,12 @@ class HomeViewModel(
         private const val SEARCH_DEBOUNCE_MS = 180L
 
         fun factory(
-            vaultRepository: VaultRepository,
             noteRepository: NoteRepository,
             folderRepository: FolderRepository,
             searchHistoryRepository: SearchHistoryRepository,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 HomeViewModel(
-                    vaultRepository,
                     noteRepository,
                     folderRepository,
                     searchHistoryRepository,

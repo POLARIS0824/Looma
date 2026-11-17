@@ -19,11 +19,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -33,6 +35,7 @@ import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 internal fun NoteTextField(
@@ -58,15 +61,20 @@ internal fun NoteTextField(
         containsText = false,
         containsControls = true,
     ) ?: 3_000L
-    LaunchedEffect(lastTouch, state.selection, state.text.toString(), focused, active, timeout) {
-        showInsertionHandle = focused && active
-        if (showInsertionHandle) {
+    LaunchedEffect(state, focused, active, timeout) {
+        if (!focused || !active) {
+            showInsertionHandle = false
+            return@LaunchedEffect
+        }
+        snapshotFlow { Triple(lastTouch, state.selection, state.text) }.collectLatest {
+            showInsertionHandle = true
             delay(timeout)
             showInsertionHandle = false
         }
     }
     val selectionColors = LocalTextSelectionColors.current
-    val handleVisible = active && (!state.selection.collapsed || showInsertionHandle)
+    val hasSelection by remember(state) { derivedStateOf { !state.selection.collapsed } }
+    val handleVisible = active && (hasSelection || showInsertionHandle)
     CompositionLocalProvider(
         LocalTextSelectionColors provides TextSelectionColors(
             handleColor = if (handleVisible) selectionColors.handleColor else Color.Transparent,
