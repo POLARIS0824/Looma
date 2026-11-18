@@ -24,7 +24,6 @@ data class Note(
 data class NoteSummary(
     val id: NoteId,
     val title: String,
-    val excerpt: String,
     val modifiedAt: Instant,
     val tags: Set<String> = emptySet(),
 )

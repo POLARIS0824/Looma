@@ -104,7 +104,6 @@ data class HomeNoteItem(
     val summary: NoteSummary,
     val coverPath: String? = null,
     val markdownSnippet: String = "",
-    val searchableText: String = "",
 ) {
     val id: NoteId get() = summary.id
 
@@ -174,10 +173,19 @@ data class HomeUiState(
     }
 }
 
-internal fun List<HomeNoteItem>.orderedBy(sort: HomeSort): List<HomeNoteItem> = when (sort) {
-    HomeSort.LAST_MODIFIED -> sortedWith(compareByDescending<HomeNoteItem> { it.summary.modifiedAt }.thenBy { it.listKey })
-    HomeSort.TITLE -> sortedWith(compareBy<HomeNoteItem> { it.summary.title.lowercase(Locale.ROOT) }.thenBy { it.listKey })
-    HomeSort.TITLE_DESCENDING -> sortedWith(compareByDescending<HomeNoteItem> { it.summary.title.lowercase(Locale.ROOT) }.thenBy { it.listKey })
+internal fun List<HomeNoteItem>.orderedBy(sort: HomeSort): List<HomeNoteItem> {
+    if (size <= 1) return toList()
+    return when (sort) {
+        HomeSort.LAST_MODIFIED -> sortedWith(
+            compareByDescending<HomeNoteItem> { it.summary.modifiedAt }.thenBy { it.listKey },
+        )
+        HomeSort.TITLE -> map { it to it.summary.title.lowercase(Locale.ROOT) }
+            .sortedWith(compareBy<Pair<HomeNoteItem, String>> { it.second }.thenBy { it.first.listKey })
+            .map { it.first }
+        HomeSort.TITLE_DESCENDING -> map { it to it.summary.title.lowercase(Locale.ROOT) }
+            .sortedWith(compareByDescending<Pair<HomeNoteItem, String>> { it.second }.thenBy { it.first.listKey })
+            .map { it.first }
+    }
 }
 
 internal fun List<HomeNoteItem>.selected(

@@ -72,11 +72,9 @@ class HomeSearchTest {
         summary = NoteSummary(
             id = NoteId(VaultId("vault"), NotePath("$title.md")),
             title = title,
-            excerpt = "",
             modifiedAt = Instant.EPOCH,
             tags = tags,
         ),
-        markdownSnippet = text.take(20),
-        searchableText = text,
+        markdownSnippet = text,
     )
 }

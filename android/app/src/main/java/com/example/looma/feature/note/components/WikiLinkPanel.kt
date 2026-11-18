@@ -147,17 +147,19 @@ internal fun WikiLinkPanel(
 internal fun filterCandidates(candidates: List<WikiNote>, query: String): List<WikiNote> {
     val needle = query.trim()
     if (needle.isEmpty()) return candidates.take(MAX_MATCHES)
-    val folded = needle.lowercase()
     return candidates
         .asSequence()
-        .filter { it.title.lowercase().contains(folded) }
+        .filter { it.title.contains(needle, ignoreCase = true) }
+        .map { note ->
+            val prefixRank = if (note.title.startsWith(needle, ignoreCase = true)) 0 else 1
+            Triple(note, prefixRank, note.title.lowercase(java.util.Locale.ROOT))
+        }
         .sortedWith(
-            compareBy(
-                { if (it.title.lowercase().startsWith(folded)) 0 else 1 },
-                { it.title.lowercase() },
-            ),
+            compareBy<Triple<WikiNote, Int, String>> { it.second }
+                .thenBy { it.third },
         )
         .take(MAX_MATCHES)
+        .map { it.first }
         .toList()
 }
 

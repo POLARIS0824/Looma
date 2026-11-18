@@ -240,5 +240,43 @@ class NoteSearchTest {
         assertEquals(1, hit!!.matches.size)
     }
 
+    @Test
+    fun `streaming reader matches string search across frontmatter and inline formatting`() {
+        val text = """
+            ---
+            tags: hidden-token
+            ---
+            # 笔记
+            read **more** here
+            Visit [the site](https://needle.example)
+        """.trimIndent()
+
+        assertNull(searchNote("笔记", emptySet(), text.reader().buffered(), "hidden-token"))
+        val formatted = searchNote("笔记", emptySet(), text.reader().buffered(), "read more")
+        assertEquals(searchNote("笔记", emptySet(), text, "read more"), formatted)
+        val rawUrl = searchNote("笔记", emptySet(), text.reader().buffered(), "needle")
+        assertEquals(searchNote("笔记", emptySet(), text, "needle"), rawUrl)
+    }
+
+    @Test
+    fun `streaming reader treats unclosed frontmatter fence as body content`() {
+        val text = "---\nunclosed fence token\nsecond line"
+
+        val hit = searchNote("笔记", emptySet(), text.reader().buffered(), "unclosed fence")
+
+        assertEquals(searchNote("笔记", emptySet(), text, "unclosed fence"), hit)
+        assertEquals("unclosed fence token", hit!!.matches.single().text)
+    }
+
+    @Test
+    fun `mixed line endings keep the first line after frontmatter searchable`() {
+        val text = "---\rmetadata\r---\nneedle\n---\n"
+        val expected = NoteSearchHit(null, emptyList(), listOf(SearchMatch("needle", listOf(0..5))))
+
+        assertEquals(expected, searchNote("Note", emptySet(), text, "needle"))
+        assertEquals(expected, searchNote("Note", emptySet(), text.reader().buffered(), "needle"))
+        assertTrue(SearchSignature.mayContain(SearchSignature.fromBody(text), "needle"))
+    }
+
     private fun SearchMatch.highlightedText(): List<String> = ranges.map { text.substring(it) }
 }

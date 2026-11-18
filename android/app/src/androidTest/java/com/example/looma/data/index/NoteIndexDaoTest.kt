@@ -1,13 +1,17 @@
 package com.example.looma.data.index
 
 import androidx.room.Room
+import androidx.room.RoomDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.looma.data.note.MarkdownLink
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
+import com.example.looma.domain.search.SearchSignature
 import java.time.Instant
+import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -23,12 +27,19 @@ class NoteIndexDaoTest {
     private lateinit var index: RoomNoteIndex
 
     private val vaultId = VaultId("vault")
+    private val signatureQueries = AtomicInteger()
 
     @Before
     fun setUp() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         database = Room.inMemoryDatabaseBuilder(context, NoteIndexDatabase::class.java)
             .allowMainThreadQueries()
+            .setQueryCallback(
+                RoomDatabase.QueryCallback { sql, _ ->
+                    if ("length(s.signature) =" in sql) signatureQueries.incrementAndGet()
+                },
+                Executor { it.run() },
+            )
             .build()
         index = RoomNoteIndex(database)
     }
@@ -114,6 +125,46 @@ class NoteIndexDaoTest {
         assertEquals(listOf("keep"), dao.recent("other", 10))
     }
 
+    @Test
+    fun cachedSearchSignaturesFollowUpdatesAndDeletes() = runBlocking {
+        val alpha = note("alpha.md")
+        val beta = note("beta.md")
+        val signature = SearchSignature.fromBody("协程与文件指纹")
+        index.apply(
+            IndexDelta(
+                vaultId = vaultId,
+                upserts = listOf(alpha, beta),
+                signatures = mapOf(
+                    alpha.id.path to signature,
+                    beta.id.path to ByteArray(512),
+                ),
+            ),
+        )
+
+        assertEquals(setOf(beta.id.path), index.pathsNeedingSearchSignature(vaultId))
+        val indexed = index.searchSignatures(vaultId)
+        assertEquals(setOf(alpha.id.path), indexed.keys)
+        assertEquals(alpha.fingerprint, indexed.getValue(alpha.id.path).fingerprint)
+        assertTrue(indexed.getValue(alpha.id.path).bytes.contentEquals(signature))
+        assertEquals(setOf(alpha.id.path), index.searchSignatures(vaultId).keys)
+        assertEquals(1, signatureQueries.get())
+
+        val updated = alpha.copy(modifiedAt = Instant.ofEpochMilli(2_000), fingerprint = FileFingerprint(30, 2_000))
+        index.apply(
+            IndexDelta(
+                vaultId = vaultId,
+                upserts = listOf(updated),
+                signatures = mapOf(updated.id.path to signature),
+            ),
+        )
+        assertEquals(updated.fingerprint, index.searchSignatures(vaultId).getValue(alpha.id.path).fingerprint)
+        assertEquals(2, signatureQueries.get())
+
+        index.apply(IndexDelta(vaultId = vaultId, removed = listOf(NotePath("alpha.md"))))
+        assertTrue(index.searchSignatures(vaultId).isEmpty())
+        assertEquals(3, signatureQueries.get())
+    }
+
     private fun note(
         path: String,
         tags: List<String> = emptyList(),
@@ -121,7 +172,6 @@ class NoteIndexDaoTest {
     ) = IndexedNote(
         id = NoteId(vaultId, NotePath(path)),
         title = path,
-        excerpt = "",
         snippet = "",
         coverPath = null,
         modifiedAt = Instant.ofEpochMilli(1_000),

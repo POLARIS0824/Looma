@@ -1,7 +1,9 @@
 package com.example.looma.feature.home
 
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.search.NoteSearchMatch
 import com.example.looma.domain.search.SearchMatch
+import com.example.looma.domain.search.SearchableNote
 import com.example.looma.domain.search.searchNote
 import java.util.Locale
 
@@ -16,6 +18,29 @@ data class HomeSearchResult(
     val listKey: String get() = note.listKey
 }
 
+internal fun HomeNoteItem.toSearchableNote(): SearchableNote = SearchableNote(
+    id = id,
+    title = summary.title,
+    tags = summary.tags,
+)
+
+internal fun mergeSearchMatches(
+    notes: List<HomeNoteItem>,
+    matches: List<NoteSearchMatch>,
+): List<HomeSearchResult> {
+    if (matches.isEmpty() || notes.isEmpty()) return emptyList()
+    val notesById = notes.associateBy { it.id }
+    return matches.mapNotNull { match ->
+        val note = notesById[match.id] ?: return@mapNotNull null
+        HomeSearchResult(
+            note = note,
+            titleMatch = match.hit.titleMatch,
+            tagMatches = match.hit.tagMatches,
+            matches = match.hit.matches,
+        )
+    }
+}
+
 internal fun searchNotes(
     notes: List<HomeNoteItem>,
     texts: Map<NoteId, String>,
@@ -28,7 +53,7 @@ internal fun searchNotes(
         searchNote(
             title = note.summary.title,
             tags = note.summary.tags,
-            text = texts[note.id] ?: note.searchableText,
+            text = texts[note.id] ?: note.markdownSnippet,
             query = query,
         )?.let { hit ->
             HomeSearchResult(note, hit.titleMatch, hit.tagMatches, hit.matches)
@@ -36,16 +61,19 @@ internal fun searchNotes(
     }
     .toList()
 
-internal fun List<HomeSearchResult>.orderedBy(sort: HomeSort): List<HomeSearchResult> = when (sort) {
-    HomeSort.LAST_MODIFIED -> sortedWith(
-        compareByDescending<HomeSearchResult> { it.note.summary.modifiedAt }.thenBy { it.listKey },
-    )
+internal fun List<HomeSearchResult>.orderedBy(sort: HomeSort): List<HomeSearchResult> {
+    if (size <= 1) return toList()
+    return when (sort) {
+        HomeSort.LAST_MODIFIED -> sortedWith(
+            compareByDescending<HomeSearchResult> { it.note.summary.modifiedAt }.thenBy { it.listKey },
+        )
 
-    HomeSort.TITLE -> sortedWith(
-        compareBy<HomeSearchResult> { it.note.summary.title.lowercase(Locale.ROOT) }.thenBy { it.listKey },
-    )
+        HomeSort.TITLE -> map { it to it.note.summary.title.lowercase(Locale.ROOT) }
+            .sortedWith(compareBy<Pair<HomeSearchResult, String>> { it.second }.thenBy { it.first.listKey })
+            .map { it.first }
 
-    HomeSort.TITLE_DESCENDING -> sortedWith(
-        compareByDescending<HomeSearchResult> { it.note.summary.title.lowercase(Locale.ROOT) }.thenBy { it.listKey },
-    )
+        HomeSort.TITLE_DESCENDING -> map { it to it.note.summary.title.lowercase(Locale.ROOT) }
+            .sortedWith(compareByDescending<Pair<HomeSearchResult, String>> { it.second }.thenBy { it.first.listKey })
+            .map { it.first }
+    }
 }

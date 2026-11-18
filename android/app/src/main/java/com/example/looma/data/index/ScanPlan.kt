@@ -11,12 +11,13 @@ internal data class ScanPlan(
 internal fun planScan(
     indexed: List<IndexedNote>,
     onDisk: Map<NotePath, FileFingerprint>,
+    reindex: Set<NotePath> = emptySet(),
 ): ScanPlan {
     val indexedByPath = indexed.associateBy { it.id.path }
     val toRead = onDisk.entries
-        .filter { (path, fingerprint) -> indexedByPath[path]?.fingerprint != fingerprint }
+        .filter { (path, fingerprint) -> path in reindex || indexedByPath[path]?.fingerprint != fingerprint }
         .map { it.key }
-    val kept = indexed.filter { note -> onDisk[note.id.path] == note.fingerprint }
+    val kept = indexed.filter { note -> note.id.path !in reindex && onDisk[note.id.path] == note.fingerprint }
     val removed = indexed
         .filter { it.id.path !in onDisk }
         .map { it.id.path }

@@ -24,7 +24,6 @@ internal fun BasicFileAttributes.fingerprint() = FileFingerprint(size(), lastMod
 internal data class IndexedNote(
     val id: NoteId,
     val title: String,
-    val excerpt: String,
     val snippet: String,
     val coverPath: String?,
     val modifiedAt: Instant,
@@ -37,10 +36,20 @@ internal data class IndexDelta(
     val vaultId: VaultId,
     val upserts: List<IndexedNote> = emptyList(),
     val removed: List<NotePath> = emptyList(),
+    val signatures: Map<NotePath, ByteArray> = emptyMap(),
+)
+
+internal data class IndexedSearchSignature(
+    val fingerprint: FileFingerprint,
+    val bytes: ByteArray,
 )
 
 internal interface NoteIndex {
     suspend fun load(vaultId: VaultId): List<IndexedNote>
+
+    suspend fun searchSignatures(vaultId: VaultId): Map<NotePath, IndexedSearchSignature> = emptyMap()
+
+    suspend fun pathsNeedingSearchSignature(vaultId: VaultId): Set<NotePath> = emptySet()
 
     suspend fun version(vaultId: VaultId): Long
 
@@ -60,7 +69,6 @@ internal fun indexedNote(
     return IndexedNote(
         id = NoteId(vaultId, NotePath(file.relativeTo(root).invariantSeparatorsPath)),
         title = metadata.title,
-        excerpt = metadata.excerpt,
         snippet = markdownSnippetOf(text, metadata.title),
         coverPath = resolveCover(root, file, metadata.firstImageReference),
         modifiedAt = Instant.ofEpochMilli(fingerprint.modifiedAtMillis),
@@ -71,4 +79,11 @@ internal fun indexedNote(
 }
 
 internal fun SavedNote.toIndexedNote(): IndexedNote =
-    indexedNote(stored.id.vaultId, stored.root, stored.file, stored.content, metadata)
+    indexedNote(
+        stored.id.vaultId,
+        stored.root,
+        stored.file,
+        stored.content,
+        metadata,
+        fingerprint = stored.fingerprint ?: stored.file.fingerprint(),
+    )

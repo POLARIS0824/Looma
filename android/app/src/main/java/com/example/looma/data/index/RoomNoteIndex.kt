@@ -5,12 +5,20 @@ import com.example.looma.data.note.MarkdownLink
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
+import com.example.looma.domain.search.SearchSignature
 import java.time.Instant
 import kotlinx.coroutines.sync.withLock
 
 internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteIndex {
 
     private val dao = database.noteIndexDao()
+    private var searchSnapshot: SearchSnapshot? = null
+
+    private data class SearchSnapshot(
+        val vaultId: VaultId,
+        val version: Long,
+        val signatures: Map<NotePath, IndexedSearchSignature>,
+    )
 
     override suspend fun load(vaultId: VaultId): List<IndexedNote> {
         val key = vaultId.value
@@ -21,7 +29,6 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
                 IndexedNote(
                     id = NoteId(vaultId, NotePath(note.path)),
                     title = note.title,
-                    excerpt = note.excerpt,
                     snippet = note.snippet,
                     coverPath = note.coverPath,
                     modifiedAt = Instant.ofEpochMilli(note.modifiedAt),
@@ -33,6 +40,25 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
             }
         }
     }
+
+    override suspend fun searchSignatures(vaultId: VaultId): Map<NotePath, IndexedSearchSignature> =
+        database.indexWriteMutex.withLock {
+            val version = currentVersion(vaultId)
+            val cached = searchSnapshot
+            if (cached?.vaultId == vaultId && cached.version == version) return@withLock cached.signatures
+            val signatures = dao.signatures(vaultId.value, SearchSignature.STORED_BYTE_SIZE).associate { row ->
+                NotePath(row.path) to IndexedSearchSignature(
+                    fingerprint = FileFingerprint(row.sizeBytes, row.modifiedAt),
+                    bytes = row.signature,
+                )
+            }
+            searchSnapshot = SearchSnapshot(vaultId, version, signatures)
+            signatures
+        }
+
+    override suspend fun pathsNeedingSearchSignature(vaultId: VaultId): Set<NotePath> =
+        dao.pathsNeedingSearchSignature(vaultId.value, SearchSignature.STORED_BYTE_SIZE)
+            .mapTo(HashSet()) { NotePath(it) }
 
     override suspend fun version(vaultId: VaultId): Long =
         database.indexWriteMutex.withLock { currentVersion(vaultId) }
@@ -50,6 +76,7 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
             if (expectedVersion != null && version != expectedVersion) return@withLock false
             if (delta.upserts.isNotEmpty() || delta.removed.isNotEmpty()) {
                 database.indexVersions[delta.vaultId] = version + 1
+                if (searchSnapshot?.vaultId == delta.vaultId) searchSnapshot = null
                 write(delta)
             }
             true
@@ -63,11 +90,21 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
             val upsertPaths = delta.upserts.map { it.id.path.relativePath }
             if (upsertPaths.isNotEmpty()) {
                 upsertPaths.chunked(MAX_SQL_PATHS).forEach { paths ->
+                    dao.deleteSignatures(vaultId, paths)
                     dao.deleteTags(vaultId, paths)
                     dao.deleteLinks(vaultId, paths)
                 }
                 val indexedAt = System.currentTimeMillis()
                 dao.upsertNotes(delta.upserts.map { it.toEntity(vaultId, indexedAt) })
+                if (delta.signatures.isNotEmpty()) {
+                    val signatureEntities = delta.upserts.mapNotNull { note ->
+                        val bytes = delta.signatures[note.id.path] ?: return@mapNotNull null
+                        NoteSearchSignatureEntity(vaultId, note.id.path.relativePath, bytes)
+                    }
+                    if (signatureEntities.isNotEmpty()) {
+                        dao.upsertSignatures(signatureEntities)
+                    }
+                }
                 val tags = delta.upserts.flatMap { note -> note.tagEntities(vaultId) }
                 if (tags.isNotEmpty()) dao.insertTags(tags)
                 val links = delta.upserts.flatMap { note -> note.linkEntities(vaultId) }
@@ -85,7 +122,6 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
         vaultId = vaultId,
         path = id.path.relativePath,
         title = title,
-        excerpt = excerpt,
         snippet = snippet,
         coverPath = coverPath,
         modifiedAt = modifiedAt.toEpochMilli(),

@@ -95,7 +95,6 @@ class ScanPlanTest {
     ) = IndexedNote(
         id = NoteId(vaultId, NotePath(path)),
         title = path,
-        excerpt = "",
         snippet = "",
         coverPath = null,
         modifiedAt = Instant.ofEpochMilli(modifiedAtMillis),

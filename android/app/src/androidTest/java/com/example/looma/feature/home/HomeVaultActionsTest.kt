@@ -240,6 +240,25 @@ class HomeVaultActionsTest {
         assertEquals("尾", result.query)
     }
 
+    @Test
+    fun refiningSearchFindsANewMatchInAnExternallyEditedNote() = runBlocking {
+        write("Alpha.md", "# Alpha\n\nold body")
+        write("Beta.md", "# Beta\n\nzz unrelated")
+        refresh()
+        assertEquals(listOf("Beta.md"), searchPaths("zz"))
+
+        write("Alpha.md", "# Alpha\n\nzzzz external body")
+        assertEquals(listOf("Alpha.md"), searchPaths("zzzz"))
+    }
+
+    private suspend fun searchPaths(query: String): List<String> {
+        withContext(Dispatchers.Main) { home.setQuery(query) }
+        return withTimeout(10_000) {
+            home.uiState.first { it.query == query && !it.isSearching }
+                .searchResults.map { it.id.path.relativePath }
+        }
+    }
+
     private fun writeSelectedNotes() {
         check(file("Archive").mkdir())
         for (name in listOf("A", "B", "C")) write("$name.md", "# $name")

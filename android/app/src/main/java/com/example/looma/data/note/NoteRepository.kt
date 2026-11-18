@@ -1,5 +1,6 @@
 package com.example.looma.data.note
 
+import com.example.looma.data.index.FileFingerprint
 import com.example.looma.data.index.IndexDelta
 import com.example.looma.data.index.IndexedNote
 import com.example.looma.data.index.NoteIndex
@@ -8,22 +9,26 @@ import com.example.looma.data.index.fingerprint
 import com.example.looma.data.index.indexedNote
 import com.example.looma.data.index.toIndexedNote
 import com.example.looma.data.vault.VaultRepository
-import com.example.looma.domain.markdown.ImageContext
 import com.example.looma.data.vault.VaultWriteCoordinator
-import com.example.looma.domain.model.NoteRevision
-import com.example.looma.domain.model.NoteWriteMode
-import com.example.looma.domain.model.NotePath
-import com.example.looma.domain.model.Vault
-import com.example.looma.domain.model.VaultId
-import com.example.looma.domain.model.VaultFolder
+import com.example.looma.domain.markdown.ImageContext
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.Note
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteProperties
+import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.model.NoteSummary
 import com.example.looma.domain.model.NoteTextStats
+import com.example.looma.domain.model.NoteWriteMode
 import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.domain.model.TrashedNote
+import com.example.looma.domain.model.Vault
+import com.example.looma.domain.model.VaultFolder
+import com.example.looma.domain.model.VaultId
+import com.example.looma.domain.search.NoteSearchMatch
+import com.example.looma.domain.search.SearchSignature
+import com.example.looma.domain.search.SearchableNote
+import com.example.looma.domain.search.searchNote
 import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.domain.wiki.WikiGraph
 import com.example.looma.domain.wiki.WikiNote
@@ -32,19 +37,22 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.coroutineContext
 
 class NoteRepository internal constructor(
     private val vaultRepository: VaultRepository,
     private val index: NoteIndex,
 ) {
     private val parser = MarkdownParser()
-    private val textCache = NoteTextCache()
     private val indexUpdater = NoteIndexUpdater(index)
+    private val searchDispatcher = Dispatchers.IO.limitedParallelism(SEARCH_IO_PARALLELISM)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
     internal suspend fun listNotes(): NoteListResult {
@@ -66,36 +74,81 @@ class NoteRepository internal constructor(
         }
     }
 
-    suspend fun readTexts(ids: List<NoteId>): Map<NoteId, String> = read { vault, _ ->
-        val ops = VaultFileOps(File(vault.rootPath))
-        val texts = mutableMapOf<NoteId, String>()
-        for (id in ids) {
-            coroutineContext.ensureActive()
-            if (id.vaultId != vault.id) continue
-            try {
-                val file = ops.noteFile(id.path)
-                val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
-                if (!attributes.isRegularFile) {
-                    textCache.remove(id)
-                    continue
+    internal suspend fun search(
+        candidates: List<SearchableNote>,
+        query: String,
+    ): List<NoteSearchMatch> {
+        val keyword = query.trim()
+        if (keyword.isEmpty() || candidates.isEmpty()) return emptyList()
+        val vault = currentVault(candidates.first().id.vaultId)
+        val distinctCandidates = candidates
+            .asSequence()
+            .filter { it.id.vaultId == vault.id }
+            .distinctBy { it.id }
+            .toList()
+        if (distinctCandidates.isEmpty()) return emptyList()
+
+        val querySignature = SearchSignature.prepare(keyword)
+        val (ops, signatures) = withContext(Dispatchers.IO) {
+            val entries = if (querySignature == null) emptyMap() else index.searchSignatures(vault.id)
+            VaultFileOps(File(vault.rootPath)) to entries
+        }
+
+        suspend fun searchCandidate(candidate: SearchableNote): NoteSearchMatch? {
+            val signature = signatures[candidate.id.path]
+                ?.takeIf { querySignature?.mayContain(it.bytes) == false }
+            return searchCandidateOnDisk(ops, candidate, keyword, signature?.fingerprint)
+        }
+
+        val workerCount = minOf(SEARCH_IO_PARALLELISM, distinctCandidates.size)
+        if (workerCount == 1) {
+            return withContext(searchDispatcher) { listOfNotNull(searchCandidate(distinctCandidates.single())) }
+        }
+        val cursor = AtomicInteger()
+        val hits = arrayOfNulls<NoteSearchMatch>(distinctCandidates.size)
+        coroutineScope {
+            repeat(workerCount) {
+                launch(searchDispatcher) {
+                    while (true) {
+                        ensureActive()
+                        val itemIndex = cursor.getAndIncrement()
+                        if (itemIndex >= distinctCandidates.size) break
+                        hits[itemIndex] = searchCandidate(distinctCandidates[itemIndex])
+                    }
                 }
-                val fingerprint = attributes.fingerprint()
-                val cached = textCache.get(id, fingerprint)
-                if (cached != null) {
-                    texts[id] = cached
-                    continue
-                }
-                val text = readMarkdown(file)
-                val updated = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
-                if (updated.isRegularFile && updated.fingerprint() == fingerprint) {
-                    textCache.put(id, fingerprint, text)
-                }
-                texts[id] = text
-            } catch (_: IOException) {
-                textCache.remove(id)
             }
         }
-        texts
+        return hits.filterNotNull()
+    }
+
+    private suspend fun searchCandidateOnDisk(
+        ops: VaultFileOps,
+        candidate: SearchableNote,
+        keyword: String,
+        rejectingFingerprint: FileFingerprint?,
+    ): NoteSearchMatch? {
+        val context = coroutineContext
+        try {
+            val file = ops.noteFile(candidate.id.path)
+            val signatureIsCurrent = rejectingFingerprint != null &&
+                Files.readAttributes(file.toPath(), BasicFileAttributes::class.java).let {
+                    it.isRegularFile && it.fingerprint() == rejectingFingerprint
+                }
+            if (!signatureIsCurrent) {
+                return openMarkdownReader(file).use { reader ->
+                    searchNote(
+                        title = candidate.title,
+                        tags = candidate.tags,
+                        reader = reader,
+                        query = keyword,
+                        checkActive = context::ensureActive,
+                    )?.let { NoteSearchMatch(candidate.id, it) }
+                }
+            }
+        } catch (_: IOException) {
+        }
+        val hit = searchNote(candidate.title, candidate.tags, text = "", query = keyword)
+        return hit?.let { NoteSearchMatch(candidate.id, it) }
     }
 
     suspend fun readNote(id: NoteId): Note = read(id.vaultId) { _, store ->
@@ -144,7 +197,6 @@ class NoteRepository internal constructor(
 
     internal suspend fun discardConflictCopy(id: NoteId, copy: ConflictCopy) = write(id.vaultId) { vault, store ->
         if (store.discardConflictCopy(id, copy)) {
-            textCache.remove(copy.id)
             indexUpdater.apply(vault, IndexDelta(id.vaultId, removed = listOf(copy.id.path)))
         }
     }
@@ -166,7 +218,6 @@ class NoteRepository internal constructor(
 
     suspend fun deleteNote(id: NoteId): TrashedNote = write(id.vaultId) { vault, store ->
         val trashed = store.deleteNote(id)
-        textCache.remove(id)
         indexUpdater.apply(vault, IndexDelta(id.vaultId, removed = listOf(id.path)))
         trashed
     }
@@ -175,7 +226,6 @@ class NoteRepository internal constructor(
         val current = store.readNote(id)
         if (current.revision != expectedRevision) throw NoteChangedExternallyException(current.revision)
         store.discardNote(id)
-        textCache.remove(id)
         indexUpdater.apply(vault, IndexDelta(id.vaultId, removed = listOf(id.path)))
     }
 
@@ -251,7 +301,7 @@ class NoteRepository internal constructor(
         write(id.vaultId) { vault, store ->
             val result = runRelocation(vault, operation)
             val stored = store.readNote(NoteId(vault.id, result.path))
-            RenameOutcome(parser.savedNote(stored).toNote(), linksUpdated = result.linksUpdated, linksFailed = result.linksFailed)
+            RenameOutcome(parser.indexSavedNote(stored).toNote(), linksUpdated = result.linksUpdated, linksFailed = result.linksFailed)
         }
 
     private suspend fun <P> runRelocation(
@@ -310,22 +360,30 @@ class NoteRepository internal constructor(
 
     private suspend fun reindex(vault: Vault, changes: RelocationChanges) {
         if (changes.removedNotes.isEmpty() && changes.changedNotes.isEmpty()) return
-        val root = VaultFileOps(File(vault.rootPath)).rootDir
+        val ops = VaultFileOps(File(vault.rootPath))
         val changed = changes.changedNotes.distinct()
-        (changes.removedNotes + changed).forEach { textCache.remove(NoteId(vault.id, it)) }
-        val upserts = changed.mapNotNull { path ->
-            val file = File(root, path.relativePath)
-            try {
+        val upserts = ArrayList<IndexedNote>(changed.size)
+        val signatures = LinkedHashMap<NotePath, ByteArray>(changed.size)
+        for (path in changed) {
+            val parsed = try {
+                val file = ops.noteFile(path)
+                val before = file.fingerprint()
                 val text = readMarkdown(file)
-                indexedNote(vault.id, root, file, text, parser.parse(text, file.nameWithoutExtension))
+                if (before != file.fingerprint()) continue
+                val metadata = parser.parseForIndex(text, file.nameWithoutExtension)
+                indexedNote(vault.id, ops.rootDir, file, text, metadata, before) to SearchSignature.fromBody(text)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
                 null
             }
+            if (parsed != null) {
+                upserts += parsed.first
+                signatures[path] = parsed.second
+            }
         }
         val removed = changes.removedNotes.distinct().filterNot { it in changed }
-        indexUpdater.apply(vault, IndexDelta(vault.id, upserts = upserts, removed = removed))
+        indexUpdater.apply(vault, IndexDelta(vault.id, upserts = upserts, removed = removed, signatures = signatures))
     }
 
     private fun folder(vault: Vault, path: FolderPath) = VaultFolder(
@@ -343,23 +401,33 @@ class NoteRepository internal constructor(
         summary = NoteSummary(
             id = id,
             title = title,
-            excerpt = excerpt,
             modifiedAt = modifiedAt,
             tags = tags.toSet(),
         ),
         coverPath = coverPath,
         markdownSnippet = snippet,
-        searchText = snippet,
     )
 
     private suspend fun record(vault: Vault, stored: StoredMarkdown): Note {
-        val saved = parser.savedNote(stored)
-        textCache.remove(saved.id)
+        val saved = parser.indexSavedNote(stored)
+        val signatures = if (stored.fingerprint != null) {
+            mapOf(saved.id.path to SearchSignature.fromBody(saved.content))
+        } else {
+            emptyMap()
+        }
         indexUpdater.apply(
             vault,
-            IndexDelta(saved.id.vaultId, upserts = listOf(saved.toIndexedNote())),
+            IndexDelta(
+                vaultId = saved.id.vaultId,
+                upserts = listOf(saved.toIndexedNote()),
+                signatures = signatures,
+            ),
         )
         return saved.toNote()
+    }
+
+    private companion object {
+        const val SEARCH_IO_PARALLELISM = 4
     }
 }
 

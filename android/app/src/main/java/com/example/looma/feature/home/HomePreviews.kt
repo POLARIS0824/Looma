@@ -55,19 +55,17 @@ private fun previewNotes(): List<HomeNoteItem> {
     fun note(
         name: String,
         title: String,
-        excerpt: String,
+        snippet: String,
         path: String = "$name.md",
         tags: Set<String> = emptySet(),
     ) = HomeNoteItem(
         summary = NoteSummary(
             id = NoteId(VaultId("preview-vault"), NotePath(path)),
             title = title,
-            excerpt = excerpt,
             modifiedAt = Instant.parse("2026-10-31T12:00:00Z"),
             tags = tags,
         ),
-        markdownSnippet = excerpt,
-        searchableText = "$title $excerpt",
+        markdownSnippet = snippet,
     )
     return listOf(
         note("test", "测试", "现在看看怎么样 这个 UI"),

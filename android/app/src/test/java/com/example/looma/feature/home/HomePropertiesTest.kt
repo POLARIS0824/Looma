@@ -37,6 +37,6 @@ class HomePropertiesTest {
     private val properties = NoteProperties(id.path, 10, Instant.EPOCH, 2, 8, 0, 0)
     private val selected = HomeUiState(
         vaultId = id.vaultId,
-        selectedNotes = listOf(HomeNoteItem(NoteSummary(id, "A", "", Instant.EPOCH))),
+        selectedNotes = listOf(HomeNoteItem(NoteSummary(id, "A", Instant.EPOCH))),
     )
 }

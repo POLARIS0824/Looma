@@ -7,16 +7,17 @@ import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultFolder
+import com.example.looma.domain.search.SearchSignature
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.attribute.BasicFileAttributes
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.coroutineContext
 
 internal data class ScanReport(
     val filesRead: Int,
@@ -90,10 +91,12 @@ internal class VaultIndexer(
         }
 
         val indexed = index.load(vault.id)
-        val plan = planScan(indexed, onDisk).let { if (complete) it else it.copy(removed = emptyList()) }
+        val plan = planScan(indexed, onDisk, index.pathsNeedingSearchSignature(vault.id))
+            .let { if (complete) it else it.copy(removed = emptyList()) }
         val indexedByPath = indexed.associateBy { it.id.path }
 
         val fresh = mutableListOf<IndexedNote>()
+        val signatures = LinkedHashMap<NotePath, ByteArray>(plan.toRead.size)
         val retained = mutableListOf<IndexedNote>()
         var unreadable = 0
         var readCount = 0
@@ -102,26 +105,37 @@ internal class VaultIndexer(
             val file = File(rootDir, path.relativePath)
             val fingerprint = onDisk.getValue(path)
             readCount++
-            val note = try {
+            val parsed = try {
                 val text = readMarkdown(file)
-                val metadata = parser.parse(text, file.nameWithoutExtension)
+                val metadata = parser.parseForIndex(text, file.nameWithoutExtension)
                 val note = indexedNote(vault.id, rootDir, file, text, metadata, fingerprint)
+                val signature = SearchSignature.fromBody(text)
                 val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
-                note.takeIf { attributes.isRegularFile && attributes.fingerprint() == fingerprint }
+                if (attributes.isRegularFile && attributes.fingerprint() == fingerprint) {
+                    note to signature
+                } else {
+                    null
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 null
             }
-            if (note != null) {
-                fresh += note
+            if (parsed != null) {
+                fresh += parsed.first
+                signatures[path] = parsed.second
             } else {
                 unreadable++
                 indexedByPath[path]?.let(retained::add)
             }
         }
 
-        val delta = IndexDelta(vaultId = vault.id, upserts = fresh, removed = plan.removed)
+        val delta = IndexDelta(
+            vaultId = vault.id,
+            upserts = fresh,
+            removed = plan.removed,
+            signatures = signatures,
+        )
         val applied = index.applyIfVersion(delta, expectedVersion = version)
         if (!applied && retryOnConflict) return scanAttempt(retryOnConflict = false)
 
