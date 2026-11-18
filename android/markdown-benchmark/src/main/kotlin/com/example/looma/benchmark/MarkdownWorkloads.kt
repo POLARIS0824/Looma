@@ -3,12 +3,12 @@ package com.example.looma.benchmark
 import com.example.looma.domain.markdown.MarkdownDocument
 import com.example.looma.domain.markdown.MarkdownIndex
 import com.example.looma.domain.markdown.MathSpan
+import com.example.looma.domain.markdown.PreparedMarkdown
 import com.example.looma.domain.markdown.WikiImageFlavour
 import com.example.looma.domain.markdown.collectMathSpans
+import com.example.looma.domain.markdown.prepareMarkdownOnCurrentThread
+import com.example.looma.domain.markdown.prepareMarkdownOpeningOnCurrentThread
 import com.example.looma.domain.markdown.preserveDisplayMathParagraphs
-import com.example.looma.ui.markdown.PreparedMarkdown
-import com.example.looma.ui.markdown.prepareMarkdownOnCurrentThread
-import com.example.looma.ui.markdown.prepareMarkdownOpeningOnCurrentThread
 import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.parseMarkdown
 import org.intellij.markdown.MarkdownElementTypes

@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.looma.domain.markdown.ImageSource
+import com.example.looma.domain.markdown.PreparedMarkdown
+import com.example.looma.domain.markdown.prepareMarkdown
 import com.example.looma.ui.theme.LoomaTheme
 import java.io.File
 import kotlinx.coroutines.runBlocking

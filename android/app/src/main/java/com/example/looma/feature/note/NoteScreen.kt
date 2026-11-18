@@ -85,10 +85,13 @@ import com.example.looma.data.note.resolveImageSource
 import com.example.looma.domain.markdown.CHECKED
 import com.example.looma.domain.markdown.MARKER_LENGTH
 import com.example.looma.domain.markdown.MarkdownEditing
-import com.example.looma.domain.search.PassageAnchor
+import com.example.looma.domain.markdown.PreparedMarkdown
 import com.example.looma.domain.markdown.TextSelection
 import com.example.looma.domain.markdown.UNCHECKED
+import com.example.looma.domain.markdown.prepareMarkdown
+import com.example.looma.domain.markdown.prepareMarkdownOpening
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.domain.wiki.WikiNote
 import com.example.looma.feature.note.components.BacklinksSection
@@ -108,9 +111,6 @@ import com.example.looma.ui.components.LoomaLoadingIndicator
 import com.example.looma.ui.markdown.LocalImageSourceResolver
 import com.example.looma.ui.markdown.LocalImageSourceRetryResolver
 import com.example.looma.ui.markdown.MarkdownBody
-import com.example.looma.ui.markdown.PreparedMarkdown
-import com.example.looma.ui.markdown.prepareMarkdown
-import com.example.looma.ui.markdown.prepareMarkdownOpening
 import com.example.looma.ui.theme.LoomaTheme
 import com.example.looma.ui.theme.LoomaTokens
 import kotlinx.coroutines.flow.collectLatest

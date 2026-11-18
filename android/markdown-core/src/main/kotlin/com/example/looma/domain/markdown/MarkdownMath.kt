@@ -27,7 +27,7 @@ fun collectMathSpans(
     return collectMathSpans(body, tree)
 }
 
-internal fun collectMathSpans(body: String, tree: ASTNode): List<MathSpan> {
+fun collectMathSpans(body: String, tree: ASTNode): List<MathSpan> {
     if ('$' !in body) return emptyList()
     val spans = mutableListOf<MathSpan>()
     fun visit(node: ASTNode) {

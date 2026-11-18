@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.example.looma.domain.markdown.PreparedMarkdown
 import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.ui.theme.LoomaTokens
 import com.mikepenz.markdown.compose.LocalMarkdownInlineContent

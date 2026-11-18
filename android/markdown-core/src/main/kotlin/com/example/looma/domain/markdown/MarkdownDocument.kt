@@ -25,6 +25,6 @@ fun MarkdownDocument.withCheckboxChecked(position: Int, checked: Boolean): Strin
     return source.replaceRange(start, end, if (checked) CHECKED else UNCHECKED)
 }
 
-internal const val MARKER_LENGTH = 3
-internal const val UNCHECKED = "[ ]"
-internal const val CHECKED = "[x]"
+const val MARKER_LENGTH = 3
+const val UNCHECKED = "[ ]"
+const val CHECKED = "[x]"

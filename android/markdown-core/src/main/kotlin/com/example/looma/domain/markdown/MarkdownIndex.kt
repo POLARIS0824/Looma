@@ -10,13 +10,13 @@ import org.intellij.markdown.parser.CancellationToken
 import org.intellij.markdown.parser.LinkMap
 import org.intellij.markdown.parser.MarkdownParser
 
-internal data class MarkdownReadingIndex(
+data class MarkdownReadingIndex(
     val bodyStart: Int,
     val heading: String?,
     val checkboxes: List<MarkdownCheckbox>,
 )
 
-internal data class MarkdownAstMetadata(
+data class MarkdownAstMetadata(
     val bodyStart: Int,
     val tags: Set<String>,
     val imageReferences: List<String>,
@@ -51,7 +51,7 @@ object MarkdownIndex {
         return MarkdownReadingIndex(bodyStart, facts.heading?.takeIf { it.isNotBlank() }, facts.checkboxes)
     }
 
-    internal fun wikiImageLinks(source: String): List<MarkdownLinkSpan> {
+    fun wikiImageLinks(source: String): List<MarkdownLinkSpan> {
         val base = frontmatterEnd(source)
         val body = source.substring(base)
         val tree = MarkdownParser(WikiImageFlavour(), cancellationToken = CancellationToken.NonCancellable)
@@ -68,7 +68,7 @@ object MarkdownIndex {
         }
     }
 
-    internal fun extractMetadata(source: String): MarkdownAstMetadata {
+    fun extractMetadata(source: String): MarkdownAstMetadata {
         val span = frontmatterSpan(source)
         val body = source.substring(span.bodyStart)
         val tree = MarkdownParser(WikiImageFlavour(), cancellationToken = CancellationToken.NonCancellable)
@@ -99,7 +99,7 @@ object MarkdownIndex {
         )
     }
 
-    internal fun excludedTagRanges(body: String): List<IntRange> {
+    fun excludedTagRanges(body: String): List<IntRange> {
         val tree = MarkdownParser(WikiImageFlavour(), cancellationToken = CancellationToken.NonCancellable)
             .buildMarkdownTreeFromString(body as CharSequence)
         val codeRanges = mutableListOf<IntRange>()

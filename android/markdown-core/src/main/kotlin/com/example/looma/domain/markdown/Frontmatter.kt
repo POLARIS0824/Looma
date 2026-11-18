@@ -6,7 +6,7 @@ internal data class FrontmatterSpan(
     val bodyStart: Int,
 )
 
-internal data class InlineTagSpan(
+data class InlineTagSpan(
     val range: IntRange,
     val tag: String,
 )
@@ -42,12 +42,12 @@ internal fun frontmatterSpan(source: String): FrontmatterSpan {
     }
 }
 
-internal fun frontmatterEnd(source: String): Int = frontmatterSpan(source).bodyStart
+fun frontmatterEnd(source: String): Int = frontmatterSpan(source).bodyStart
 
-internal fun isFrontmatterOpening(line: CharSequence): Boolean =
+fun isFrontmatterOpening(line: CharSequence): Boolean =
     line.startsWith(FRONTMATTER_FENCE) && isHorizontalSpaces(line, FRONTMATTER_FENCE.length)
 
-internal fun isFrontmatterClosing(line: CharSequence): Boolean =
+fun isFrontmatterClosing(line: CharSequence): Boolean =
     (line.startsWith(FRONTMATTER_FENCE) || line.startsWith(YAML_DOCUMENT_END)) &&
         isHorizontalSpaces(line, FRONTMATTER_FENCE.length)
 
@@ -119,7 +119,7 @@ internal fun parseFrontmatterTags(frontmatter: CharSequence): Set<String> {
     return tags
 }
 
-internal fun findInlineTags(body: String, sortedExcludedRanges: List<IntRange>): List<InlineTagSpan> = buildList {
+fun findInlineTags(body: String, sortedExcludedRanges: List<IntRange>): List<InlineTagSpan> = buildList {
     val exclusions = sortedExcludedRanges.iterator()
     var excluded = if (exclusions.hasNext()) exclusions.next() else null
     for (match in INLINE_TAG_REGEX.findAll(body)) {
@@ -366,7 +366,7 @@ private val WHITESPACE_REGEX = Regex("""\s+""")
 private val SCALAR_TAG_SPLIT_REGEX = Regex("""[\s,]+""")
 private val INLINE_TAG_REGEX = Regex("""#([\p{L}\p{M}\p{N}_/-]+)""")
 
-internal inline fun forEachLineRange(
+inline fun forEachLineRange(
     text: String,
     startOffset: Int,
     visit: (start: Int, end: Int, next: Int) -> Boolean,

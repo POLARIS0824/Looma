@@ -9,7 +9,7 @@ import org.intellij.markdown.parser.sequentialparsers.TokensCache
 import org.intellij.markdown.parser.sequentialparsers.impl.BacktickParser
 import org.intellij.markdown.parser.sequentialparsers.impl.MathParser
 
-internal class WikiImageFlavour : GFMFlavourDescriptor() {
+class WikiImageFlavour : GFMFlavourDescriptor() {
     private val standardParsers = super.sequentialParserManager.getParserSequence()
 
     override val sequentialParserManager = object : SequentialParserManager() {
