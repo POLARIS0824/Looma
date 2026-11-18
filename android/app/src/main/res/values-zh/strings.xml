@@ -121,6 +121,7 @@
         <item quantity="other">已永久删除 %1$d 篇笔记</item>
     </plurals>
     <string name="trash_bulk_partial">已恢复 %1$d 篇，%2$d 篇失败</string>
+    <string name="trash_empty_partial">已永久删除 %1$d 篇，%2$d 篇失败</string>
     <string name="trash_restore_undone">笔记已移回回收站</string>
 
     <string name="settings_title">设置</string>

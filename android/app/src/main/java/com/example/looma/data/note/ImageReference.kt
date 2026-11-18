@@ -34,12 +34,17 @@ internal fun resolveImageSource(
 
     return runCatching {
         val root = File(vaultRoot).canonicalFile
+        val rootPath = root.toPath()
         fun local(candidate: File): ImageSource.Local? = runCatching {
             val canonical = candidate.canonicalFile
-            canonical.takeIf {
-                it.toPath().startsWith(root.toPath()) && it.isFile &&
-                    it.extension.lowercase() in LOCAL_IMAGE_EXTENSIONS
-            }?.absolutePath?.let { ImageSource.Local(it, size) }
+            val path = canonical.toPath()
+            if (!path.startsWith(rootPath) || path == rootPath || !canonical.isFile) return@runCatching null
+            if (canonical.extension.lowercase() !in LOCAL_IMAGE_EXTENSIONS) return@runCatching null
+            val relative = rootPath.relativize(path)
+            if ((0 until relative.nameCount - 1).any { relative.getName(it).toString().startsWith('.') }) {
+                return@runCatching null
+            }
+            ImageSource.Local(canonical.absolutePath, size)
         }.getOrNull()
         val direct = listOf(File(File(noteFile).parentFile, src), File(root, src))
             .firstNotNullOfOrNull(::local)
@@ -50,6 +55,13 @@ internal fun resolveImageSource(
             .sortedWith(compareBy({ it.name != src }, { it.relativeTo(root).invariantSeparatorsPath }))
             .firstNotNullOfOrNull(::local)
     }.getOrNull()
+}
+
+internal fun invalidateAttachmentIndex(vaultRoot: File) {
+    val root = runCatching { vaultRoot.canonicalFile }.getOrElse { vaultRoot }
+    synchronized(attachmentIndexes) {
+        attachmentIndexes.remove(root)
+    }
 }
 
 private val attachmentIndexes = LinkedHashMap<File, AttachmentIndex>(4, 0.75f, true)
@@ -78,7 +90,7 @@ private class AttachmentIndex(private val root: File) {
         val rootPath = root.toPath()
         Files.walkFileTree(rootPath, object : SimpleFileVisitor<Path>() {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult =
-                if (dir != rootPath && dir.fileName.toString() in excludedDirectories) {
+                if (dir != rootPath && dir.fileName.toString().startsWith('.')) {
                     FileVisitResult.SKIP_SUBTREE
                 } else {
                     FileVisitResult.CONTINUE
@@ -96,9 +108,5 @@ private class AttachmentIndex(private val root: File) {
                 FileVisitResult.CONTINUE
         })
         return result
-    }
-
-    private companion object {
-        val excludedDirectories = setOf(".trash", ".obsidian", ".git")
     }
 }

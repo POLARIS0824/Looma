@@ -204,7 +204,7 @@ class NoteViewModel(
             _uiState.update { it.copy(isUploadingImage = true, imageUploadError = null) }
             try {
                 val settings = settingsRepository.settings.first()
-                val upload = imageUploader.upload(uri, settings)
+                val upload = imageUploader.upload(uri, settings, currentId.path)
                 val snippet = when (upload) {
                     is ImageUpload.Attachment -> "![[${upload.fileName}]]"
                     is ImageUpload.Remote -> "![](${upload.url})"

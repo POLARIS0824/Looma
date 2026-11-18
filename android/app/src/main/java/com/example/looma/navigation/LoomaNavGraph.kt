@@ -138,16 +138,7 @@ fun LoomaNavGraph(
         gesturesEnabled = destination != null,
         onSelect = { target ->
             scope.launch { drawerState.close() }
-            when (target) {
-                LoomaDestination.Notes -> {
-                    backStack.clear()
-                    backStack.add(LoomaRoute.Home)
-                }
-                LoomaDestination.Trash ->
-                    if (backStack.lastOrNull() != LoomaRoute.Trash) backStack.add(LoomaRoute.Trash)
-                LoomaDestination.Settings ->
-                    if (backStack.lastOrNull() != LoomaRoute.Settings) backStack.add(LoomaRoute.Settings)
-            }
+            selectDrawerDestination(backStack, target)
         },
         modifier = modifier.fillMaxSize(),
     ) {
@@ -351,4 +342,22 @@ private fun NavKey?.toDestination(): LoomaDestination? = when (this) {
     LoomaRoute.Trash -> LoomaDestination.Trash
     LoomaRoute.Settings -> LoomaDestination.Settings
     else -> null
+}
+
+internal fun selectDrawerDestination(backStack: MutableList<NavKey>, target: LoomaDestination) {
+    when (target) {
+        LoomaDestination.Notes -> {
+            backStack.clear()
+            backStack.add(LoomaRoute.Home)
+        }
+        LoomaDestination.Trash,
+        LoomaDestination.Settings,
+        -> {
+            val route = if (target == LoomaDestination.Trash) LoomaRoute.Trash else LoomaRoute.Settings
+            if (backStack.lastOrNull() == route) return
+            backStack.clear()
+            backStack.add(LoomaRoute.Home)
+            backStack.add(route)
+        }
+    }
 }

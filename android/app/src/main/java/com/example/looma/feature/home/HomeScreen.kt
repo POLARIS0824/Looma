@@ -6,6 +6,7 @@ import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -81,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import com.example.looma.R
 import com.example.looma.data.vault.VaultStorageAccess
 import com.example.looma.domain.model.FolderPath
@@ -178,6 +180,7 @@ fun HomeRoute(
     HomeScreen(
         state = state,
         loadingFeedbackEnabled = loadingFeedbackEnabled,
+        homeVisible = LocalNavAnimatedContentScope.current.transition.targetState == EnterExitState.Visible,
         actions = HomeActions(
             onQueryChange = viewModel::setQuery,
             onSearchSubmit = viewModel::recordSearch,
@@ -243,6 +246,7 @@ fun HomeScreen(
     actions: HomeActions,
     modifier: Modifier = Modifier,
     loadingFeedbackEnabled: Boolean = true,
+    homeVisible: Boolean = true,
 ) {
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
     val folderScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -314,6 +318,7 @@ fun HomeScreen(
                     } else {
                         HomeSearchBar(
                             state = state,
+                            homeVisible = homeVisible,
                             scrollBehavior = scrollBehavior,
                             folderScrollBehavior = folderScrollBehavior,
                             onNavigateUp = actions.onNavigateUp,

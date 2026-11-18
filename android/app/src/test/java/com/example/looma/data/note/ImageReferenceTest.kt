@@ -165,11 +165,22 @@ class ImageReferenceTest {
 
     @Test
     fun `does not search trashed or metadata attachments`() {
-        for (folder in listOf(".trash", ".obsidian", ".git")) {
+        for (folder in listOf(".trash", ".obsidian", ".git", ".looma", ".looma/trash", ".stversions")) {
             File(root, folder).mkdirs()
             File(root, "$folder/hidden.png").writeBytes(byteArrayOf(1))
+            assertNull(resolve("$folder/hidden.png"))
         }
         assertNull(resolve("hidden.png"))
+    }
+
+    @Test
+    fun `invalidating attachment index discovers newly created nested attachment`() {
+        assertNull(resolve("fresh.png"))
+        val attachments = File(root, "attachments").apply { mkdirs() }
+        File(attachments, "fresh.png").writeBytes(byteArrayOf(1))
+        assertNull(resolve("fresh.png"))
+        invalidateAttachmentIndex(root)
+        assertEquals(ImageSource.Local(File(attachments, "fresh.png").canonicalPath), resolve("fresh.png"))
     }
 
 }

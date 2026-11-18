@@ -51,6 +51,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.looma.R
+import com.example.looma.data.note.TrashBulkOutcome
 import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.LoomaLoadingIndicator
@@ -135,20 +136,16 @@ fun TrashRoute(
             viewModel.emptyTrash { outcome ->
                 scope.launch {
                     snackbarHostState.showSnackbar(
-                        when {
-                            outcome == null -> actionFailedText
-                            outcome.isFullSuccess -> resources.getQuantityString(
-                                R.plurals.trash_emptied_count,
-                                outcome.total,
-                                outcome.total,
-                            )
-
-                            else -> resources.getString(
-                                R.string.trash_bulk_partial,
-                                outcome.succeeded,
-                                outcome.failed,
-                            )
-                        },
+                        emptyTrashFeedback(
+                            outcome = outcome,
+                            actionFailedText = actionFailedText,
+                            fullSuccess = { total ->
+                                resources.getQuantityString(R.plurals.trash_emptied_count, total, total)
+                            },
+                            partial = { succeeded, failed ->
+                                resources.getString(R.string.trash_empty_partial, succeeded, failed)
+                            },
+                        ),
                     )
                 }
             }
@@ -422,4 +419,15 @@ private fun TrashRow(
             }
         }
     }
+}
+
+internal fun emptyTrashFeedback(
+    outcome: TrashBulkOutcome?,
+    actionFailedText: String,
+    fullSuccess: (Int) -> String,
+    partial: (Int, Int) -> String,
+): String = when {
+    outcome == null || outcome.succeeded == 0 -> actionFailedText
+    outcome.isFullSuccess -> fullSuccess(outcome.total)
+    else -> partial(outcome.succeeded, outcome.failed)
 }

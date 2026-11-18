@@ -62,4 +62,24 @@ class LoomaRouteTest {
             stack,
         )
     }
+
+    @Test
+    fun `drawer selection deduplicates non-home destinations on top of home`() {
+        val stack = mutableListOf<NavKey>(LoomaRoute.Home)
+
+        selectDrawerDestination(stack, LoomaDestination.Trash)
+        assertEquals(listOf(LoomaRoute.Home, LoomaRoute.Trash), stack)
+
+        selectDrawerDestination(stack, LoomaDestination.Trash)
+        assertEquals(listOf(LoomaRoute.Home, LoomaRoute.Trash), stack)
+
+        selectDrawerDestination(stack, LoomaDestination.Settings)
+        assertEquals(listOf(LoomaRoute.Home, LoomaRoute.Settings), stack)
+
+        selectDrawerDestination(stack, LoomaDestination.Trash)
+        assertEquals(listOf(LoomaRoute.Home, LoomaRoute.Trash), stack)
+
+        selectDrawerDestination(stack, LoomaDestination.Notes)
+        assertEquals(listOf(LoomaRoute.Home), stack)
+    }
 }

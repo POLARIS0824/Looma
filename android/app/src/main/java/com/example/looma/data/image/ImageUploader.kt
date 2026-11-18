@@ -2,17 +2,20 @@ package com.example.looma.data.image
 
 import android.content.Context
 import android.net.Uri
+import com.example.looma.data.note.invalidateAttachmentIndex
+import com.example.looma.data.note.writeBytesAtomically
 import com.example.looma.data.settings.AppSettings
 import com.example.looma.data.settings.ImageUploadTarget
 import com.example.looma.data.settings.S3ImageBedConfig
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.data.vault.VaultWriteCoordinator
-import com.example.looma.data.note.writeBytesAtomically
+import com.example.looma.domain.model.NotePath
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -44,29 +47,34 @@ class ImageUploader(
     private val vaultRepository: VaultRepository,
 ) {
 
-    suspend fun upload(uri: Uri, settings: AppSettings): ImageUpload = withContext(Dispatchers.IO) {
+    suspend fun upload(uri: Uri, settings: AppSettings, notePath: NotePath? = null): ImageUpload = withContext(Dispatchers.IO) {
         val mimeType = context.contentResolver.getType(uri).orEmpty().lowercase()
         val extension = extensionFor(mimeType)
             ?: throw ImageUploadException(ImageUploadFailure.UnsupportedImage)
         val bytes = readBytes(uri)
         val fileName = sha256Hex(bytes).take(16) + "." + extension
         when (settings.imageUploadTarget) {
-            ImageUploadTarget.LocalAttachment -> saveAttachment(fileName, bytes)
+            ImageUploadTarget.LocalAttachment -> saveAttachment(fileName, bytes, notePath)
             ImageUploadTarget.ImageBed -> uploadToImageBed(settings.imageBed, fileName, mimeType, bytes)
         }
     }
 
-    private suspend fun saveAttachment(fileName: String, bytes: ByteArray): ImageUpload {
+    private suspend fun saveAttachment(fileName: String, bytes: ByteArray, notePath: NotePath?): ImageUpload {
         val vault = vaultRepository.requireCurrentVault()
         return VaultWriteCoordinator.write(vault) {
             val root = File(vault.rootPath).canonicalFile
-            val file = File(root, fileName).canonicalFile
+            val targetDir = resolveAttachmentDirectory(root, notePath)
+            if (!targetDir.isDirectory && !targetDir.mkdirs()) {
+                throw ImageUploadException(ImageUploadFailure.StorageFailed)
+            }
+            val file = File(targetDir, fileName).canonicalFile
             if (!file.toPath().startsWith(root.toPath())) {
                 throw ImageUploadException(ImageUploadFailure.StorageFailed)
             }
             if (!file.isFile) {
                 runCatching { writeBytesAtomically(file, bytes) }
                     .onFailure { throw ImageUploadException(ImageUploadFailure.StorageFailed, it.message, it) }
+                invalidateAttachmentIndex(root)
             }
             ImageUpload.Attachment(fileName)
         }
@@ -164,4 +172,203 @@ class ImageUploader(
         const val CONNECT_TIMEOUT_MS = 15_000
         const val READ_TIMEOUT_MS = 60_000
     }
+}
+
+private const val MAX_OBSIDIAN_APP_JSON_BYTES = 256L * 1024L
+private const val MAX_FOLDER_SEGMENT_LENGTH = 72
+private const val FORBIDDEN_FOLDER_CHARS = "\\/:*?\"<>|"
+
+internal fun resolveAttachmentDirectory(root: File, notePath: NotePath?): File {
+    val canonicalRoot = runCatching { root.canonicalFile }.getOrElse { return root }
+    val raw = readAttachmentFolderPath(canonicalRoot)?.trim()?.replace('\\', '/')
+    if (raw.isNullOrEmpty() || raw == "/") return canonicalRoot
+
+    val noteFolder = notePath?.relativePath
+        ?.substringBeforeLast('/', missingDelimiterValue = "")
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { File(canonicalRoot, it) }
+        ?: canonicalRoot
+
+    val baseDir: File
+    val subpath: String
+    when {
+        raw == "." || raw == "./" -> {
+            baseDir = noteFolder
+            subpath = ""
+        }
+        raw.startsWith("./") -> {
+            baseDir = noteFolder
+            subpath = raw.removePrefix("./").trim('/')
+        }
+        else -> {
+            baseDir = canonicalRoot
+            subpath = raw.trim('/')
+        }
+    }
+
+    val segments = if (subpath.isEmpty()) emptyList() else subpath.split('/')
+    if (segments.any { !isValidFolderSegment(it) }) return canonicalRoot
+
+    var current = baseDir
+    if (Files.isSymbolicLink(current.toPath())) return canonicalRoot
+    for (segment in segments) {
+        current = File(current, segment)
+        if (Files.isSymbolicLink(current.toPath())) return canonicalRoot
+    }
+
+    val canonicalTarget = runCatching { current.canonicalFile }.getOrElse { return canonicalRoot }
+    val rootPath = canonicalRoot.toPath()
+    val targetPath = canonicalTarget.toPath()
+    if (!targetPath.startsWith(rootPath)) return canonicalRoot
+    if (targetPath != rootPath) {
+        val relative = rootPath.relativize(targetPath)
+        if ((0 until relative.nameCount).any { relative.getName(it).toString().startsWith('.') }) {
+            return canonicalRoot
+        }
+    }
+    if (canonicalTarget.exists() && !canonicalTarget.isDirectory) return canonicalRoot
+    return canonicalTarget
+}
+
+private fun isValidFolderSegment(segment: String): Boolean =
+    segment.isNotEmpty() &&
+        segment != "." &&
+        segment != ".." &&
+        !segment.startsWith('.') &&
+        segment.length <= MAX_FOLDER_SEGMENT_LENGTH &&
+        segment.none { it in FORBIDDEN_FOLDER_CHARS || it.isISOControl() }
+
+private fun readAttachmentFolderPath(root: File): String? {
+    val config = File(root, ".obsidian/app.json")
+    if (!config.isFile || Files.isSymbolicLink(config.toPath()) || config.length() > MAX_OBSIDIAN_APP_JSON_BYTES) {
+        return null
+    }
+    val text = runCatching { config.readText(Charsets.UTF_8) }.getOrNull() ?: return null
+    return extractTopLevelJsonString(text, "attachmentFolderPath")
+}
+
+internal fun extractTopLevelJsonString(json: String, targetKey: String): String? {
+    var pos = 0
+    fun skipWs() {
+        while (pos < json.length && json[pos] in " \t\r\n") pos++
+    }
+    fun readString(): String? {
+        if (pos >= json.length || json[pos] != '"') return null
+        pos++
+        val sb = StringBuilder()
+        while (pos < json.length) {
+            val ch = json[pos++]
+            when (ch) {
+                '"' -> return sb.toString()
+                '\\' -> {
+                    if (pos >= json.length) return null
+                    when (val esc = json[pos++]) {
+                        '"', '\\', '/' -> sb.append(esc)
+                        'b' -> sb.append('\b')
+                        'f' -> sb.append('\u000C')
+                        'n' -> sb.append('\n')
+                        'r' -> sb.append('\r')
+                        't' -> sb.append('\t')
+                        'u' -> {
+                            if (pos + 4 > json.length) return null
+                            val hex = json.substring(pos, pos + 4).toIntOrNull(16) ?: return null
+                            sb.append(hex.toChar())
+                            pos += 4
+                        }
+                        else -> return null
+                    }
+                }
+                else -> {
+                    if (ch.code < 0x20) return null
+                    sb.append(ch)
+                }
+            }
+        }
+        return null
+    }
+    fun skipValue(): Boolean {
+        skipWs()
+        if (pos >= json.length) return false
+        when (json[pos]) {
+            '"' -> return readString() != null
+            '{' -> {
+                pos++
+                skipWs()
+                if (pos < json.length && json[pos] == '}') {
+                    pos++
+                    return true
+                }
+                while (true) {
+                    skipWs()
+                    if (readString() == null) return false
+                    skipWs()
+                    if (pos >= json.length || json[pos] != ':') return false
+                    pos++
+                    if (!skipValue()) return false
+                    skipWs()
+                    if (pos >= json.length) return false
+                    when (json[pos]) {
+                        ',' -> pos++
+                        '}' -> {
+                            pos++
+                            return true
+                        }
+                        else -> return false
+                    }
+                }
+            }
+            '[' -> {
+                pos++
+                skipWs()
+                if (pos < json.length && json[pos] == ']') {
+                    pos++
+                    return true
+                }
+                while (true) {
+                    if (!skipValue()) return false
+                    skipWs()
+                    if (pos >= json.length) return false
+                    when (json[pos]) {
+                        ',' -> pos++
+                        ']' -> {
+                            pos++
+                            return true
+                        }
+                        else -> return false
+                    }
+                }
+            }
+            else -> {
+                val start = pos
+                while (pos < json.length && json[pos] !in ",}] \t\r\n") pos++
+                return pos > start
+            }
+        }
+    }
+
+    skipWs()
+    if (pos >= json.length || json[pos] != '{') return null
+    pos++
+    skipWs()
+    if (pos < json.length && json[pos] == '}') return null
+    while (pos < json.length) {
+        skipWs()
+        val key = readString() ?: return null
+        skipWs()
+        if (pos >= json.length || json[pos] != ':') return null
+        pos++
+        skipWs()
+        if (key == targetKey) {
+            return if (pos < json.length && json[pos] == '"') readString() else null
+        }
+        if (!skipValue()) return null
+        skipWs()
+        if (pos >= json.length) return null
+        when (json[pos]) {
+            ',' -> pos++
+            '}' -> return null
+            else -> return null
+        }
+    }
+    return null
 }

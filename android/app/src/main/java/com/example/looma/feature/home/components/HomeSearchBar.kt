@@ -91,6 +91,7 @@ internal fun HomeSearchBar(
     onSearchResultClick: (NoteId) -> Unit,
     onMenuClick: () -> Unit,
     onAvatarClick: () -> Unit,
+    homeVisible: Boolean = true,
 ) {
     val textFieldState = rememberTextFieldState(initialText = state.query)
     val searchBarState = rememberSearchBarState()
@@ -275,34 +276,36 @@ internal fun HomeSearchBar(
         }
     }
 
-    ExpandedFullScreenSearchBar(
-        state = searchBarState,
-        inputField = {
-            Box(Modifier.padding(horizontal = 8.dp * searchBarState.progress)) {
-                inputField()
-            }
-        },
-        collapsedShape = CircleShape,
-        colors = searchBarColors,
-    ) {
-        HomeSearchPanel(
-            progress = searchBarState.progress,
-            focusRequester = resultsFocusRequester,
+    if (homeVisible) {
+        ExpandedFullScreenSearchBar(
+            state = searchBarState,
+            inputField = {
+                Box(Modifier.padding(horizontal = 8.dp * searchBarState.progress)) {
+                    inputField()
+                }
+            },
+            collapsedShape = CircleShape,
+            colors = searchBarColors,
         ) {
-            HomeSearchResults(
-                query = state.query,
-                results = state.searchResults,
-                isGridMode = state.isGridMode,
-                isSearching = state.isSearching,
-                recentSearches = state.recentSearches,
-                onNoteClick = { noteId ->
-                    collapse()
-                    onSearchResultClick(noteId)
-                },
-                onRecentSearchClick = { query ->
-                    textFieldState.setTextAndPlaceCursorAtEnd(query)
-                },
-            )
+            HomeSearchPanel(
+                progress = searchBarState.progress,
+                focusRequester = resultsFocusRequester,
+            ) {
+                HomeSearchResults(
+                    query = state.query,
+                    results = state.searchResults,
+                    isGridMode = state.isGridMode,
+                    isSearching = state.isSearching,
+                    recentSearches = state.recentSearches,
+                    onNoteClick = { noteId ->
+                        keyboard?.hide()
+                        onSearchResultClick(noteId)
+                    },
+                    onRecentSearchClick = { query ->
+                        textFieldState.setTextAndPlaceCursorAtEnd(query)
+                    },
+                )
+            }
         }
     }
 }

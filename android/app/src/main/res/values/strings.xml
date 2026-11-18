@@ -124,6 +124,7 @@
         <item quantity="other">Deleted %1$d notes permanently</item>
     </plurals>
     <string name="trash_bulk_partial">Restored %1$d, %2$d failed</string>
+    <string name="trash_empty_partial">Deleted %1$d permanently, %2$d failed</string>
     <string name="trash_restore_undone">Note moved back to the trash</string>
 
     <string name="settings_title">Settings</string>
