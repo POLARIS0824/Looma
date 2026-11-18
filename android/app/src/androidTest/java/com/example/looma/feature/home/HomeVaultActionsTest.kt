@@ -65,7 +65,7 @@ class HomeVaultActionsTest {
             notes,
             FolderRepository(notes),
             SearchHistoryRepository(vaults, database.searchHistoryDao()),
-            SemanticSearchRepository(context, notes),
+            SemanticSearchRepository(context, notes, vaults),
         )
         withContext(Dispatchers.Main) {
             home = ViewModelProvider.create(viewModels, factory)[HomeViewModel::class]

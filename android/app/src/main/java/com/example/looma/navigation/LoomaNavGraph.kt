@@ -59,6 +59,8 @@ import com.example.looma.feature.home.HomeViewModel
 import com.example.looma.feature.note.NoteRoute
 import com.example.looma.feature.note.NoteViewModel
 import com.example.looma.feature.note.titleEditFor
+import com.example.looma.feature.settings.SemanticSearchSettingsRoute
+import com.example.looma.feature.settings.SemanticSearchSettingsViewModel
 import com.example.looma.feature.settings.SettingsRoute
 import com.example.looma.feature.settings.SettingsViewModel
 import com.example.looma.feature.trash.TrashRoute
@@ -189,6 +191,11 @@ fun LoomaNavGraph(
                                 backStack.add(LoomaRoute.Settings)
                             }
                         },
+                        onManageSemanticSearch = {
+                            if (backStack.lastOrNull() == LoomaRoute.Home) {
+                                backStack.add(LoomaRoute.SemanticSearchSettings)
+                            }
+                        },
                     )
                 }
 
@@ -214,6 +221,22 @@ fun LoomaNavGraph(
                                 backStack.add(LoomaRoute.VaultSetup)
                             }
                         },
+                        onSemanticSearchClick = {
+                            if (backStack.lastOrNull() == LoomaRoute.Settings) {
+                                backStack.add(LoomaRoute.SemanticSearchSettings)
+                            }
+                        },
+                        onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                    )
+                }
+
+                entry<LoomaRoute.SemanticSearchSettings> {
+                    val semanticSettingsViewModel: SemanticSearchSettingsViewModel = viewModel(
+                        factory = SemanticSearchSettingsViewModel.factory(semanticSearchRepository),
+                    )
+                    SemanticSearchSettingsRoute(
+                        viewModel = semanticSettingsViewModel,
+                        vaultName = vault?.name.orEmpty(),
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
                     )
                 }

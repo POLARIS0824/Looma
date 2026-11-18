@@ -12,8 +12,10 @@ import com.example.looma.data.note.RelocationStalledException
 import com.example.looma.data.note.VaultFileException
 import com.example.looma.data.note.VaultFileFailure
 import com.example.looma.data.search.SearchHistoryRepository
+import com.example.looma.data.search.SemanticIndexMissingException
 import com.example.looma.data.search.SemanticModelMissingException
 import com.example.looma.data.search.SemanticSearchRepository
+import com.example.looma.data.search.SemanticWorkState
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.domain.search.SearchMatch
@@ -25,6 +27,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -39,7 +43,7 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     private var refreshJob: Job? = null
     private var searchJob: Job? = null
-    private var modelJob: Job? = null
+    private var semanticAvailabilityJob: Job? = null
     private var revealGeneration = 0L
     private var index: HomeVaultIndex = HomeVaultIndex.Empty
 
@@ -148,19 +152,19 @@ class HomeViewModel(
 
     fun setQuery(value: String) {
         if (_uiState.value.query == value) return
-        _uiState.update { it.copy(query = value, searchResults = emptyList(), isSearching = value.isNotBlank()) }
-        if (value.isBlank()) {
-            clearSearch()
-            _uiState.update {
-                if (it.semanticSearch is HomeSemanticSearch.Indexing || it.semanticSearch is HomeSemanticSearch.SearchFailed) {
-                    it.copy(semanticSearch = HomeSemanticSearch.Ready)
+        _uiState.update {
+            it.copy(
+                query = value,
+                searchResults = emptyList(),
+                isSearching = false,
+                semanticSearch = if (it.semanticSearch == HomeSemanticSearch.SearchFailed) {
+                    HomeSemanticSearch.Ready
                 } else {
-                    it
-                }
-            }
-        } else if (!_uiState.value.isLoading) {
-            scheduleSearch(value)
+                    it.semanticSearch
+                },
+            )
         }
+        if (!_uiState.value.isLoading) scheduleSearch(value) else clearSearch()
     }
 
     private fun clearSearch() {
@@ -168,55 +172,43 @@ class HomeViewModel(
     }
 
     fun setSemanticSearch(enabled: Boolean) {
-        clearSearch()
-        modelJob?.cancel()
-        val status = when {
-            !enabled -> HomeSemanticSearch.Off
-            !semanticSearchRepository.supported -> HomeSemanticSearch.Unsupported
-            else -> HomeSemanticSearch.CheckingModel
-        }
-        _uiState.update { it.copy(semanticSearch = status, searchResults = emptyList(), isSearching = false) }
-        when (status) {
-            HomeSemanticSearch.Off -> {
-                unloadSemanticModel()
-                scheduleSearch(_uiState.value.query)
-            }
-            HomeSemanticSearch.CheckingModel -> {
-                modelJob = viewModelScope.launch {
-                    val available = semanticSearchRepository.hasModel()
-                    _uiState.update {
-                        it.copy(semanticSearch = if (available) HomeSemanticSearch.Ready else HomeSemanticSearch.NeedsModel)
+        semanticAvailabilityJob?.cancel()
+        if (!enabled) {
+            selectSearchMode(HomeSemanticSearch.Off)
+            unloadSemanticModel()
+        } else if (!semanticSearchRepository.supported) {
+            selectSearchMode(HomeSemanticSearch.Unsupported)
+        } else {
+            selectSearchMode(HomeSemanticSearch.Checking)
+            semanticAvailabilityJob = viewModelScope.launch {
+                var previousAvailability: HomeSemanticSearch? = null
+                var wasIndexReady = false
+                combine(
+                    semanticSearchRepository.modelState,
+                    semanticSearchRepository.hasIndex,
+                    semanticSearchRepository.indexState,
+                ) { model, hasIndex, indexState ->
+                    val availability = when {
+                        model != SemanticWorkState.Ready -> HomeSemanticSearch.NeedsModel
+                        !hasIndex -> HomeSemanticSearch.NeedsIndex
+                        else -> HomeSemanticSearch.Ready
                     }
-                    if (available && !_uiState.value.isLoading) scheduleSearch(_uiState.value.query)
+                    availability to (indexState == SemanticWorkState.Ready)
+                }.distinctUntilChanged().collect { (availability, isIndexReady) ->
+                    val finishedIndexing = availability == HomeSemanticSearch.Ready && isIndexReady && !wasIndexReady
+                    if (availability != previousAvailability || finishedIndexing) {
+                        selectSearchMode(availability)
+                    }
+                    previousAvailability = availability
+                    wasIndexReady = isIndexReady
                 }
             }
-            else -> Unit
         }
     }
 
-    fun downloadSemanticModel() {
-        val status = _uiState.value.semanticSearch
-        if (status != HomeSemanticSearch.NeedsModel && status != HomeSemanticSearch.DownloadFailed) return
-        _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.Downloading(0), isSearching = false) }
-        modelJob = viewModelScope.launch {
-            try {
-                semanticSearchRepository.downloadModel { percent ->
-                    _uiState.update {
-                        if (it.semanticSearch is HomeSemanticSearch.Downloading) {
-                            it.copy(semanticSearch = HomeSemanticSearch.Downloading(percent))
-                        } else {
-                            it
-                        }
-                    }
-                }
-                _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.Ready) }
-                if (!_uiState.value.isLoading) scheduleSearch(_uiState.value.query, debounce = false)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.DownloadFailed) }
-            }
-        }
+    private fun selectSearchMode(status: HomeSemanticSearch) {
+        _uiState.update { it.copy(semanticSearch = status, searchResults = emptyList(), isSearching = false) }
+        if (!_uiState.value.isLoading) scheduleSearch(_uiState.value.query) else clearSearch()
     }
 
     fun retrySemanticSearch() {
@@ -227,10 +219,6 @@ class HomeViewModel(
 
     fun onSearchClosed() {
         setQuery("")
-        if (_uiState.value.semanticSearch is HomeSemanticSearch.Downloading) {
-            modelJob?.cancel()
-            _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.NeedsModel) }
-        }
         unloadSemanticModel()
     }
 
@@ -290,15 +278,7 @@ class HomeViewModel(
             if (debounce) delay(SEARCH_DEBOUNCE_MS)
             val notes = _uiState.value.notes.associateBy { it.id }
             val (results, status) = try {
-                semanticSearchRepository.search(keyword, notes.values.map { it.toSearchableNote() }) { completed, total ->
-                    _uiState.update {
-                        if (it.query == value && it.semanticSearch.canSearch) {
-                            it.copy(semanticSearch = HomeSemanticSearch.Indexing(completed, total))
-                        } else {
-                            it
-                        }
-                    }
-                }.mapNotNull { hit ->
+                semanticSearchRepository.search(keyword, notes.values.map { it.toSearchableNote() }).mapNotNull { hit ->
                     val note = notes[hit.id] ?: return@mapNotNull null
                     HomeSearchResult(
                         note = note,
@@ -313,6 +293,8 @@ class HomeViewModel(
                 throw e
             } catch (_: SemanticModelMissingException) {
                 emptyList<HomeSearchResult>() to HomeSemanticSearch.NeedsModel
+            } catch (_: SemanticIndexMissingException) {
+                emptyList<HomeSearchResult>() to HomeSemanticSearch.NeedsIndex
             } catch (_: Exception) {
                 emptyList<HomeSearchResult>() to HomeSemanticSearch.SearchFailed
             } catch (_: LinkageError) {

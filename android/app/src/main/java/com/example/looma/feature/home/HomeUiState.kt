@@ -129,15 +129,13 @@ enum class HomeSort { LAST_MODIFIED, TITLE, TITLE_DESCENDING }
 sealed interface HomeSemanticSearch {
     data object Off : HomeSemanticSearch
     data object Unsupported : HomeSemanticSearch
-    data object CheckingModel : HomeSemanticSearch
+    data object Checking : HomeSemanticSearch
     data object NeedsModel : HomeSemanticSearch
-    data class Downloading(val percent: Int) : HomeSemanticSearch
-    data object DownloadFailed : HomeSemanticSearch
+    data object NeedsIndex : HomeSemanticSearch
     data object Ready : HomeSemanticSearch
-    data class Indexing(val completed: Int, val total: Int) : HomeSemanticSearch
     data object SearchFailed : HomeSemanticSearch
 
-    val canSearch: Boolean get() = this is Ready || this is Indexing || this is SearchFailed
+    val canSearch: Boolean get() = this == Ready || this == SearchFailed
 }
 
 data class HomeUiState(

@@ -24,6 +24,9 @@ sealed interface LoomaRoute : NavKey {
     data object Settings : LoomaRoute
 
     @Serializable
+    data object SemanticSearchSettings : LoomaRoute
+
+    @Serializable
     data class Note(
         val vaultId: String,
         val relativePath: String,

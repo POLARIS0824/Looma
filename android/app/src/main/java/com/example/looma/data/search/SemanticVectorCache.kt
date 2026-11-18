@@ -1,5 +1,6 @@
 package com.example.looma.data.search
 
+import com.example.looma.data.note.writeBytesAtomically
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.model.VaultId
@@ -15,10 +16,29 @@ import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 
 internal class SemanticVectorCache(private val root: File) {
-    fun prune(vaultId: VaultId, notes: Set<NoteId>) {
+    fun hasCompletedIndex(vaultId: VaultId): Boolean = directory(vaultId).resolve("complete").isFile
+
+    fun hasSearchableIndex(vaultId: VaultId): Boolean {
+        val directory = directory(vaultId)
+        if (hasCompletedIndex(vaultId)) return true
+        return try {
+            Files.newDirectoryStream(directory.toPath(), "*.vec").use { it.iterator().hasNext() }
+        } catch (_: IOException) {
+            false
+        }
+    }
+
+    fun complete(vaultId: VaultId, checkActive: () -> Unit) {
+        val directory = directory(vaultId)
+        Files.createDirectories(directory.toPath())
+        writeBytesAtomically(directory.resolve("complete"), byteArrayOf(), checkActive)
+    }
+
+    fun prune(vaultId: VaultId, notes: Set<NoteId>, checkActive: () -> Unit = {}) {
         val known = notes.mapTo(HashSet()) { cacheName(it) }
         directory(vaultId).listFiles().orEmpty().forEach { file ->
-            if (file.name !in known) file.delete()
+            checkActive()
+            if (file.extension == "vec" && file.name !in known) file.delete()
         }
     }
 
@@ -31,10 +51,22 @@ internal class SemanticVectorCache(private val root: File) {
 }
 
 internal class NoteVectors(private val file: File) {
+    fun exists(): Boolean = file.isFile
+
+    fun isCurrent(revision: NoteRevision.Known, source: String, checkActive: () -> Unit): Boolean =
+        read(revision, source, null, checkActive) != null
+
     fun best(
         revision: NoteRevision.Known,
         source: String,
         query: FloatArray,
+        checkActive: () -> Unit,
+    ): CachedRanking? = read(revision, source, query, checkActive)
+
+    private fun read(
+        revision: NoteRevision.Known,
+        source: String,
+        query: FloatArray?,
         checkActive: () -> Unit,
     ): CachedRanking? {
         return try {
@@ -49,11 +81,18 @@ internal class NoteVectors(private val file: File) {
                     val section = input.readUTF()
                     if (!anchor.matches(revision, source) || section.length > 256) return null
                     var score = 0.0
-                    for (value in query) score += value.toDouble() * input.readFloat()
+                    repeat(EmbeddingGemma.DIMENSIONS) { dimension ->
+                        val value = input.readFloat()
+                        if (!value.isFinite()) return null
+                        if (query != null) score += query[dimension].toDouble() * value
+                    }
                     if (!score.isFinite()) return null
                     val previous = best
-                    if (previous == null || score > previous.score) best = ScoredPassage(anchor, section, score)
+                    if (query != null && (previous == null || score > previous.score)) {
+                        best = ScoredPassage(anchor, section, score)
+                    }
                 }
+                if (input.read() != -1) return null
                 CachedRanking(best)
             }
         } catch (_: IOException) {
@@ -61,9 +100,10 @@ internal class NoteVectors(private val file: File) {
         }
     }
 
-    fun replace(
+    inline fun replace(
         revision: NoteRevision.Known,
         chunks: List<SemanticChunk>,
+        beforeReplace: () -> Unit = {},
         vector: (SemanticChunk) -> FloatArray,
     ) {
         val directory = checkNotNull(file.parentFile)
@@ -85,6 +125,7 @@ internal class NoteVectors(private val file: File) {
                 output.flush()
                 stream.fd.sync()
             }
+            beforeReplace()
             Files.move(pending.toPath(), file.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
         } finally {
             pending.delete()

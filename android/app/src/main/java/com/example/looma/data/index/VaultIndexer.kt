@@ -29,6 +29,7 @@ internal data class IndexScan(
     val folders: List<VaultFolder>,
     val unreadableCount: Int,
     val report: ScanReport,
+    val complete: Boolean,
 )
 
 internal class VaultIndexer(
@@ -148,6 +149,7 @@ internal class VaultIndexer(
                 filesKept = if (applied) plan.kept.size else notes.count { onDisk[it.id.path] == it.fingerprint },
                 filesRemoved = if (applied) plan.removed.size else 0,
             ),
+            complete = complete && applied,
         )
     }
 

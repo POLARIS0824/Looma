@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="semantic_work_channel">Semantic search tasks</string>
+    <string name="semantic_work_download">Downloading the semantic search model</string>
+    <string name="semantic_work_index">Updating the semantic search index</string>
+    <string name="semantic_work_cancel">Cancel</string>
+</resources>

@@ -8,8 +8,10 @@ import com.example.looma.embedding.EmbeddingGemma
 import java.io.File
 import java.io.IOException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -30,6 +32,8 @@ class SemanticVectorCacheTest {
         cache.forNote(otherVault).replace(revision, chunks) { axis(1) }
 
         val reopened = SemanticVectorCache(root)
+        assertTrue(reopened.hasSearchableIndex(note.vaultId))
+        assertFalse(reopened.hasCompletedIndex(note.vaultId))
         val best = checkNotNull(reopened.forNote(note).best(revision, source, axis(1)) {}?.best)
         assertEquals("Repairs", best.section)
         assertEquals("sealing", source.substring(best.anchor.start, best.anchor.end))
@@ -37,6 +41,7 @@ class SemanticVectorCacheTest {
         assertNull(reopened.forNote(note).best(revisionOf(newSource), newSource, axis(1)) {})
 
         reopened.prune(note.vaultId, emptySet())
+        assertFalse(reopened.hasSearchableIndex(note.vaultId))
         assertNull(reopened.forNote(note).best(revision, source, axis(1)) {})
         assertEquals(1.0, reopened.forNote(otherVault).best(revision, source, axis(1)) {}?.best?.score)
     }
@@ -51,9 +56,30 @@ class SemanticVectorCacheTest {
         assertThrows(IOException::class.java) {
             vectors.replace(revisionOf("new"), passage) { throw IOException("interrupted embedding") }
         }
+        assertThrows(IOException::class.java) {
+            vectors.replace(revisionOf("new"), passage, beforeReplace = { throw IOException("note changed") }) {
+                axis(0)
+            }
+        }
 
+        assertTrue(vectors.isCurrent(revisionOf("old"), "old") {})
+        assertFalse(vectors.isCurrent(revisionOf("new"), "new") {})
         assertEquals(1.0, NoteVectors(path).best(revisionOf("old"), "old", axis(0)) {}?.best?.score)
         assertNull(NoteVectors(path).best(revisionOf("new"), "new", axis(0)) {})
+    }
+
+    @Test
+    fun aCompletedEmptyVaultRemainsSearchableAfterPruning() {
+        val root = temporary.newFolder()
+        val vault = VaultId("vault")
+        SemanticVectorCache(root).complete(vault) {}
+
+        val reopened = SemanticVectorCache(root)
+        reopened.prune(vault, emptySet())
+
+        assertTrue(reopened.hasCompletedIndex(vault))
+        assertTrue(reopened.hasSearchableIndex(vault))
+        assertFalse(reopened.hasSearchableIndex(VaultId("other")))
     }
 
     private fun revisionOf(source: String) = NoteRevision.of(source.toByteArray()) as NoteRevision.Known

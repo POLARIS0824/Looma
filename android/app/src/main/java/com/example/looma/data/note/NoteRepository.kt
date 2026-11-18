@@ -53,12 +53,16 @@ class NoteRepository internal constructor(
     private val searchDispatcher = Dispatchers.IO.limitedParallelism(SEARCH_IO_PARALLELISM)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
-    internal suspend fun listNotes(): NoteListResult {
-        val current = currentVault()
+    internal suspend fun listNotes(expected: Vault? = null): NoteListResult {
+        val current = currentVault(expected?.id)
+        if (expected != null && current.rootPath != expected.rootPath) {
+            throw VaultFileException(VaultFileFailure.NOT_FOUND)
+        }
         val stalled = VaultWriteCoordinator.write(current) {
             recoverPendingRelocations(current, retryStalled = true)
         }
         return read(current.id) { vault, _ ->
+            if (vault.rootPath != current.rootPath) throw VaultFileException(VaultFileFailure.NOT_FOUND)
             val scan = indexUpdater.scan(vault)
             NoteListResult(
                 vault = vault,
@@ -68,6 +72,7 @@ class NoteRepository internal constructor(
                 folders = scan.folders,
                 unreadableCount = scan.unreadableCount,
                 stalledRelocation = stalled,
+                complete = scan.complete,
             )
         }
     }
@@ -153,7 +158,8 @@ class NoteRepository internal constructor(
         parser.note(store.readNote(id))
     }
 
-    internal suspend fun readSearchSource(id: NoteId): StoredMarkdown = read(id.vaultId) { _, store ->
+    internal suspend fun readSearchSource(id: NoteId, expectedRoot: String): StoredMarkdown = read(id.vaultId) { vault, store ->
+        if (vault.rootPath != expectedRoot) throw VaultFileException(VaultFileFailure.NOT_FOUND)
         store.readNote(id)
     }
 

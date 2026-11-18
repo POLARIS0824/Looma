@@ -104,7 +104,7 @@ internal fun HomeSearchBar(
     onAvatarClick: () -> Unit,
     homeVisible: Boolean = true,
     onSemanticSearchToggle: (Boolean) -> Unit = {},
-    onDownloadSemanticModel: () -> Unit = {},
+    onManageSemanticSearch: () -> Unit = {},
     onRetrySemanticSearch: () -> Unit = {},
     onSearchClosed: () -> Unit = {},
 ) {
@@ -347,7 +347,10 @@ internal fun HomeSearchBar(
                     SemanticSearchControls(
                         state = semantic,
                         onToggle = onSemanticSearchToggle,
-                        onDownload = onDownloadSemanticModel,
+                        onManage = {
+                            keyboard?.hide()
+                            onManageSemanticSearch()
+                        },
                         onRetry = onRetrySemanticSearch,
                     )
                     if (semantic == HomeSemanticSearch.Off || semantic == HomeSemanticSearch.Ready) {
@@ -378,7 +381,7 @@ internal fun HomeSearchBar(
 private fun SemanticSearchControls(
     state: HomeSemanticSearch,
     onToggle: (Boolean) -> Unit,
-    onDownload: () -> Unit,
+    onManage: () -> Unit,
     onRetry: () -> Unit,
 ) {
     val enabled = state != HomeSemanticSearch.Off
@@ -396,18 +399,16 @@ private fun SemanticSearchControls(
     val message = when (state) {
         HomeSemanticSearch.Off, HomeSemanticSearch.Ready -> return
         HomeSemanticSearch.Unsupported -> stringResource(R.string.home_semantic_unsupported)
-        HomeSemanticSearch.CheckingModel -> stringResource(R.string.home_semantic_checking)
+        HomeSemanticSearch.Checking -> stringResource(R.string.home_semantic_checking)
         HomeSemanticSearch.NeedsModel -> stringResource(R.string.home_semantic_model_required)
-        HomeSemanticSearch.DownloadFailed -> stringResource(R.string.home_semantic_download_failed)
-        is HomeSemanticSearch.Downloading -> stringResource(R.string.home_semantic_downloading, state.percent)
-        is HomeSemanticSearch.Indexing -> stringResource(R.string.home_semantic_indexing, state.completed + 1, state.total)
+        HomeSemanticSearch.NeedsIndex -> stringResource(R.string.home_semantic_index_required)
         HomeSemanticSearch.SearchFailed -> stringResource(R.string.home_semantic_search_failed)
     }
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(message, style = LoomaTokens.type.supporting, color = LoomaTokens.colors.muted)
         when (state) {
-            HomeSemanticSearch.NeedsModel, HomeSemanticSearch.DownloadFailed -> TextButton(onClick = onDownload) {
-                Text(stringResource(R.string.home_semantic_download))
+            HomeSemanticSearch.NeedsModel, HomeSemanticSearch.NeedsIndex -> TextButton(onClick = onManage) {
+                Text(stringResource(R.string.home_semantic_manage))
             }
             HomeSemanticSearch.SearchFailed -> TextButton(onClick = onRetry) {
                 Text(stringResource(R.string.home_semantic_retry))
