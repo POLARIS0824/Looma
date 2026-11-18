@@ -2,6 +2,7 @@ package com.example.looma.data.note
 
 import android.os.Environment
 import androidx.room.Room
+import androidx.room.RoomDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.looma.data.image.resolveAttachmentReference
@@ -13,17 +14,21 @@ import com.example.looma.domain.markdown.ImageSource
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
+import com.example.looma.domain.model.NoteWriteMode
 import com.example.looma.domain.model.Vault
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.attribute.FileTime
 import java.util.UUID
+import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -42,6 +47,12 @@ class RenameRelinkTest {
     private lateinit var vaults: VaultRepository
     private lateinit var database: NoteIndexDatabase
     private lateinit var repository: NoteRepository
+    private val wikiReads = AtomicInteger()
+    private val wikiIndexSelects = listOf(
+        "SELECT * FROM indexed_note",
+        "SELECT * FROM note_tag",
+        "SELECT * FROM note_link",
+    )
 
     @Before
     fun setUp() {
@@ -56,7 +67,14 @@ class RenameRelinkTest {
             write("Self.md", "# Self\n\n[[Self]]\n")
 
             VaultPreferences(context).saveVault(vaultId, "relink", root.path)
-            database = Room.inMemoryDatabaseBuilder(context, NoteIndexDatabase::class.java).build()
+            database = Room.inMemoryDatabaseBuilder(context, NoteIndexDatabase::class.java)
+                .setQueryCallback(
+                    RoomDatabase.QueryCallback { sql, _ ->
+                        if (wikiIndexSelects.any { sql.startsWith(it) }) wikiReads.incrementAndGet()
+                    },
+                    Executor { it.run() },
+                )
+                .build()
             repository = NoteRepository(vaults, RoomNoteIndex(database))
             repository.listNotes()
         }
@@ -76,6 +94,53 @@ class RenameRelinkTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun bodyOnlySaveReusesWikiContextAndLinkChangesRefreshIt() = runBlocking {
+        wikiReads.set(0)
+        val target = id("Target.md")
+        val referrer = id("From.md")
+        val initial = repository.wikiContext(target)
+        assertEquals(listOf(referrer), initial.backlinks.map { it.id })
+        assertEquals(listOf("From", "Other", "Self"), initial.linkables.map { it.title })
+        assertEquals(id("Other.md"), initial.resolve("Other"))
+
+        val readsBeforeSave = wikiReads.get()
+        val source = repository.readNote(referrer)
+        val updated = repository.saveNote(
+            referrer,
+            source.content + "\nordinary #tag",
+            NoteWriteMode.Checked(source.revision),
+        )
+        val afterBodySave = repository.wikiContext(target)
+        val readsAfterSave = wikiReads.get()
+        assertEquals(initial, afterBodySave)
+        assertEquals(updated.content, read("From.md"))
+
+        val renamed = repository.saveNote(
+            referrer,
+            updated.content.replace("# From", "# New title"),
+            NoteWriteMode.Checked(updated.revision),
+        )
+        assertEquals("New title", repository.wikiContext(target).backlinks.single().title)
+
+        repository.saveNote(
+            referrer,
+            renamed.content.replace("[[Target", "[[Other"),
+            NoteWriteMode.Checked(renamed.revision),
+        )
+        assertTrue(repository.wikiContext(target).backlinks.isEmpty())
+        assertEquals(listOf(referrer), repository.wikiContext(id("Other.md")).backlinks.map { it.id })
+
+        repository.createNote("Candidate")
+        assertTrue(repository.wikiContext(target).linkables.any { it.id == id("Candidate.md") })
+        repository.deleteNote(id("Candidate.md"))
+        assertTrue(repository.wikiContext(target).linkables.none { it.id == id("Candidate.md") })
+
+        assertTrue("Cold Wiki lookup should read from the index", readsBeforeSave > 0)
+        assertEquals("Full-index SELECTs during a body-only save and Wiki lookup", 0, readsAfterSave - readsBeforeSave)
+        assertSame(initial, afterBodySave)
     }
 
     @Test

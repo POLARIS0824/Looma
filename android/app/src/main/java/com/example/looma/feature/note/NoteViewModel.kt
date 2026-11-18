@@ -68,6 +68,7 @@ class NoteViewModel(
     private var titleCommit: Deferred<TitleCommitResult>? = null
     private var operationGeneration = 0
     private var loadJob: Job? = null
+    private var wikiRefreshJob: Job? = null
     private var initialStartPending = true
     private var lastConflictCopy: ConflictCopy? = null
     private val scheduler = SaveScheduler(viewModelScope, onSave = { saveFromScheduler() })
@@ -191,10 +192,15 @@ class NoteViewModel(
 
     fun refreshWiki() {
         if (_uiState.value.isLoading) return
-        viewModelScope.launch {
+        val id = currentId
+        val generation = operationGeneration
+        wikiRefreshJob?.cancel()
+        wikiRefreshJob = viewModelScope.launch {
             try {
-                val wiki = repository.wikiContext(currentId)
-                _uiState.update { it.copy(wiki = wiki) }
+                val wiki = repository.wikiContext(id)
+                if (id == currentId && generation == operationGeneration && !_uiState.value.isLoading) {
+                    _uiState.update { it.copy(wiki = wiki) }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

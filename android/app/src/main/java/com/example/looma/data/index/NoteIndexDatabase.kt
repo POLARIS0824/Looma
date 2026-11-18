@@ -23,6 +23,7 @@ internal abstract class NoteIndexDatabase : RoomDatabase() {
 
     internal val indexWriteMutex = Mutex()
     internal val indexVersions = mutableMapOf<VaultId, Long>()
+    internal var wikiSnapshot: WikiIndexSnapshot? = null
 
     abstract fun noteIndexDao(): NoteIndexDao
 

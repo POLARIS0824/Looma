@@ -6,6 +6,7 @@ import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
 import com.example.looma.domain.search.SearchSignature
+import com.example.looma.domain.wiki.WikiContext
 import java.time.Instant
 import kotlinx.coroutines.sync.withLock
 
@@ -39,6 +40,15 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
                 )
             }
         }
+    }
+
+    override suspend fun wikiContext(id: NoteId): WikiContext {
+        val snapshot = database.indexWriteMutex.withLock {
+            val cached = database.wikiSnapshot
+            if (cached?.vaultId == id.vaultId) return@withLock cached
+            WikiIndexSnapshot(id.vaultId, load(id.vaultId)).also { database.wikiSnapshot = it }
+        }
+        return snapshot.context(id)
     }
 
     override suspend fun searchSignatures(vaultId: VaultId): Map<NotePath, IndexedSearchSignature> =
@@ -78,6 +88,10 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
             if (delta.upserts.isNotEmpty() || delta.removed.isNotEmpty()) {
                 database.indexVersions[delta.vaultId] = version + 1
                 if (searchSnapshot?.vaultId == delta.vaultId) searchSnapshot = null
+                val wiki = database.wikiSnapshot
+                if (wiki?.vaultId == delta.vaultId && wiki.changesWith(delta)) {
+                    database.wikiSnapshot = null
+                }
                 write(delta)
             }
             true

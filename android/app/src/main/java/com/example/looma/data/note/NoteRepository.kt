@@ -30,8 +30,6 @@ import com.example.looma.domain.search.SearchSignature
 import com.example.looma.domain.search.SearchableNote
 import com.example.looma.domain.search.searchNote
 import com.example.looma.domain.wiki.WikiContext
-import com.example.looma.domain.wiki.WikiGraph
-import com.example.looma.domain.wiki.WikiNote
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -166,7 +164,7 @@ class NoteRepository internal constructor(
     }
 
     suspend fun wikiContext(id: NoteId): WikiContext = read(id.vaultId) { _, _ ->
-        withContext(Dispatchers.Default) { wikiGraphOf(index.load(id.vaultId)).context(id) }
+        withContext(Dispatchers.Default) { index.wikiContext(id) }
     }
 
     suspend fun createNote(
@@ -390,11 +388,6 @@ class NoteRepository internal constructor(
         vaultId = vault.id,
         path = path,
         name = path.relativePath.substringAfterLast('/'),
-    )
-
-    private fun wikiGraphOf(indexed: List<IndexedNote>): WikiGraph = WikiGraph(
-        notes = indexed.map { note -> WikiNote(note.id, note.title) },
-        linksByNote = indexed.associate { note -> note.id to note.links.map { link -> link.target } },
     )
 
     private fun IndexedNote.toListEntry(): NoteListEntry = NoteListEntry(

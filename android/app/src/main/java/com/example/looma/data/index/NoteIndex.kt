@@ -8,6 +8,7 @@ import com.example.looma.data.note.resolveCover
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
+import com.example.looma.domain.wiki.WikiContext
 import java.io.File
 import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
@@ -46,6 +47,9 @@ internal data class IndexedSearchSignature(
 
 internal interface NoteIndex {
     suspend fun load(vaultId: VaultId): List<IndexedNote>
+
+    suspend fun wikiContext(id: NoteId): WikiContext =
+        WikiIndexSnapshot(id.vaultId, load(id.vaultId)).context(id)
 
     suspend fun searchSignatures(vaultId: VaultId): Map<NotePath, IndexedSearchSignature> = emptyMap()
 
