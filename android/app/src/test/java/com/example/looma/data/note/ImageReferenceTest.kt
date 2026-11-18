@@ -169,12 +169,30 @@ class ImageReferenceTest {
 
     @Test
     fun `does not search trashed or metadata attachments`() {
-        for (folder in listOf(".trash", ".obsidian", ".git", ".looma", ".looma/trash", ".stversions")) {
+        for (folder in listOf(".trash", ".obsidian", ".git", ".looma", ".looma/trash", ".stversions", ".assets")) {
             File(root, folder).mkdirs()
             File(root, "$folder/hidden.png").writeBytes(byteArrayOf(1))
-            assertNull(resolve("$folder/hidden.png"))
         }
         assertNull(resolve("hidden.png"))
+        assertNull(resolve(".looma/hidden.png"))
+        assertNull(resolve(".looma/trash/hidden.png"))
+        assertNull(resolve(".trash/hidden.png"))
+    }
+
+    @Test
+    fun `explicit relative or vault paths into hidden directories resolve while trash stays blocked`() {
+        File(root, ".assets").mkdirs()
+        val vaultHidden = File(root, ".assets/hidden.png").apply { writeBytes(byteArrayOf(1)) }
+        File(root, ".obsidian").mkdirs()
+        val obsidianHidden = File(root, ".obsidian/hidden.png").apply { writeBytes(byteArrayOf(1)) }
+        File(root, "notes/.local").mkdirs()
+        val localHidden = File(root, "notes/.local/hidden.png").apply { writeBytes(byteArrayOf(1)) }
+
+        assertEquals(ImageSource.Local(vaultHidden.canonicalPath), resolve(".assets/hidden.png"))
+        assertEquals(ImageSource.Local(vaultHidden.canonicalPath), resolve("../.assets/hidden.png"))
+        assertEquals(ImageSource.Local(obsidianHidden.canonicalPath), resolve(".obsidian/hidden.png"))
+        assertEquals(ImageSource.Local(localHidden.canonicalPath), resolve("notes/.local/hidden.png"))
+        assertEquals(vaultHidden.canonicalPath, resolveCover(root, note, ".assets/hidden.png"))
     }
 
     @Test

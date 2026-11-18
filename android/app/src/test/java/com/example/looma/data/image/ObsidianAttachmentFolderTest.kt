@@ -3,6 +3,8 @@ package com.example.looma.data.image
 import com.example.looma.domain.model.NotePath
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -46,6 +48,54 @@ class ObsidianAttachmentFolderTest {
             writeConfig("""{"attachmentFolderPath": "$bad"}""")
             assertEquals(root, resolveAttachmentDirectory(root, NotePath("sub/note.md")))
         }
+    }
+
+    @Test
+    fun `selects collision-safe attachment names without overwriting distinct content`() {
+        val targetDir = File(root, "assets").apply { mkdirs() }
+        val bytes = byteArrayOf(1, 2, 3)
+        val first = File(targetDir, "abc.png").apply { writeBytes(bytes) }
+        val (reused, needsWriteSame) = selectAttachmentFile(root, targetDir, "abc", "png", bytes)
+        assertEquals(first.canonicalFile, reused)
+        assertFalse(needsWriteSame)
+
+        val differentBytes = byteArrayOf(9, 8, 7)
+        val (suffixed, needsWriteDifferent) = selectAttachmentFile(root, targetDir, "abc", "png", differentBytes)
+        assertEquals(File(targetDir, "abc 1.png").canonicalFile, suffixed)
+        assertTrue(needsWriteDifferent)
+    }
+
+    @Test
+    fun `disambiguates new attachments when an older file with the same name would shadow them`() {
+        val notePath = NotePath("notes/a.md")
+        File(root, "notes").mkdirs()
+        val assetsDir = File(root, "assets").apply { mkdirs() }
+        val newInAssets = File(assetsDir, "pic.png").apply { writeBytes(byteArrayOf(1)) }
+        assertEquals("pic.png", resolveAttachmentReference(root, notePath, newInAssets))
+
+        File(root, "notes/pic.png").writeBytes(byteArrayOf(2))
+        assertEquals("assets/pic.png", resolveAttachmentReference(root, notePath, newInAssets))
+
+        File(root, "notes/assets").mkdirs()
+        File(root, "notes/assets/pic.png").writeBytes(byteArrayOf(3))
+        assertEquals("../assets/pic.png", resolveAttachmentReference(root, notePath, newInAssets))
+
+        val rootAttachment = File(root, "pic.png").apply { writeBytes(byteArrayOf(4)) }
+        assertEquals("../pic.png", resolveAttachmentReference(root, notePath, rootAttachment))
+    }
+
+    @Test
+    fun `respects obsidian newLinkFormat when generating attachment references`() {
+        val notePath = NotePath("notes/a.md")
+        File(root, "notes").mkdirs()
+        val assetsDir = File(root, "assets").apply { mkdirs() }
+        val inAssets = File(assetsDir, "pic.png").apply { writeBytes(byteArrayOf(1)) }
+
+        writeConfig("""{"attachmentFolderPath": "assets", "newLinkFormat": "relative"}""")
+        assertEquals("../assets/pic.png", resolveAttachmentReference(root, notePath, inAssets))
+
+        writeConfig("""{"attachmentFolderPath": "assets", "newLinkFormat": "absolute"}""")
+        assertEquals("assets/pic.png", resolveAttachmentReference(root, notePath, inAssets))
     }
 
     private fun writeConfig(content: String) {

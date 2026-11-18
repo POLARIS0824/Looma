@@ -2,13 +2,17 @@ package com.example.looma.data.image
 
 import android.content.Context
 import android.net.Uri
+import com.example.looma.data.note.encodeWikiImagePath
+import com.example.looma.data.note.hasOtherAttachmentNamed
 import com.example.looma.data.note.invalidateAttachmentIndex
+import com.example.looma.data.note.resolveImageSource
 import com.example.looma.data.note.writeBytesAtomically
 import com.example.looma.data.settings.AppSettings
 import com.example.looma.data.settings.ImageUploadTarget
 import com.example.looma.data.settings.S3ImageBedConfig
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.data.vault.VaultWriteCoordinator
+import com.example.looma.domain.markdown.ImageSource
 import com.example.looma.domain.model.NotePath
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -16,6 +20,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.security.MessageDigest
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -52,14 +57,20 @@ class ImageUploader(
         val extension = extensionFor(mimeType)
             ?: throw ImageUploadException(ImageUploadFailure.UnsupportedImage)
         val bytes = readBytes(uri)
-        val fileName = sha256Hex(bytes).take(16) + "." + extension
+        val stem = sha256Hex(bytes).take(16)
+        val fileName = "$stem.$extension"
         when (settings.imageUploadTarget) {
-            ImageUploadTarget.LocalAttachment -> saveAttachment(fileName, bytes, notePath)
+            ImageUploadTarget.LocalAttachment -> saveAttachment(stem, extension, bytes, notePath)
             ImageUploadTarget.ImageBed -> uploadToImageBed(settings.imageBed, fileName, mimeType, bytes)
         }
     }
 
-    private suspend fun saveAttachment(fileName: String, bytes: ByteArray, notePath: NotePath?): ImageUpload {
+    private suspend fun saveAttachment(
+        stem: String,
+        extension: String,
+        bytes: ByteArray,
+        notePath: NotePath?,
+    ): ImageUpload {
         val vault = vaultRepository.requireCurrentVault()
         return VaultWriteCoordinator.write(vault) {
             val root = File(vault.rootPath).canonicalFile
@@ -67,16 +78,13 @@ class ImageUploader(
             if (!targetDir.isDirectory && !targetDir.mkdirs()) {
                 throw ImageUploadException(ImageUploadFailure.StorageFailed)
             }
-            val file = File(targetDir, fileName).canonicalFile
-            if (!file.toPath().startsWith(root.toPath())) {
-                throw ImageUploadException(ImageUploadFailure.StorageFailed)
-            }
-            if (!file.isFile) {
+            val (file, needsWrite) = selectAttachmentFile(root, targetDir, stem, extension, bytes)
+            if (needsWrite) {
                 runCatching { writeBytesAtomically(file, bytes) }
                     .onFailure { throw ImageUploadException(ImageUploadFailure.StorageFailed, it.message, it) }
-                invalidateAttachmentIndex(root)
             }
-            ImageUpload.Attachment(fileName)
+            invalidateAttachmentIndex(root)
+            ImageUpload.Attachment(resolveAttachmentReference(root, notePath, file))
         }
     }
 
@@ -238,13 +246,87 @@ private fun isValidFolderSegment(segment: String): Boolean =
         segment.length <= MAX_FOLDER_SEGMENT_LENGTH &&
         segment.none { it in FORBIDDEN_FOLDER_CHARS || it.isISOControl() }
 
-private fun readAttachmentFolderPath(root: File): String? {
+private fun readAttachmentFolderPath(root: File): String? =
+    readObsidianAppJsonString(root, "attachmentFolderPath")
+
+private fun readObsidianAppJsonString(root: File, key: String): String? {
     val config = File(root, ".obsidian/app.json")
     if (!config.isFile || Files.isSymbolicLink(config.toPath()) || config.length() > MAX_OBSIDIAN_APP_JSON_BYTES) {
         return null
     }
     val text = runCatching { config.readText(Charsets.UTF_8) }.getOrNull() ?: return null
-    return extractTopLevelJsonString(text, "attachmentFolderPath")
+    return extractTopLevelJsonString(text, key)
+}
+
+internal fun selectAttachmentFile(
+    root: File,
+    targetDir: File,
+    stem: String,
+    extension: String,
+    bytes: ByteArray,
+): Pair<File, Boolean> {
+    val canonicalRoot = root.canonicalFile
+    val rootPath = canonicalRoot.toPath()
+    for (suffixIndex in 0..10_000) {
+        val candidateName = if (suffixIndex == 0) "$stem.$extension" else "$stem $suffixIndex.$extension"
+        val raw = File(targetDir, candidateName)
+        if (Files.isSymbolicLink(raw.toPath())) continue
+        val canonical = raw.canonicalFile
+        if (!canonical.toPath().startsWith(rootPath)) {
+            throw ImageUploadException(ImageUploadFailure.StorageFailed)
+        }
+        if (!Files.exists(raw.toPath(), NOFOLLOW_LINKS)) {
+            return canonical to true
+        }
+        if (raw.isFile &&
+            raw.length() == bytes.size.toLong() &&
+            runCatching { raw.readBytes().contentEquals(bytes) }.getOrDefault(false)
+        ) {
+            return canonical to false
+        }
+    }
+    throw ImageUploadException(ImageUploadFailure.StorageFailed)
+}
+
+internal fun resolveAttachmentReference(
+    root: File,
+    notePath: NotePath?,
+    attachmentFile: File,
+): String {
+    val canonicalRoot = root.canonicalFile
+    val canonicalFile = attachmentFile.canonicalFile
+    val noteFile = notePath?.let { File(canonicalRoot, it.relativePath) }
+    val probeNoteFile = noteFile ?: File(canonicalRoot, "__probe__.md")
+    fun resolvesToTarget(ref: String): Boolean =
+        (resolveImageSource(canonicalRoot.path, probeNoteFile.path, ref) as? ImageSource.Local)?.path == canonicalFile.path
+
+    val bare = encodeWikiImagePath(canonicalFile.name)
+    val vaultRel = encodeWikiImagePath(canonicalFile.relativeTo(canonicalRoot).invariantSeparatorsPath)
+    val noteDir = noteFile?.parentFile?.canonicalFile
+    val rawNoteRel = noteDir?.let { canonicalFile.relativeTo(it).invariantSeparatorsPath }
+    val noteRel = rawNoteRel?.let(::encodeWikiImagePath)
+    val explicitNoteRel = rawNoteRel?.let { encodeWikiImagePath(if ('/' !in it && !it.startsWith('.')) "./$it" else it) }
+    return when (readObsidianAppJsonString(canonicalRoot, "newLinkFormat")?.trim()?.lowercase()) {
+        "relative" -> when {
+            noteRel != null && resolvesToTarget(noteRel) -> noteRel
+            explicitNoteRel != null && resolvesToTarget(explicitNoteRel) -> explicitNoteRel
+            resolvesToTarget(vaultRel) -> vaultRel
+            else -> bare
+        }
+        "absolute" -> when {
+            resolvesToTarget(vaultRel) -> vaultRel
+            explicitNoteRel != null && resolvesToTarget(explicitNoteRel) -> explicitNoteRel
+            noteRel != null && resolvesToTarget(noteRel) -> noteRel
+            else -> vaultRel
+        }
+        else -> when {
+            !hasOtherAttachmentNamed(canonicalRoot, canonicalFile) && resolvesToTarget(bare) -> bare
+            resolvesToTarget(vaultRel) -> vaultRel
+            noteRel != null && resolvesToTarget(noteRel) -> noteRel
+            explicitNoteRel != null && resolvesToTarget(explicitNoteRel) -> explicitNoteRel
+            else -> vaultRel
+        }
+    }
 }
 
 internal fun extractTopLevelJsonString(json: String, targetKey: String): String? {

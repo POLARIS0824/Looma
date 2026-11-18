@@ -41,8 +41,11 @@ internal fun resolveImageSource(
             if (!path.startsWith(rootPath) || path == rootPath || !canonical.isFile) return@runCatching null
             if (canonical.extension.lowercase() !in LOCAL_IMAGE_EXTENSIONS) return@runCatching null
             val relative = rootPath.relativize(path)
-            if ((0 until relative.nameCount - 1).any { relative.getName(it).toString().startsWith('.') }) {
-                return@runCatching null
+            if (relative.nameCount > 1) {
+                val topSegment = relative.getName(0).toString()
+                if (topSegment.equals(".looma", ignoreCase = true) || topSegment.equals(".trash", ignoreCase = true)) {
+                    return@runCatching null
+                }
             }
             ImageSource.Local(canonical.absolutePath, size)
         }.getOrNull()
@@ -61,6 +64,18 @@ internal fun invalidateAttachmentIndex(vaultRoot: File) {
     val root = runCatching { vaultRoot.canonicalFile }.getOrElse { vaultRoot }
     synchronized(attachmentIndexes) {
         attachmentIndexes.remove(root)
+    }
+}
+
+internal fun encodeWikiImagePath(path: String): String = path.replace("%", "%25")
+    .replace("#", "%23").replace("|", "%7C").replace("[", "%5B").replace("]", "%5D")
+    .replace("\r", "%0D").replace("\n", "%0A")
+
+internal fun hasOtherAttachmentNamed(vaultRoot: File, targetFile: File, refresh: Boolean = false): Boolean {
+    val root = runCatching { vaultRoot.canonicalFile }.getOrElse { return false }
+    val canonicalTarget = runCatching { targetFile.canonicalFile }.getOrElse { return false }
+    return attachmentIndex(root).find(canonicalTarget.name, refresh).any { candidate ->
+        runCatching { candidate.canonicalFile }.getOrNull() != canonicalTarget
     }
 }
 
