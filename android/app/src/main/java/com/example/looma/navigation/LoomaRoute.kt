@@ -2,6 +2,7 @@ package com.example.looma.navigation
 
 import androidx.navigation3.runtime.NavKey
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.feature.vault.VaultSelection
 import com.example.looma.feature.vault.VaultSetupUiState
 import com.example.looma.feature.vault.VaultState
@@ -29,12 +30,14 @@ sealed interface LoomaRoute : NavKey {
         val isNew: Boolean = false,
         val visitId: String = UUID.randomUUID().toString(),
         val retargetVersion: Long = 0,
+        val passage: PassageAnchor? = null,
     ) : LoomaRoute {
         companion object {
-            fun from(id: NoteId, isNew: Boolean = false): Note = Note(
+            fun from(id: NoteId, isNew: Boolean = false, passage: PassageAnchor? = null): Note = Note(
                 vaultId = id.vaultId.value,
                 relativePath = id.path.relativePath,
                 isNew = isNew,
+                passage = passage,
             )
         }
     }

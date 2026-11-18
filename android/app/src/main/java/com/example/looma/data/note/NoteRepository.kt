@@ -153,6 +153,10 @@ class NoteRepository internal constructor(
         parser.note(store.readNote(id))
     }
 
+    internal suspend fun readSearchSource(id: NoteId): StoredMarkdown = read(id.vaultId) { _, store ->
+        store.readNote(id)
+    }
+
     suspend fun imageContext(id: NoteId): ImageContext? = read(id.vaultId) { _, store -> store.imageContext(id) }
 
     suspend fun openNote(id: NoteId): Note = write(id.vaultId) { _, store ->

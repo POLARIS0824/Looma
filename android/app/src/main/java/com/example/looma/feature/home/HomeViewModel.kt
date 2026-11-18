@@ -12,8 +12,11 @@ import com.example.looma.data.note.RelocationStalledException
 import com.example.looma.data.note.VaultFileException
 import com.example.looma.data.note.VaultFileFailure
 import com.example.looma.data.search.SearchHistoryRepository
+import com.example.looma.data.search.SemanticModelMissingException
+import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.StalledRelocation
+import com.example.looma.domain.search.SearchMatch
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -30,11 +33,13 @@ class HomeViewModel(
     private val noteRepository: NoteRepository,
     private val folderRepository: FolderRepository,
     private val searchHistoryRepository: SearchHistoryRepository,
+    private val semanticSearchRepository: SemanticSearchRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     private var refreshJob: Job? = null
     private var searchJob: Job? = null
+    private var modelJob: Job? = null
     private var revealGeneration = 0L
     private var index: HomeVaultIndex = HomeVaultIndex.Empty
 
@@ -146,6 +151,13 @@ class HomeViewModel(
         _uiState.update { it.copy(query = value, searchResults = emptyList(), isSearching = value.isNotBlank()) }
         if (value.isBlank()) {
             clearSearch()
+            _uiState.update {
+                if (it.semanticSearch is HomeSemanticSearch.Indexing || it.semanticSearch is HomeSemanticSearch.SearchFailed) {
+                    it.copy(semanticSearch = HomeSemanticSearch.Ready)
+                } else {
+                    it
+                }
+            }
         } else if (!_uiState.value.isLoading) {
             scheduleSearch(value)
         }
@@ -155,10 +167,86 @@ class HomeViewModel(
         searchJob?.cancel()
     }
 
+    fun setSemanticSearch(enabled: Boolean) {
+        clearSearch()
+        modelJob?.cancel()
+        val status = when {
+            !enabled -> HomeSemanticSearch.Off
+            !semanticSearchRepository.supported -> HomeSemanticSearch.Unsupported
+            else -> HomeSemanticSearch.CheckingModel
+        }
+        _uiState.update { it.copy(semanticSearch = status, searchResults = emptyList(), isSearching = false) }
+        when (status) {
+            HomeSemanticSearch.Off -> {
+                unloadSemanticModel()
+                scheduleSearch(_uiState.value.query)
+            }
+            HomeSemanticSearch.CheckingModel -> {
+                modelJob = viewModelScope.launch {
+                    val available = semanticSearchRepository.hasModel()
+                    _uiState.update {
+                        it.copy(semanticSearch = if (available) HomeSemanticSearch.Ready else HomeSemanticSearch.NeedsModel)
+                    }
+                    if (available && !_uiState.value.isLoading) scheduleSearch(_uiState.value.query)
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    fun downloadSemanticModel() {
+        val status = _uiState.value.semanticSearch
+        if (status != HomeSemanticSearch.NeedsModel && status != HomeSemanticSearch.DownloadFailed) return
+        _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.Downloading(0), isSearching = false) }
+        modelJob = viewModelScope.launch {
+            try {
+                semanticSearchRepository.downloadModel { percent ->
+                    _uiState.update {
+                        if (it.semanticSearch is HomeSemanticSearch.Downloading) {
+                            it.copy(semanticSearch = HomeSemanticSearch.Downloading(percent))
+                        } else {
+                            it
+                        }
+                    }
+                }
+                _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.Ready) }
+                if (!_uiState.value.isLoading) scheduleSearch(_uiState.value.query, debounce = false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.DownloadFailed) }
+            }
+        }
+    }
+
+    fun retrySemanticSearch() {
+        if (_uiState.value.semanticSearch == HomeSemanticSearch.SearchFailed) {
+            scheduleSearch(_uiState.value.query, debounce = false)
+        }
+    }
+
+    fun onSearchClosed() {
+        setQuery("")
+        if (_uiState.value.semanticSearch is HomeSemanticSearch.Downloading) {
+            modelJob?.cancel()
+            _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.NeedsModel) }
+        }
+        unloadSemanticModel()
+    }
+
+    fun unloadSemanticModel() {
+        viewModelScope.launch { semanticSearchRepository.releaseModel() }
+    }
+
     private fun scheduleSearch(value: String, debounce: Boolean = true) {
         searchJob?.cancel()
         val keyword = value.trim()
         if (keyword.isEmpty()) return
+        val semantic = _uiState.value.semanticSearch
+        if (semantic != HomeSemanticSearch.Off) {
+            if (semantic.canSearch) scheduleSemanticSearch(value, keyword, debounce)
+            return
+        }
         _uiState.update { it.copy(isSearching = true) }
         searchJob = viewModelScope.launch {
             if (debounce) delay(SEARCH_DEBOUNCE_MS)
@@ -196,6 +284,50 @@ class HomeViewModel(
         }
     }
 
+    private fun scheduleSemanticSearch(value: String, keyword: String, debounce: Boolean) {
+        _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.Ready, isSearching = true) }
+        searchJob = viewModelScope.launch {
+            if (debounce) delay(SEARCH_DEBOUNCE_MS)
+            val notes = _uiState.value.notes.associateBy { it.id }
+            val (results, status) = try {
+                semanticSearchRepository.search(keyword, notes.values.map { it.toSearchableNote() }) { completed, total ->
+                    _uiState.update {
+                        if (it.query == value && it.semanticSearch.canSearch) {
+                            it.copy(semanticSearch = HomeSemanticSearch.Indexing(completed, total))
+                        } else {
+                            it
+                        }
+                    }
+                }.mapNotNull { hit ->
+                    val note = notes[hit.id] ?: return@mapNotNull null
+                    HomeSearchResult(
+                        note = note,
+                        titleMatch = null,
+                        tagMatches = emptyList(),
+                        matches = listOf(SearchMatch(hit.excerpt, emptyList())),
+                        passage = hit.anchor,
+                        section = hit.section,
+                    )
+                } to HomeSemanticSearch.Ready
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: SemanticModelMissingException) {
+                emptyList<HomeSearchResult>() to HomeSemanticSearch.NeedsModel
+            } catch (_: Exception) {
+                emptyList<HomeSearchResult>() to HomeSemanticSearch.SearchFailed
+            } catch (_: LinkageError) {
+                emptyList<HomeSearchResult>() to HomeSemanticSearch.Unsupported
+            }
+            _uiState.update {
+                if (it.query == value && it.semanticSearch.canSearch) {
+                    it.copy(searchResults = results, semanticSearch = status, isSearching = false)
+                } else {
+                    it
+                }
+            }
+        }
+    }
+
     fun recordSearch() {
         val query = _uiState.value.query
         if (query.isBlank()) return
@@ -216,7 +348,7 @@ class HomeViewModel(
         it.copy(
             sort = sort,
             notes = it.notes.orderedBy(sort),
-            searchResults = it.searchResults.orderedBy(sort),
+            searchResults = if (it.semanticSearch == HomeSemanticSearch.Off) it.searchResults.orderedBy(sort) else it.searchResults,
             files = index.files(it.files.path, sort),
             selectedNotes = it.selectedNotes.orderedBy(sort),
         )
@@ -652,12 +784,14 @@ class HomeViewModel(
             noteRepository: NoteRepository,
             folderRepository: FolderRepository,
             searchHistoryRepository: SearchHistoryRepository,
+            semanticSearchRepository: SemanticSearchRepository,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 HomeViewModel(
                     noteRepository,
                     folderRepository,
                     searchHistoryRepository,
+                    semanticSearchRepository,
                 )
             }
         }

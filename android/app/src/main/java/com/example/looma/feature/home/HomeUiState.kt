@@ -126,6 +126,20 @@ internal fun HomeUiState.acknowledgeReveal(request: RecentReveal): HomeUiState =
 
 enum class HomeSort { LAST_MODIFIED, TITLE, TITLE_DESCENDING }
 
+sealed interface HomeSemanticSearch {
+    data object Off : HomeSemanticSearch
+    data object Unsupported : HomeSemanticSearch
+    data object CheckingModel : HomeSemanticSearch
+    data object NeedsModel : HomeSemanticSearch
+    data class Downloading(val percent: Int) : HomeSemanticSearch
+    data object DownloadFailed : HomeSemanticSearch
+    data object Ready : HomeSemanticSearch
+    data class Indexing(val completed: Int, val total: Int) : HomeSemanticSearch
+    data object SearchFailed : HomeSemanticSearch
+
+    val canSearch: Boolean get() = this is Ready || this is Indexing || this is SearchFailed
+}
+
 data class HomeUiState(
     val vaultId: VaultId? = null,
     val vaultName: String = "Looma",
@@ -134,6 +148,7 @@ data class HomeUiState(
     val searchResults: List<HomeSearchResult> = emptyList(),
     val query: String = "",
     val isSearching: Boolean = false,
+    val semanticSearch: HomeSemanticSearch = HomeSemanticSearch.Off,
     val recentSearches: List<String> = emptyList(),
     val isGridMode: Boolean = true,
     val sort: HomeSort = HomeSort.LAST_MODIFIED,

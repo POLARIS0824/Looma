@@ -20,6 +20,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.items as gridItems
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
@@ -42,8 +44,10 @@ import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SearchBarScrollBehavior
 import androidx.compose.material3.SearchBarValue
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
@@ -70,12 +74,13 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
-import com.example.looma.domain.model.NoteId
 import com.example.looma.feature.home.HomeSearchResult
+import com.example.looma.feature.home.HomeSemanticSearch
 import com.example.looma.feature.home.HomeUiState
 import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
@@ -94,10 +99,14 @@ internal fun HomeSearchBar(
     onToggleLayout: () -> Unit,
     onSortClick: () -> Unit,
     onSearchSubmit: () -> Unit,
-    onSearchResultClick: (NoteId) -> Unit,
+    onSearchResultClick: (HomeSearchResult) -> Unit,
     onMenuClick: () -> Unit,
     onAvatarClick: () -> Unit,
     homeVisible: Boolean = true,
+    onSemanticSearchToggle: (Boolean) -> Unit = {},
+    onDownloadSemanticModel: () -> Unit = {},
+    onRetrySemanticSearch: () -> Unit = {},
+    onSearchClosed: () -> Unit = {},
 ) {
     val textFieldState = rememberTextFieldState(initialText = state.query)
     val searchBarState = rememberSearchBarState()
@@ -154,6 +163,7 @@ internal fun HomeSearchBar(
             .collect {
                 hasAutoFocusedSearch = false
                 textFieldState.setTextAndPlaceCursorAtEnd("")
+                onSearchClosed()
             }
     }
 
@@ -332,22 +342,77 @@ internal fun HomeSearchBar(
                 progress = searchBarState.progress,
                 focusRequester = resultsFocusRequester,
             ) {
-                HomeSearchResults(
-                    query = state.query,
-                    results = state.searchResults,
-                    isGridMode = state.isGridMode,
-                    isSearching = state.isSearching,
-                    recentSearches = state.recentSearches,
-                    onNoteClick = { noteId ->
-                        hasAutoFocusedSearch = true
-                        keyboard?.hide()
-                        onSearchResultClick(noteId)
-                    },
-                    onRecentSearchClick = { query ->
-                        textFieldState.setTextAndPlaceCursorAtEnd(query)
-                    },
-                )
+                Column(Modifier.fillMaxSize()) {
+                    val semantic = state.semanticSearch
+                    SemanticSearchControls(
+                        state = semantic,
+                        onToggle = onSemanticSearchToggle,
+                        onDownload = onDownloadSemanticModel,
+                        onRetry = onRetrySemanticSearch,
+                    )
+                    if (semantic == HomeSemanticSearch.Off || semantic == HomeSemanticSearch.Ready) {
+                        HomeSearchResults(
+                            query = state.query,
+                            results = state.searchResults,
+                            isGridMode = state.isGridMode,
+                            isSearching = state.isSearching,
+                            recentSearches = state.recentSearches,
+                            semanticSearch = semantic == HomeSemanticSearch.Ready,
+                            onNoteClick = { result ->
+                                hasAutoFocusedSearch = true
+                                keyboard?.hide()
+                                onSearchResultClick(result)
+                            },
+                            onRecentSearchClick = { query ->
+                                textFieldState.setTextAndPlaceCursorAtEnd(query)
+                            },
+                        )
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun SemanticSearchControls(
+    state: HomeSemanticSearch,
+    onToggle: (Boolean) -> Unit,
+    onDownload: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val enabled = state != HomeSemanticSearch.Off
+    ListItem(
+        modifier = Modifier.toggleable(value = enabled, role = Role.Switch, onValueChange = onToggle),
+        trailingContent = { Switch(checked = enabled, onCheckedChange = null) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    ) {
+        Text(
+            text = stringResource(R.string.home_semantic_search),
+            style = LoomaTokens.type.body,
+            color = LoomaTokens.colors.title,
+        )
+    }
+    val message = when (state) {
+        HomeSemanticSearch.Off, HomeSemanticSearch.Ready -> return
+        HomeSemanticSearch.Unsupported -> stringResource(R.string.home_semantic_unsupported)
+        HomeSemanticSearch.CheckingModel -> stringResource(R.string.home_semantic_checking)
+        HomeSemanticSearch.NeedsModel -> stringResource(R.string.home_semantic_model_required)
+        HomeSemanticSearch.DownloadFailed -> stringResource(R.string.home_semantic_download_failed)
+        is HomeSemanticSearch.Downloading -> stringResource(R.string.home_semantic_downloading, state.percent)
+        is HomeSemanticSearch.Indexing -> stringResource(R.string.home_semantic_indexing, state.completed + 1, state.total)
+        HomeSemanticSearch.SearchFailed -> stringResource(R.string.home_semantic_search_failed)
+    }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(message, style = LoomaTokens.type.supporting, color = LoomaTokens.colors.muted)
+        when (state) {
+            HomeSemanticSearch.NeedsModel, HomeSemanticSearch.DownloadFailed -> TextButton(onClick = onDownload) {
+                Text(stringResource(R.string.home_semantic_download))
+            }
+            HomeSemanticSearch.SearchFailed -> TextButton(onClick = onRetry) {
+                Text(stringResource(R.string.home_semantic_retry))
+            }
+            else -> Unit
         }
     }
 }
@@ -437,10 +502,11 @@ internal fun HomeSearchResults(
     query: String,
     results: List<HomeSearchResult>,
     isGridMode: Boolean,
-    onNoteClick: (NoteId) -> Unit,
+    onNoteClick: (HomeSearchResult) -> Unit,
     recentSearches: List<String> = emptyList(),
     onRecentSearchClick: (String) -> Unit = {},
     isSearching: Boolean = false,
+    semanticSearch: Boolean = false,
 ) {
     when {
         query.isBlank() && recentSearches.isNotEmpty() -> LazyColumn(
@@ -475,7 +541,9 @@ internal fun HomeSearchResults(
             }
         }
 
-        query.isBlank() -> HomeSearchHint(stringResource(R.string.home_search_hint))
+        query.isBlank() -> HomeSearchHint(
+            stringResource(if (semanticSearch) R.string.home_semantic_hint else R.string.home_search_hint),
+        )
         isSearching -> Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
             DelayedLoadingIndicator(loading = true)
         }
@@ -493,7 +561,7 @@ internal fun HomeSearchResults(
                 HomeNoteCard(
                     note = result.note,
                     isSelected = false,
-                    onClick = { onNoteClick(result.id) },
+                    onClick = { onNoteClick(result) },
                     search = result,
                 )
             }

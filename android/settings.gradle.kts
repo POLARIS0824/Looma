@@ -29,4 +29,5 @@ rootProject.name = "Looma"
 include(":app")
 include(":markdown-benchmark")
 include(":embedding-benchmark")
+include(":embedding")
  

@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
                     noteRepository = container.noteRepository,
                     folderRepository = container.folderRepository,
                     searchHistoryRepository = container.searchHistoryRepository,
+                    semanticSearchRepository = container.semanticSearchRepository,
                     settingsRepository = container.settingsRepository,
                     imageUploader = container.imageUploader,
                     vaultSetupViewModel = vaultSetupViewModel,

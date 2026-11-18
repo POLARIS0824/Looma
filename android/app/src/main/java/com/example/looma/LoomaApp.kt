@@ -7,6 +7,7 @@ import com.example.looma.data.index.NoteIndexDatabase
 import com.example.looma.data.index.RoomNoteIndex
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.search.SearchHistoryRepository
+import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.data.vault.VaultRepository
 import coil3.ImageLoader
@@ -23,6 +24,7 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val searchHistoryRepository by lazy {
         SearchHistoryRepository(vaultRepository, indexDatabase.searchHistoryDao())
     }
+    val semanticSearchRepository by lazy { SemanticSearchRepository(this, noteRepository) }
     val folderRepository by lazy { FolderRepository(noteRepository) }
     val settingsRepository by lazy { SettingsRepository(this) }
     val imageUploader by lazy { ImageUploader(this, vaultRepository) }

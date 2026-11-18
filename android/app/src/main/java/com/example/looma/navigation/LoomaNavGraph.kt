@@ -49,6 +49,7 @@ import com.example.looma.data.folder.FolderRepository
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.search.SearchHistoryRepository
+import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
@@ -78,6 +79,7 @@ fun LoomaNavGraph(
     noteRepository: NoteRepository,
     folderRepository: FolderRepository,
     searchHistoryRepository: SearchHistoryRepository,
+    semanticSearchRepository: SemanticSearchRepository,
     settingsRepository: SettingsRepository,
     imageUploader: ImageUploader,
     vaultSetupViewModel: VaultSetupViewModel,
@@ -164,6 +166,7 @@ fun LoomaNavGraph(
                             noteRepository = noteRepository,
                             folderRepository = folderRepository,
                             searchHistoryRepository = searchHistoryRepository,
+                            semanticSearchRepository = semanticSearchRepository,
                         ),
                     )
                     val homeState by homeViewModel.uiState.collectAsStateWithLifecycle()
@@ -174,6 +177,9 @@ fun LoomaNavGraph(
                         viewModel = homeViewModel,
                         loadingFeedbackEnabled = launchGate.isReleased,
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
+                        onOpenSearchResult = { result ->
+                            backStack.add(LoomaRoute.Note.from(result.id, passage = result.passage))
+                        },
                         onCreatedNote = { noteId ->
                             backStack.add(LoomaRoute.Note.from(noteId, isNew = true))
                         },
@@ -254,6 +260,7 @@ fun LoomaNavGraph(
                         onTitleFocusChange = { titleFocused.value = it },
                         noteId = noteId,
                         retargetVersion = route.retargetVersion,
+                        passage = route.passage,
                         onNavigateUp = navigateUp,
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
                         onRenameNavigate = { from, to ->
