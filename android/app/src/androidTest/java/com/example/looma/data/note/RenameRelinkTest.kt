@@ -66,7 +66,7 @@ class RenameRelinkTest {
     fun renamingRewritesEveryReferrerAndTheIndexFollows() = runBlocking {
         val outcome = repository.renameNote(id("Target.md"), "Renamed")
 
-        assertEquals(1, outcome.linksUpdated)
+        assertEquals(2, outcome.linksUpdated)
         assertEquals(0, outcome.linksFailed)
         assertEquals("Renamed", outcome.note.id.path.relativePath.substringAfterLast('/').removeSuffix(".md"))
 
