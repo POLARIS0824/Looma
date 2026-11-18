@@ -421,6 +421,65 @@ class VaultRelocationTest {
         assertEquals(changes.changedNotes.distinct(), changes.changedNotes)
     }
 
+    @Test
+    fun `case-only note rename completes and recovers across every boundary`() {
+        note("java.md", "[[java]] body")
+        val events = mutableListOf<String>()
+        relocation.afterIo = { events += it }
+        val direct = relocation.renameNote(id("java.md"), "Java")
+        assertEquals(NotePath("Java.md"), direct.path)
+        assertTrue("Java.md" in root.list().orEmpty())
+        assertFalse("java.md" in root.list().orEmpty())
+        assertTrue(events.count { it == "move" } == 2)
+
+        for (boundary in events.indices) {
+            setUp()
+            note("java.md", "[[java]] body")
+            var current = 0
+            relocation.afterIo = { if (current++ == boundary) throw IOException("injected boundary $boundary") }
+            assertThrows(IOException::class.java) { relocation.renameNote(id("java.md"), "Java") }
+
+            val recovered = VaultRelocation(vault)
+            assertNull(recovered.recoverPending().stalled)
+            assertTrue("Java.md" in root.list().orEmpty())
+            assertFalse("java.md" in root.list().orEmpty())
+            assertEquals("[[java]] body", file("Java.md").readText())
+            assertNoPendingJournal()
+        }
+    }
+
+    @Test
+    fun `case-only folder rename updates member paths, keeps stable links, and recovers across every boundary`() {
+        note("docs/a.md", "A")
+        note("ref.md", "[[docs/a]]")
+        val events = mutableListOf<String>()
+        relocation.afterIo = { events += it }
+        val result = relocation.renameFolder(FolderPath("docs"), "Docs")
+        assertEquals(FolderPath("Docs"), result.path)
+        assertTrue("Docs" in root.list().orEmpty())
+        assertFalse("docs" in root.list().orEmpty())
+        assertEquals("[[docs/a]]", file("ref.md").readText())
+        assertEquals(listOf(NotePath("docs/a.md")), result.changes.removedNotes)
+        assertEquals(listOf(NotePath("Docs/a.md")), result.changes.changedNotes)
+
+        for (boundary in events.indices) {
+            setUp()
+            note("docs/a.md", "A")
+            note("ref.md", "[[docs/a]]")
+            var current = 0
+            relocation.afterIo = { if (current++ == boundary) throw IOException("injected boundary $boundary") }
+            assertThrows(IOException::class.java) { relocation.renameFolder(FolderPath("docs"), "Docs") }
+
+            val recovered = VaultRelocation(vault)
+            assertNull(recovered.recoverPending().stalled)
+            assertTrue("Docs" in root.list().orEmpty())
+            assertFalse("docs" in root.list().orEmpty())
+            assertEquals("A", file("Docs/a.md").readText())
+            assertEquals("[[docs/a]]", file("ref.md").readText())
+            assertNoPendingJournal()
+        }
+    }
+
     private fun seedRecoverableMove() {
         note("old.md", "[[old]] own")
         note("ref.md", "[[old]] ref")

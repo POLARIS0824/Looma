@@ -7,6 +7,9 @@ value class NotePath(
     val relativePath: String
 )
 
+fun String.removeMarkdownSuffix(): String =
+    if (endsWith(".md", ignoreCase = true)) dropLast(3) else this
+
 data class NoteId(
     val vaultId: VaultId,
     val path: NotePath,

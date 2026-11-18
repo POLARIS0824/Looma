@@ -381,4 +381,29 @@ class VaultFileOpsTest {
         assertTrue(File(root, "笔记.md").isFile)
     }
 
+    @Test
+    fun `rename changes case for notes and folders and strips uppercase md suffix`() {
+        setUp()
+        val noteFile = note("java.md", "# Java\n")
+
+        val renamed = ops.rename(noteFile, "Java")
+
+        assertEquals("Java.md", renamed.name)
+        assertTrue("Java.md" in root.list().orEmpty())
+        assertFalse("java.md" in root.list().orEmpty())
+
+        note("docs/nested.md", "hi")
+        val renamedFolder = ops.renameFolder(FolderPath("docs"), "Docs")
+        assertEquals(FolderPath("Docs"), renamedFolder)
+        assertTrue("Docs" in root.list().orEmpty())
+        assertFalse("docs" in root.list().orEmpty())
+        assertTrue(File(root, "Docs/nested.md").isFile)
+
+        val upper = note("README.MD", "readme")
+        ops.createFolder(FolderPath.Root, "Archive")
+        val moved = ops.move(upper, FolderPath("Archive"))
+        assertEquals("README.md", moved.name)
+        assertEquals("Note", safeFilename("Note.MD", "Fallback"))
+    }
+
 }

@@ -11,6 +11,7 @@ import com.example.looma.domain.model.NoteWriteMode
 import com.example.looma.domain.model.TrashedNote
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultId
+import com.example.looma.domain.model.removeMarkdownSuffix
 import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -361,7 +362,7 @@ internal fun <T> bulkOverTrash(
 }
 
 private fun NotePath.displayName(): String =
-    relativePath.substringAfterLast('/').removeSuffix(".md").ifBlank { relativePath }
+    relativePath.substringAfterLast('/').removeMarkdownSuffix().ifBlank { relativePath }
 
 class NoteChangedExternallyException(val actualRevision: NoteRevision) : IOException("note changed outside the app")
 

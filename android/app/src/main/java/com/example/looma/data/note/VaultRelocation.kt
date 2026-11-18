@@ -7,6 +7,7 @@ import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.domain.model.Vault
+import com.example.looma.domain.model.removeMarkdownSuffix
 import com.example.looma.domain.wiki.WikiGraph
 import com.example.looma.domain.wiki.WikiNote
 import java.io.ByteArrayOutputStream
@@ -264,7 +265,7 @@ internal class VaultRelocation(private val vault: Vault) {
             val original = before.resolve(target, NotePath(oldPath)) ?: return@retarget null
             val intended = NoteId(vault.id, NotePath(paths.getValue(original.path.relativePath)))
             if (after.resolve(target, NotePath(newPath)) == intended) return@retarget null
-            val full = intended.path.relativePath.dropLast(3)
+            val full = intended.path.relativePath.removeMarkdownSuffix()
             if (WikiLinks.occurrences("[[$full]]").singleOrNull()?.target != full || after.resolve(full, NotePath(newPath)) != intended) {
                 failed++
                 return@retarget null
@@ -323,22 +324,30 @@ internal class VaultRelocation(private val vault: Vault) {
         return result
     }
 
-    private fun checkState(plan: Plan): List<Boolean> {
+    private fun checkState(plan: Plan, journalId: String? = null): List<Boolean> {
+        val unmovedBases = ArrayList<String>(plan.moves.size)
         val moved = plan.moves.map { move ->
             val source = safeFile(move.source)
             val destination = safeFile(move.destination)
-            val applied = when {
-                exists(source) && !exists(destination) -> false
-                !exists(source) && exists(destination) -> true
+            val hop = if (journalId != null && isCaseOnlyMove(move)) caseHopFile(source, journalId) else null
+            val sourceExists = exactExists(source)
+            val destinationExists = exactExists(destination)
+            val hopExists = hop != null && exactExists(hop)
+            val currentRoot = when {
+                sourceExists && !destinationExists && !hopExists -> source
+                hop != null && !sourceExists && !destinationExists && hopExists -> hop
+                !sourceExists && destinationExists && !hopExists -> destination
                 else -> conflict(source)
             }
-            val current = inventory(if (applied) destination else source)
-            if (current.map { it.path } != move.members.map { it.path }) conflict(if (applied) destination else source)
+            val applied = currentRoot === destination
+            unmovedBases += if (hop != null && hopExists) relative(hop) else move.source
+            val current = inventory(currentRoot)
+            if (current.map { it.path } != move.members.map { it.path }) conflict(currentRoot)
             current.zip(move.members).forEach { (actual, expected) ->
                 val path = join(move.destination, expected.path)
                 val replacement = plan.writes.firstOrNull { it.path == path }
                 if (actual.hash != expected.hash && !(applied && replacement != null && actual.hash == replacement.afterHash)) {
-                    conflict(safeFile(path))
+                    conflict(safeFile(join(relative(currentRoot), expected.path)))
                 }
             }
             applied
@@ -346,7 +355,7 @@ internal class VaultRelocation(private val vault: Vault) {
         for (write in plan.writes) {
             val index = plan.moves.indexOfFirst { write.path == it.destination || write.path.startsWith("${it.destination}/") }
             val currentPath = if (index >= 0 && !moved[index]) {
-                plan.moves[index].source + write.path.removePrefix(plan.moves[index].destination)
+                unmovedBases[index] + write.path.removePrefix(plan.moves[index].destination)
             } else write.path
             val file = safeFile(currentPath)
             val hash = fileHash(file)
@@ -362,7 +371,7 @@ internal class VaultRelocation(private val vault: Vault) {
             if (hash(before) != write.beforeHash || hash(after) != write.afterHash) conflict(journal)
             after
         }
-        checkState(plan)
+        checkState(plan, journal.name)
         var progress = 0
         for (path in plan.directories) {
             val directory = safeFile(path)
@@ -375,9 +384,25 @@ internal class VaultRelocation(private val vault: Vault) {
         for (move in plan.moves) {
             val source = safeFile(move.source)
             val destination = safeFile(move.destination)
-            if (exists(source)) {
-                checkState(plan)
-                if (exists(destination)) conflict(destination)
+            if (isCaseOnlyMove(move)) {
+                val hop = caseHopFile(source, journal.name)
+                if (exactExists(source)) {
+                    checkState(plan, journal.name)
+                    if (exactExists(destination) || exactExists(hop)) conflict(destination)
+                    Files.move(source.toPath(), hop.toPath())
+                    source.parentFile?.let(::syncDirectory)
+                    afterIo("move")
+                }
+                if (exactExists(hop)) {
+                    checkState(plan, journal.name)
+                    if (exactExists(destination)) conflict(destination)
+                    Files.move(hop.toPath(), destination.toPath())
+                    destination.parentFile?.let(::syncDirectory)
+                    afterIo("move")
+                }
+            } else if (exactExists(source)) {
+                checkState(plan, journal.name)
+                if (exactExists(destination)) conflict(destination)
                 Files.move(source.toPath(), destination.toPath())
                 source.parentFile?.let(::syncDirectory)
                 if (source.parentFile != destination.parentFile) destination.parentFile?.let(::syncDirectory)
@@ -403,7 +428,7 @@ internal class VaultRelocation(private val vault: Vault) {
             writeDurably(File(journal, "progress"), (++progress).toString().toByteArray())
             afterIo("progress")
         }
-        checkState(plan)
+        checkState(plan, journal.name)
         writeDurably(File(journal, "completed"), hash(manifest).toByteArray())
         afterIo("complete")
         cleanJournal(journal, plan, manifest)
@@ -554,12 +579,31 @@ internal class VaultRelocation(private val vault: Vault) {
         var file = root
         for (component in components) {
             file = File(file, component)
-            if (Files.isSymbolicLink(file.toPath()) || file.canonicalFile != file.absoluteFile) {
+            if (Files.isSymbolicLink(file.toPath()) || !file.canonicalFile.path.equals(file.absoluteFile.path, ignoreCase = true)) {
                 throw VaultFileException(VaultFileFailure.INVALID_PATH)
             }
         }
-        if (!file.toPath().startsWith(root.toPath()) || file == root) throw VaultFileException(VaultFileFailure.INVALID_PATH)
+        if (!file.canonicalFile.toPath().startsWith(root.toPath()) || file.canonicalFile == root) throw VaultFileException(VaultFileFailure.INVALID_PATH)
         return file
+    }
+
+    private fun isCaseOnlyMove(move: Move): Boolean =
+        move.source != move.destination && move.source.equals(move.destination, ignoreCase = true)
+
+    private fun caseHopFile(source: File, journalId: String): File =
+        File(source.parentFile, ".looma-case-$journalId")
+
+    private fun exactExists(file: File): Boolean {
+        val rel = relative(file)
+        if (rel.isEmpty()) return false
+        var current = root
+        for (component in rel.split('/')) {
+            val entries = current.list() ?: return false
+            if (component !in entries) return false
+            current = File(current, component)
+            if (Files.isSymbolicLink(current.toPath())) return false
+        }
+        return Files.exists(current.toPath(), NOFOLLOW_LINKS)
     }
 
     private fun missingParents(file: File): List<String> {

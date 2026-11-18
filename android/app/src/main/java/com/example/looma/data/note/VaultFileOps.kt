@@ -2,6 +2,7 @@ package com.example.looma.data.note
 
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NotePath
+import com.example.looma.domain.model.removeMarkdownSuffix
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -99,9 +100,7 @@ internal class VaultFileOps(root: File) {
     fun renameFolder(path: FolderPath, newName: String): FolderPath {
         val directory = folderDirectory(path)
         val destination = renameFolderDestination(path, newName)
-        if (destination != directory && !directory.renameTo(destination)) {
-            throw VaultFileException(VaultFileFailure.IO)
-        }
+        moveReplacingCase(directory, destination)
         return FolderPath(destination.relativeTo(root).invariantSeparatorsPath)
     }
 
@@ -109,12 +108,17 @@ internal class VaultFileOps(root: File) {
         val directory = folderDirectory(path)
         if (directory == root) throw VaultFileException(VaultFileFailure.INVALID_PATH)
         if (!directory.isDirectory) throw VaultFileException(VaultFileFailure.NOT_FOUND)
-        val parent = directory.parentFile ?: throw VaultFileException(VaultFileFailure.INVALID_PATH)
-        val destination = File(parent, validateName(newName, folder = true)).canonicalFile
-        if (!isInside(destination) || destination == root) {
+        val parent = (directory.parentFile ?: throw VaultFileException(VaultFileFailure.INVALID_PATH)).canonicalFile
+        val destination = File(parent, validateName(newName, folder = true))
+        if (!isInside(destination) || destination.canonicalFile == root) {
             throw VaultFileException(VaultFileFailure.INVALID_PATH)
         }
-        if (destination != directory && destination.exists()) throw VaultFileException(VaultFileFailure.NAME_TAKEN)
+        if (destination.name == directory.name && parent.path == directory.parentFile?.canonicalFile?.path) {
+            return directory
+        }
+        if (destination.exists() && !isSameInode(directory, destination)) {
+            throw VaultFileException(VaultFileFailure.NAME_TAKEN)
+        }
         return destination
     }
 
@@ -181,15 +185,38 @@ internal class VaultFileOps(root: File) {
 
     fun rename(note: File, newName: String): File {
         val destination = renameDestination(note, newName)
-        if (destination != note && !note.renameTo(destination)) throw VaultFileException(VaultFileFailure.IO)
+        moveReplacingCase(note, destination)
         return destination
     }
 
     fun renameDestination(note: File, newName: String): File {
-        val destination = File(note.parentFile, "${validateName(newName, folder = false)}$MARKDOWN_SUFFIX").canonicalFile
+        val parent = (note.parentFile ?: root).canonicalFile
+        val destination = File(parent, "${validateName(newName, folder = false)}$MARKDOWN_SUFFIX")
         if (!isInside(destination)) throw VaultFileException(VaultFileFailure.INVALID_PATH)
-        if (destination != note && destination.exists()) throw VaultFileException(VaultFileFailure.NAME_TAKEN)
+        if (destination.name == note.name && parent.path == note.parentFile?.canonicalFile?.path) {
+            return note
+        }
+        if (destination.exists() && !isSameInode(note, destination)) {
+            throw VaultFileException(VaultFileFailure.NAME_TAKEN)
+        }
         return destination
+    }
+
+    private fun isSameInode(a: File, b: File): Boolean =
+        a.exists() && b.exists() && runCatching { Files.isSameFile(a.toPath(), b.toPath()) }.getOrDefault(false)
+
+    private fun moveReplacingCase(source: File, destination: File) {
+        if (source.path == destination.path) return
+        if (isSameInode(source, destination)) {
+            val hop = File(source.parentFile, ".looma-rename-${UUID.randomUUID()}")
+            if (!source.renameTo(hop)) throw VaultFileException(VaultFileFailure.IO)
+            if (!hop.renameTo(destination)) {
+                hop.renameTo(source)
+                throw VaultFileException(VaultFileFailure.IO)
+            }
+            return
+        }
+        if (!source.renameTo(destination)) throw VaultFileException(VaultFileFailure.IO)
     }
 
     fun ensureFolder(path: FolderPath): File {
@@ -335,7 +362,7 @@ internal class VaultFileOps(root: File) {
     }
 
     private fun uniqueIn(directory: File, filename: String): File {
-        val base = filename.removeSuffix(MARKDOWN_SUFFIX)
+        val base = filename.removeMarkdownSuffix()
         for (index in 0..MAX_DUPLICATES) {
             val name = if (index == 0) "$base$MARKDOWN_SUFFIX" else "$base ($index)$MARKDOWN_SUFFIX"
             val candidate = File(directory, name).canonicalFile
@@ -346,7 +373,7 @@ internal class VaultFileOps(root: File) {
     }
 
     private fun validateName(raw: String, folder: Boolean): String {
-        val name = raw.trim().removeSuffix(MARKDOWN_SUFFIX).trim(' ', '.')
+        val name = raw.trim().removeMarkdownSuffix().trim(' ', '.')
         if (name.isEmpty()) throw VaultFileException(VaultFileFailure.INVALID_NAME)
         if (name == "." || name == ".." || name.startsWith('.')) {
             throw VaultFileException(VaultFileFailure.INVALID_NAME)
@@ -391,7 +418,7 @@ internal class VaultFileOps(root: File) {
 
 internal fun safeFilename(raw: String, fallback: String): String {
     val name = raw.trim()
-        .removeSuffix(VaultFileOps.MARKDOWN_SUFFIX)
+        .removeMarkdownSuffix()
         .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
         .trim(' ', '.')
         .take(72)

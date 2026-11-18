@@ -105,4 +105,11 @@ class WikiGraphTest {
         assertTrue(WikiContext.Empty.resolve("anything") == null)
         assertTrue(WikiContext.Empty.backlinks.isEmpty())
     }
+
+    @Test
+    fun `wikiPathOf and wikiNameOf strip uppercase md suffix`() {
+        val path = NotePath("Sub/Guide.MD")
+        assertEquals("Sub/Guide", wikiPathOf(path))
+        assertEquals("Guide", wikiNameOf(path))
+    }
 }

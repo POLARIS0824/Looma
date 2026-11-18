@@ -7,6 +7,7 @@ import com.example.looma.domain.model.NoteProperties
 import com.example.looma.domain.model.NoteSummary
 import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.domain.model.VaultId
+import com.example.looma.domain.model.removeMarkdownSuffix
 import java.util.Locale
 
 sealed interface HomeError {
@@ -112,7 +113,7 @@ data class HomeNoteItem(
     val fileName: String
         get() = id.path.relativePath
             .substringAfterLast('/')
-            .removeSuffix(".md")
+            .removeMarkdownSuffix()
 }
 
 data class RecentReveal(val generation: Long, val noteId: NoteId)

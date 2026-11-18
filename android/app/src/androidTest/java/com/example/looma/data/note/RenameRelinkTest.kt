@@ -139,6 +139,24 @@ class RenameRelinkTest {
         assertTrue("Inbox/Nested.md" !in notes)
     }
 
+    @Test
+    fun caseOnlyRenameUpdatesFileAndIndexOnSharedStorage() = runBlocking {
+        repository.renameNote(id("Target.md"), "target")
+        assertTrue("target.md" in root.list().orEmpty())
+        assertTrue("Target.md" !in root.list().orEmpty())
+
+        repository.renameNote(id("target.md"), "TARGET")
+        assertTrue("TARGET.md" in root.list().orEmpty())
+        assertTrue("target.md" !in root.list().orEmpty())
+
+        val notes = repository.listNotes().items.map { it.summary.id.path.relativePath }
+        assertTrue("TARGET.md" in notes)
+        assertTrue("target.md" !in notes)
+        assertTrue("Target.md" !in notes)
+        val backlinks = repository.wikiContext(id("TARGET.md")).backlinks
+        assertEquals(listOf("From.md"), backlinks.map { it.id.path.relativePath })
+    }
+
     private fun id(path: String): NoteId {
         val vault = runBlocking { vaults.getCurrentVault() }!!
         return NoteId(vault.id, NotePath(path))

@@ -2,6 +2,7 @@ package com.example.looma.domain.wiki
 
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
+import com.example.looma.domain.model.removeMarkdownSuffix
 
 data class WikiNote(
     val id: NoteId,
@@ -100,7 +101,7 @@ fun normalizeWikiName(raw: String): String {
 }
 
 fun wikiPathOf(path: NotePath): String =
-    path.relativePath.replace('\\', '/').let { if (it.endsWith(".md")) it.dropLast(3) else it }
+    path.relativePath.replace('\\', '/').removeMarkdownSuffix()
 
 fun wikiNameOf(path: NotePath): String = wikiPathOf(path).substringAfterLast('/')
 
