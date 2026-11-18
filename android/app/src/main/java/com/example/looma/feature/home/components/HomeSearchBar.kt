@@ -17,6 +17,7 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,17 +50,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -97,6 +103,16 @@ internal fun HomeSearchBar(
     val searchBarState = rememberSearchBarState()
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val isSearchExpanded =
+        searchBarState.currentValue == SearchBarValue.Expanded ||
+            searchBarState.targetValue == SearchBarValue.Expanded
+
+    LaunchedEffect(isSearchExpanded, homeVisible) {
+        if (isSearchExpanded || !homeVisible) {
+            focusManager.clearFocus(force = true)
+        }
+    }
     val pageColor = LoomaTokens.colors.page
     val fieldColor = LoomaTokens.colors.searchField
     val sheetColor = lerp(fieldColor, pageColor, searchBarState.progress.coerceIn(0f, 1f))
@@ -130,10 +146,15 @@ internal fun HomeSearchBar(
             .collect(onQueryChange)
     }
 
+    var hasAutoFocusedSearch by rememberSaveable { mutableStateOf(false) }
+
     LaunchedEffect(searchBarState, textFieldState) {
         snapshotFlow { searchBarState.currentValue }
             .filter { it == SearchBarValue.Collapsed }
-            .collect { textFieldState.setTextAndPlaceCursorAtEnd("") }
+            .collect {
+                hasAutoFocusedSearch = false
+                textFieldState.setTextAndPlaceCursorAtEnd("")
+            }
     }
 
     val resultsFocusRequester = remember { FocusRequester() }
@@ -280,7 +301,27 @@ internal fun HomeSearchBar(
         ExpandedFullScreenSearchBar(
             state = searchBarState,
             inputField = {
-                Box(Modifier.padding(horizontal = 8.dp * searchBarState.progress)) {
+                var blockMountAutoFocus by remember { mutableStateOf(hasAutoFocusedSearch) }
+                LaunchedEffect(Unit) {
+                    hasAutoFocusedSearch = true
+                    withFrameNanos { }
+                    blockMountAutoFocus = false
+                }
+                Box(
+                    Modifier
+                        .padding(horizontal = 8.dp * searchBarState.progress)
+                        .focusProperties {
+                            onEnter = {
+                                if (blockMountAutoFocus) {
+                                    blockMountAutoFocus = false
+                                    if (!resultsFocusRequester.requestFocus()) {
+                                        cancelFocusChange()
+                                    }
+                                }
+                            }
+                        }
+                        .focusGroup(),
+                ) {
                     inputField()
                 }
             },
@@ -298,6 +339,7 @@ internal fun HomeSearchBar(
                     isSearching = state.isSearching,
                     recentSearches = state.recentSearches,
                     onNoteClick = { noteId ->
+                        hasAutoFocusedSearch = true
                         keyboard?.hide()
                         onSearchResultClick(noteId)
                     },
