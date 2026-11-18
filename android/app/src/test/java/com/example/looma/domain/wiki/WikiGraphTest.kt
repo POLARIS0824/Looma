@@ -129,4 +129,38 @@ class WikiGraphTest {
         assertEquals("A/Current.md", context.resolve("Current")?.path?.relativePath)
         assertNull(context.resolve("Missing"))
     }
+
+    @Test
+    fun `normalized duplicate filenames keep the same target before and after save`() {
+        val source = wikiNote("Source.md", "Source")
+        val upperExt = wikiNote("Topic.MD", "Upper")
+        val lowerExt = wikiNote("Topic.md", "Lower")
+        val subUpper = wikiNote("Sub/Item.md", "SubUpper")
+        val subLower = wikiNote("sub/item.md", "SubLower")
+        val notes = listOf(lowerExt, upperExt, subLower, subUpper, source)
+
+        val liveGraph = WikiGraph(notes, emptyMap())
+        val savedGraph = WikiGraph(notes, linksByPath("Source.md" to listOf("Topic", "Sub/Item", "sub/item")))
+        val liveContext = liveGraph.context(source.id)
+        val savedContext = savedGraph.context(source.id)
+
+        assertEquals("Topic.MD", liveGraph.resolve("Topic", source.id.path)?.path?.relativePath)
+        assertEquals(
+            liveGraph.resolve("Topic", source.id.path),
+            liveContext.resolve("Topic"),
+        )
+        assertEquals(
+            liveContext.resolve("Topic"),
+            savedContext.resolve("Topic"),
+        )
+        assertEquals("Sub/Item.md", liveContext.resolve("Sub/Item")?.path?.relativePath)
+        assertEquals(
+            liveContext.resolve("Sub/Item"),
+            savedContext.resolve("Sub/Item"),
+        )
+        assertEquals(
+            liveContext.resolve("sub/item"),
+            savedContext.resolve("sub/item"),
+        )
+    }
 }

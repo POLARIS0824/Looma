@@ -20,11 +20,13 @@ data class WikiContext(
     val linkables: List<WikiNote> = emptyList(),
     private val sourcePath: NotePath? = null,
     private val notes: List<WikiNote> = emptyList(),
+    private val byPath: Map<String, WikiNote>? = null,
+    private val byName: Map<String, List<WikiNote>>? = null,
 ) {
     fun resolve(target: String): NoteId? {
         targets[normalizeWikiName(target)]?.let { return it }
         val from = sourcePath ?: return null
-        return resolveWikiTarget(target, from, notes)
+        return resolveWikiTarget(target, from, notes, byPath, byName)
     }
 
     companion object {
@@ -43,7 +45,12 @@ class WikiGraph(
 
     init {
         val sorted = notes.sortedWith(compareBy({ it.id.path.relativePath.length }, { it.id.path.relativePath }))
-        byPath = sorted.associateBy { normalizeWikiName(it.id.path.relativePath) }
+        byPath = buildMap(sorted.size) {
+            for (note in sorted) {
+                val key = normalizeWikiName(note.id.path.relativePath)
+                if (key.isNotEmpty()) getOrPut(key) { note }
+            }
+        }
         byName = sorted.groupBy { baseNameOf(it.id.path) }
         all = sorted
         titles = notes.associate { it.id to it.title }
@@ -79,6 +86,8 @@ class WikiGraph(
             .toList(),
         sourcePath = note.path,
         notes = all,
+        byPath = byPath,
+        byName = byName,
     )
 
     companion object {

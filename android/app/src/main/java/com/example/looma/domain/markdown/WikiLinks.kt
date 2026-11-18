@@ -23,17 +23,26 @@ internal object WikiLinks {
         source: String,
         spans: List<MarkdownLinkSpan>,
         retarget: (String) -> String?,
+    ): String? = retargetSpans(source, spans) { retarget(it.target) }
+
+    fun retargetSpans(
+        source: String,
+        spans: List<MarkdownLinkSpan>,
+        retarget: (MarkdownLinkSpan) -> String?,
     ): String? {
         var result = source
         var changed = false
         for (span in spans.sortedByDescending { it.targetRange.first }) {
-            val replacement = retarget(span.target) ?: continue
+            val replacement = retarget(span) ?: continue
             if (replacement == result.substring(span.targetRange.first, span.targetRange.last + 1)) continue
             result = result.replaceRange(span.targetRange, replacement)
             changed = true
         }
         return result.takeIf { changed }
     }
+
+    fun imageSpan(text: String, start: Int, end: Int, base: Int): MarkdownLinkSpan? =
+        spanOf(text.substring(start + 3, end - 2), start until end, start + 3, base, embedded = true)
 
     private fun spanOf(
         match: MatchResult,
@@ -44,6 +53,10 @@ internal object WikiLinks {
 
         val inner = match.groupValues[2]
         val innerStart = match.range.first + match.groupValues[1].length + WIKI_OPEN.length
+        return spanOf(inner, match.range, innerStart, base, embedded = match.groupValues[1].isNotEmpty())
+    }
+
+    private fun spanOf(inner: String, range: IntRange, innerStart: Int, base: Int, embedded: Boolean): MarkdownLinkSpan? {
         val targetPart = inner.substringBefore(ALIAS_MARKER).substringBefore(HEADING_MARKER)
 
         val leading = targetPart.indexOfFirst { !it.isWhitespace() }
@@ -52,13 +65,13 @@ internal object WikiLinks {
 
         val targetStart = innerStart + leading + base
         return MarkdownLinkSpan(
-            range = (match.range.first + base) until (match.range.last + 1 + base),
+            range = (range.first + base) until (range.last + 1 + base),
             targetRange = targetStart until (targetStart + target.length),
             target = target,
             heading = inner.substringBefore(ALIAS_MARKER).substringAfter(HEADING_MARKER, "")
                 .trim().takeIf { it.isNotEmpty() },
             alias = inner.substringAfter(ALIAS_MARKER, "").trim().takeIf { it.isNotEmpty() },
-            embedded = match.groupValues[1].isNotEmpty(),
+            embedded = embedded,
         )
     }
 
