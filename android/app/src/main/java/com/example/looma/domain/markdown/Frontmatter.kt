@@ -119,25 +119,22 @@ internal fun parseFrontmatterTags(frontmatter: CharSequence): Set<String> {
     return tags
 }
 
-internal fun findInlineTags(body: String, excludedRanges: List<IntRange>): List<InlineTagSpan> =
-    INLINE_TAG_REGEX.findAll(body)
-        .mapNotNull { match ->
-            val start = match.range.first
-            if (start > 0 && !body[start - 1].isWhitespace()) return@mapNotNull null
-            val range = match.range
-            if (overlapsAny(range, excludedRanges)) return@mapNotNull null
-            val tag = match.groupValues[1]
-            if (!isValidObsidianTag(tag)) return@mapNotNull null
-            InlineTagSpan(range, tag)
-        }
-        .toList()
+internal fun findInlineTags(body: String, sortedExcludedRanges: List<IntRange>): List<InlineTagSpan> = buildList {
+    val exclusions = sortedExcludedRanges.iterator()
+    var excluded = if (exclusions.hasNext()) exclusions.next() else null
+    for (match in INLINE_TAG_REGEX.findAll(body)) {
+        val range = match.range
+        val start = range.first
+        if (start > 0 && !body[start - 1].isWhitespace()) continue
 
-private fun overlapsAny(range: IntRange, sortedExcluded: List<IntRange>): Boolean {
-    for (excluded in sortedExcluded) {
-        if (excluded.first > range.last) break
-        if (excluded.last >= range.first) return true
+        while (excluded != null && excluded.last < start) {
+            excluded = if (exclusions.hasNext()) exclusions.next() else null
+        }
+        if (excluded != null && excluded.first <= range.last) continue
+
+        val tag = match.groupValues[1]
+        if (isValidObsidianTag(tag)) add(InlineTagSpan(range, tag))
     }
-    return false
 }
 
 private fun parseFlowArray(raw: String, out: MutableSet<String>) {
