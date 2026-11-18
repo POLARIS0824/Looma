@@ -8,7 +8,9 @@ import androidx.room.Upsert
 
 internal data class NoteSignatureRow(
     val path: String,
-    val signature: ByteArray?,
+    val sizeBytes: Long,
+    val modifiedAt: Long,
+    val signature: ByteArray,
 )
 
 @Dao
@@ -25,14 +27,25 @@ internal interface NoteIndexDao {
 
     @Query(
         """
-        SELECT n.path AS path, s.signature AS signature
+        SELECT n.path, n.sizeBytes, n.modifiedAt, s.signature
         FROM indexed_note n
+        JOIN note_search_signature s
+            ON n.vaultId = s.vaultId AND n.path = s.notePath
+        WHERE n.vaultId = :vaultId AND length(s.signature) = :byteSize
+        """,
+    )
+    suspend fun signatures(vaultId: String, byteSize: Int): List<NoteSignatureRow>
+
+    @Query(
+        """
+        SELECT n.path FROM indexed_note n
         LEFT JOIN note_search_signature s
             ON n.vaultId = s.vaultId AND n.path = s.notePath
         WHERE n.vaultId = :vaultId
+            AND (s.signature IS NULL OR length(s.signature) != :byteSize)
         """,
     )
-    suspend fun signatures(vaultId: String): List<NoteSignatureRow>
+    suspend fun pathsNeedingSearchSignature(vaultId: String, byteSize: Int): List<String>
 
     @Upsert
     suspend fun upsertNotes(notes: List<IndexedNoteEntity>)

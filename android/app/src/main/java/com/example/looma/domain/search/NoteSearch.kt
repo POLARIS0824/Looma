@@ -1,6 +1,9 @@
 package com.example.looma.domain.search
 
+import com.example.looma.domain.markdown.forEachLineRange
 import com.example.looma.domain.markdown.frontmatterEnd
+import com.example.looma.domain.markdown.isFrontmatterClosing
+import com.example.looma.domain.markdown.isFrontmatterOpening
 import com.example.looma.domain.model.NoteId
 import java.io.BufferedReader
 
@@ -48,12 +51,13 @@ fun searchNote(
     reader: BufferedReader,
     query: String,
     maxMatches: Int = DEFAULT_MAX_MATCHES,
+    checkActive: () -> Unit = {},
 ): NoteSearchHit? {
     val keyword = query.trim()
     if (keyword.isEmpty()) return null
     val titleMatch = matchOf(title, keyword)
     val tagMatches = matchTags(tags, keyword)
-    val matches = bodyMatches(reader, title.takeIf { titleMatch != null }?.trim(), keyword, maxMatches)
+    val matches = bodyMatches(reader, title.takeIf { titleMatch != null }?.trim(), keyword, maxMatches, checkActive)
     if (titleMatch == null && tagMatches.isEmpty() && matches.isEmpty()) return null
     return NoteSearchHit(titleMatch, tagMatches, matches)
 }
@@ -78,7 +82,7 @@ private fun bodyMatches(text: String, matchedTitle: String?, keyword: String, li
     }
     val results = ArrayList<SearchMatch>(minOf(limit, DEFAULT_MAX_MATCHES))
     val seen = HashSet<String>(minOf(limit, DEFAULT_MAX_MATCHES) * 2)
-    forEachLineRange(text, bodyStart) { start, end ->
+    forEachLineRange(text, bodyStart) { start, end, _ ->
         if (!isRepeatedHeading(text, start, end, matchedTitle)) {
             val first = indexOfInRange(text, start, end, keyword)
             if (first >= 0 || (end - start <= MAX_MARKDOWN_CONTEXT_CHARS && mayMatchAfterCleanup(text, start, end, keyword))) {
@@ -100,9 +104,14 @@ private fun bodyMatches(
     matchedTitle: String?,
     keyword: String,
     limit: Int,
+    checkActive: () -> Unit,
 ): List<SearchMatch> {
     if (limit <= 0) return emptyList()
-    val firstLine = reader.readLine() ?: return emptyList()
+    fun nextLine(): String? {
+        checkActive()
+        return reader.readLine()
+    }
+    val firstLine = nextLine() ?: return emptyList()
     val results = ArrayList<SearchMatch>(minOf(limit, DEFAULT_MAX_MATCHES))
     val seen = HashSet<String>(minOf(limit, DEFAULT_MAX_MATCHES) * 2)
 
@@ -120,55 +129,26 @@ private fun bodyMatches(
         return false
     }
 
-    if (firstLine == "---") {
-        val pending = ArrayList<String>(16)
-        var closed = false
+    if (isFrontmatterOpening(firstLine)) {
+        accept(firstLine)
         while (true) {
-            val line = reader.readLine() ?: break
-            if (line.trim() == "---") {
-                closed = true
+            val line = nextLine() ?: return results
+            if (isFrontmatterClosing(line)) {
+                results.clear()
+                seen.clear()
                 break
             }
-            pending.add(line)
-        }
-        if (!closed) {
-            if (accept(firstLine)) return results
-            for (line in pending) {
-                if (accept(line)) return results
-            }
-            return results
+            if (results.size < limit) accept(line)
         }
     } else if (accept(firstLine)) {
         return results
     }
 
     while (true) {
-        val line = reader.readLine() ?: break
+        val line = nextLine() ?: break
         if (accept(line)) return results
     }
     return results
-}
-
-internal inline fun forEachLineRange(
-    text: String,
-    startOffset: Int,
-    visit: (start: Int, end: Int) -> Boolean,
-) {
-    var cursor = startOffset
-    val length = text.length
-    while (cursor < length) {
-        var end = cursor
-        while (end < length && text[end] != '\n' && text[end] != '\r') {
-            end++
-        }
-        if (!visit(cursor, end)) return
-        if (end >= length) return
-        cursor = if (text[end] == '\r' && end + 1 < length && text[end + 1] == '\n') {
-            end + 2
-        } else {
-            end + 1
-        }
-    }
 }
 
 private fun isRepeatedHeading(

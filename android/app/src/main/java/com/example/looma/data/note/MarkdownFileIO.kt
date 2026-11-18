@@ -1,5 +1,6 @@
 package com.example.looma.data.note
 
+import com.example.looma.data.index.FileFingerprint
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -79,7 +80,11 @@ internal fun writeMarkdown(file: File, text: String, beforeReplace: () -> Unit =
     writeBytesAtomically(file, markdownBytes(text), beforeReplace)
 }
 
-internal fun writeBytesAtomically(file: File, bytes: ByteArray, beforeReplace: () -> Unit = {}) {
+internal fun writeBytesAtomically(
+    file: File,
+    bytes: ByteArray,
+    beforeReplace: () -> Unit = {},
+): FileFingerprint {
     val destination = file.absoluteFile.toPath()
     val temporary = Files.createTempFile(destination.parent, ".looma-", ".tmp")
     try {
@@ -87,8 +92,10 @@ internal fun writeBytesAtomically(file: File, bytes: ByteArray, beforeReplace: (
             output.write(bytes)
             output.fd.sync()
         }
+        val fingerprint = FileFingerprint(bytes.size.toLong(), temporary.toFile().lastModified())
         beforeReplace()
         Files.move(temporary, destination, ATOMIC_MOVE, REPLACE_EXISTING)
+        return fingerprint
     } catch (failure: Exception) {
         try {
             Files.deleteIfExists(temporary)

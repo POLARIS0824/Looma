@@ -12,7 +12,9 @@ import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteWriteMode
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultId
+import com.example.looma.domain.search.SearchSignature
 import java.io.File
+import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -118,6 +120,20 @@ class VaultIndexerTest {
     }
 
     @Test
+    fun scanRebuildsLegacySignaturesForUnchangedFiles() = runBlocking {
+        val file = File(vaultDir, "note.md")
+        file.writeText("---\rmetadata\r---\nneedle\n---\n")
+        val note = indexer.scan().notes.single()
+        index.apply(IndexDelta(vaultId, upserts = listOf(note), signatures = mapOf(note.id.path to ByteArray(512))))
+
+        assertTrue(index.searchSignatures(vaultId).isEmpty())
+        assertEquals(1, indexer.scan().report.filesRead)
+        val signature = index.searchSignatures(vaultId).getValue(note.id.path)
+        assertTrue(SearchSignature.mayContain(signature.bytes, "needle"))
+        assertEquals(0, indexer.scan().report.filesRead)
+    }
+
+    @Test
     fun scanDoesNotReplaceANewerSave() = runBlocking {
         val file = File(vaultDir, "note.md").apply {
             writeText("# Older\n\n#old [[Old]]\n")
@@ -135,8 +151,10 @@ class VaultIndexerTest {
                 val mode = NoteWriteMode.Checked(store.readNote(id).revision)
                 val saved = store.saveNote(id, "# Newer\n\n#new [[New]]\n", mode)
                 assertTrue(file.setLastModified(originalFingerprint.modifiedAtMillis))
-                val note = MarkdownParser().savedNote(saved).toIndexedNote()
-                assertEquals(originalFingerprint, note.fingerprint)
+                val note = MarkdownParser().savedNote(saved).toIndexedNote().copy(
+                    modifiedAt = Instant.ofEpochMilli(originalFingerprint.modifiedAtMillis),
+                    fingerprint = originalFingerprint,
+                )
                 NoteIndexUpdater(index).apply(vault, IndexDelta(vaultId, upserts = listOf(note)))
             }
         } finally {

@@ -91,7 +91,8 @@ internal class VaultIndexer(
         }
 
         val indexed = index.load(vault.id)
-        val plan = planScan(indexed, onDisk).let { if (complete) it else it.copy(removed = emptyList()) }
+        val plan = planScan(indexed, onDisk, index.pathsNeedingSearchSignature(vault.id))
+            .let { if (complete) it else it.copy(removed = emptyList()) }
         val indexedByPath = indexed.associateBy { it.id.path }
 
         val fresh = mutableListOf<IndexedNote>()

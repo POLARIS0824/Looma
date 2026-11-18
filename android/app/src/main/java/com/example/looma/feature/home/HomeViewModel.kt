@@ -13,9 +13,7 @@ import com.example.looma.data.note.VaultFileException
 import com.example.looma.data.note.VaultFileFailure
 import com.example.looma.data.search.SearchHistoryRepository
 import com.example.looma.domain.model.FolderPath
-import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.StalledRelocation
-import com.example.looma.domain.model.VaultId
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -37,17 +35,8 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     private var refreshJob: Job? = null
     private var searchJob: Job? = null
-    private var searchNarrowing: SearchNarrowing? = null
     private var revealGeneration = 0L
     private var index: HomeVaultIndex = HomeVaultIndex.Empty
-
-    private data class SearchNarrowing(
-        val vaultId: VaultId,
-        val indexVersion: Long,
-        val notesSnapshot: List<HomeNoteItem>,
-        val keyword: String,
-        val matchedIds: Set<NoteId>,
-    )
 
     fun refresh(): Job {
         refreshJob?.cancel()
@@ -164,7 +153,6 @@ class HomeViewModel(
 
     private fun clearSearch() {
         searchJob?.cancel()
-        searchNarrowing = null
     }
 
     private fun scheduleSearch(value: String, debounce: Boolean = true) {
@@ -182,33 +170,12 @@ class HomeViewModel(
                 emptyList()
             } else {
                 try {
-                    val version = noteRepository.indexVersion(vaultId)
-                    val previous = searchNarrowing
-                    val candidateNotes = if (
-                        previous != null &&
-                        previous.vaultId == vaultId &&
-                        previous.indexVersion == version &&
-                        previous.notesSnapshot === notes &&
-                        canNarrowSearch(previous.keyword, keyword)
-                    ) {
-                        notes.filter { it.id in previous.matchedIds }
-                    } else {
-                        notes
-                    }
                     withContext(Dispatchers.Default) {
                         val matches = noteRepository.search(
-                            candidates = candidateNotes.map { it.toSearchableNote() },
+                            candidates = notes.map { it.toSearchableNote() },
                             query = keyword,
                         )
-                        val merged = mergeSearchMatches(candidateNotes, matches)
-                        searchNarrowing = SearchNarrowing(
-                            vaultId = vaultId,
-                            indexVersion = version,
-                            notesSnapshot = notes,
-                            keyword = keyword,
-                            matchedIds = merged.mapTo(HashSet(merged.size)) { it.id },
-                        )
-                        merged.orderedBy(sort)
+                        mergeSearchMatches(notes, matches).orderedBy(sort)
                     }
                 } catch (e: CancellationException) {
                     throw e

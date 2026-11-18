@@ -18,12 +18,6 @@ data class HomeSearchResult(
     val listKey: String get() = note.listKey
 }
 
-internal fun canNarrowSearch(previousKeyword: String, nextKeyword: String): Boolean {
-    val previous = previousKeyword.trim()
-    val next = nextKeyword.trim()
-    return previous.isNotEmpty() && next.length >= previous.length && next.contains(previous, ignoreCase = true)
-}
-
 internal fun HomeNoteItem.toSearchableNote(): SearchableNote = SearchableNote(
     id = id,
     title = summary.title,

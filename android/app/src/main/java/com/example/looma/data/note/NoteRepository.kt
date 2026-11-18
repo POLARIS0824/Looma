@@ -1,9 +1,11 @@
 package com.example.looma.data.note
 
+import com.example.looma.data.index.FileFingerprint
 import com.example.looma.data.index.IndexDelta
 import com.example.looma.data.index.IndexedNote
 import com.example.looma.data.index.NoteIndex
 import com.example.looma.data.index.NoteIndexUpdater
+import com.example.looma.data.index.fingerprint
 import com.example.looma.data.index.indexedNote
 import com.example.looma.data.index.toIndexedNote
 import com.example.looma.data.vault.VaultRepository
@@ -32,6 +34,8 @@ import com.example.looma.domain.wiki.WikiGraph
 import com.example.looma.domain.wiki.WikiNote
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
@@ -48,6 +52,7 @@ class NoteRepository internal constructor(
 ) {
     private val parser = MarkdownParser()
     private val indexUpdater = NoteIndexUpdater(index)
+    private val searchDispatcher = Dispatchers.IO.limitedParallelism(SEARCH_IO_PARALLELISM)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
     internal suspend fun listNotes(): NoteListResult {
@@ -69,8 +74,6 @@ class NoteRepository internal constructor(
         }
     }
 
-    internal suspend fun indexVersion(vaultId: VaultId): Long = index.version(vaultId)
-
     internal suspend fun search(
         candidates: List<SearchableNote>,
         query: String,
@@ -85,86 +88,66 @@ class NoteRepository internal constructor(
             .toList()
         if (distinctCandidates.isEmpty()) return emptyList()
 
-        val (ops, bodyCandidates) = withContext(Dispatchers.IO) {
-            VaultFileOps(File(vault.rootPath)) to index.bodyCandidates(vault.id, keyword)
+        val querySignature = SearchSignature.prepare(keyword)
+        val (ops, signatures) = withContext(Dispatchers.IO) {
+            val entries = if (querySignature == null) emptyMap() else index.searchSignatures(vault.id)
+            VaultFileOps(File(vault.rootPath)) to entries
         }
 
-        val matches = ArrayList<NoteSearchMatch>()
-        val diskCandidates = ArrayList<SearchableNote>()
-        for (candidate in distinctCandidates) {
-            coroutineContext.ensureActive()
-            val needsBodyScan = bodyCandidates == null || candidate.id.path in bodyCandidates
-            if (!needsBodyScan) {
-                searchNote(
-                    title = candidate.title,
-                    tags = candidate.tags,
-                    text = "",
-                    query = keyword,
-                )?.let { hit ->
-                    matches += NoteSearchMatch(candidate.id, hit)
-                }
-            } else {
-                diskCandidates += candidate
-            }
+        suspend fun searchCandidate(candidate: SearchableNote): NoteSearchMatch? {
+            val signature = signatures[candidate.id.path]
+                ?.takeIf { querySignature?.mayContain(it.bytes) == false }
+            return searchCandidateOnDisk(ops, candidate, keyword, signature?.fingerprint)
         }
 
-        if (diskCandidates.isNotEmpty()) {
-            val workerCount = minOf(SEARCH_IO_PARALLELISM, diskCandidates.size)
-            if (workerCount == 1) {
-                withContext(Dispatchers.IO) {
-                    searchCandidateOnDisk(ops, diskCandidates[0], keyword)?.let(matches::add)
-                }
-            } else {
-                val cursor = AtomicInteger(0)
-                val diskHits = arrayOfNulls<NoteSearchMatch>(diskCandidates.size)
-                coroutineScope {
-                    repeat(workerCount) {
-                        launch(Dispatchers.IO) {
-                            while (true) {
-                                ensureActive()
-                                val itemIndex = cursor.getAndIncrement()
-                                if (itemIndex >= diskCandidates.size) break
-                                diskHits[itemIndex] = searchCandidateOnDisk(
-                                    ops = ops,
-                                    candidate = diskCandidates[itemIndex],
-                                    keyword = keyword,
-                                )
-                            }
-                        }
+        val workerCount = minOf(SEARCH_IO_PARALLELISM, distinctCandidates.size)
+        if (workerCount == 1) {
+            return withContext(searchDispatcher) { listOfNotNull(searchCandidate(distinctCandidates.single())) }
+        }
+        val cursor = AtomicInteger()
+        val hits = arrayOfNulls<NoteSearchMatch>(distinctCandidates.size)
+        coroutineScope {
+            repeat(workerCount) {
+                launch(searchDispatcher) {
+                    while (true) {
+                        ensureActive()
+                        val itemIndex = cursor.getAndIncrement()
+                        if (itemIndex >= distinctCandidates.size) break
+                        hits[itemIndex] = searchCandidate(distinctCandidates[itemIndex])
                     }
                 }
-                for (hit in diskHits) {
-                    if (hit != null) matches += hit
-                }
             }
         }
-
-        return matches
+        return hits.filterNotNull()
     }
 
-    private fun searchCandidateOnDisk(
+    private suspend fun searchCandidateOnDisk(
         ops: VaultFileOps,
         candidate: SearchableNote,
         keyword: String,
+        rejectingFingerprint: FileFingerprint?,
     ): NoteSearchMatch? {
-        val hit = try {
+        val context = coroutineContext
+        try {
             val file = ops.noteFile(candidate.id.path)
-            openMarkdownReader(file).use { reader ->
-                searchNote(
-                    title = candidate.title,
-                    tags = candidate.tags,
-                    reader = reader,
-                    query = keyword,
-                )
+            val signatureIsCurrent = rejectingFingerprint != null &&
+                Files.readAttributes(file.toPath(), BasicFileAttributes::class.java).let {
+                    it.isRegularFile && it.fingerprint() == rejectingFingerprint
+                }
+            if (!signatureIsCurrent) {
+                return openMarkdownReader(file).use { reader ->
+                    searchNote(
+                        title = candidate.title,
+                        tags = candidate.tags,
+                        reader = reader,
+                        query = keyword,
+                        checkActive = context::ensureActive,
+                    )?.let { NoteSearchMatch(candidate.id, it) }
+                }
             }
         } catch (_: IOException) {
-            searchNote(
-                title = candidate.title,
-                tags = candidate.tags,
-                text = "",
-                query = keyword,
-            )
         }
+        val hit = searchNote(candidate.title, candidate.tags, text = "", query = keyword)
         return hit?.let { NoteSearchMatch(candidate.id, it) }
     }
 
@@ -377,16 +360,18 @@ class NoteRepository internal constructor(
 
     private suspend fun reindex(vault: Vault, changes: RelocationChanges) {
         if (changes.removedNotes.isEmpty() && changes.changedNotes.isEmpty()) return
-        val root = VaultFileOps(File(vault.rootPath)).rootDir
+        val ops = VaultFileOps(File(vault.rootPath))
         val changed = changes.changedNotes.distinct()
         val upserts = ArrayList<IndexedNote>(changed.size)
         val signatures = LinkedHashMap<NotePath, ByteArray>(changed.size)
         for (path in changed) {
-            val file = File(root, path.relativePath)
             val parsed = try {
+                val file = ops.noteFile(path)
+                val before = file.fingerprint()
                 val text = readMarkdown(file)
-                val note = indexedNote(vault.id, root, file, text, parser.parseForIndex(text, file.nameWithoutExtension))
-                note to SearchSignature.fromBody(text)
+                if (before != file.fingerprint()) continue
+                val metadata = parser.parseForIndex(text, file.nameWithoutExtension)
+                indexedNote(vault.id, ops.rootDir, file, text, metadata, before) to SearchSignature.fromBody(text)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
@@ -425,12 +410,17 @@ class NoteRepository internal constructor(
 
     private suspend fun record(vault: Vault, stored: StoredMarkdown): Note {
         val saved = parser.indexSavedNote(stored)
+        val signatures = if (stored.fingerprint != null) {
+            mapOf(saved.id.path to SearchSignature.fromBody(saved.content))
+        } else {
+            emptyMap()
+        }
         indexUpdater.apply(
             vault,
             IndexDelta(
                 vaultId = saved.id.vaultId,
                 upserts = listOf(saved.toIndexedNote()),
-                signatures = mapOf(saved.id.path to SearchSignature.fromBody(saved.content)),
+                signatures = signatures,
             ),
         )
         return saved.toNote()

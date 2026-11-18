@@ -1,17 +1,20 @@
 package com.example.looma.domain.search
 
+import com.example.looma.domain.markdown.forEachLineRange
 import com.example.looma.domain.markdown.frontmatterEnd
 
 internal object SearchSignature {
-    const val BYTE_SIZE = 512
-    private const val BIT_COUNT = BYTE_SIZE * 8
+    private const val BIT_COUNT = 4096
     private const val BIT_MASK = BIT_COUNT - 1
+    private const val FORMAT_VERSION: Byte = 1
+    const val STORED_BYTE_SIZE = BIT_COUNT / 8 + 1
 
     fun fromBody(source: String): ByteArray {
-        val signature = ByteArray(BYTE_SIZE)
+        val signature = ByteArray(STORED_BYTE_SIZE)
+        signature[signature.lastIndex] = FORMAT_VERSION
         val bodyStart = frontmatterEnd(source)
         if (bodyStart >= source.length) return signature
-        forEachLineRange(source, bodyStart) { start, end ->
+        forEachLineRange(source, bodyStart) { start, end, _ ->
             addRange(signature, source, start, end)
             if (end - start <= MAX_MARKDOWN_CONTEXT_CHARS && hasInlineSyntax(source, start, end)) {
                 val rawLine = source.substring(start, end)
@@ -27,15 +30,32 @@ internal object SearchSignature {
 
     fun mayContain(signature: ByteArray?, keyword: String): Boolean {
         if (keyword.isEmpty()) return false
-        if (signature == null || signature.size != BYTE_SIZE) return true
+        return prepare(keyword)?.mayContain(signature) ?: true
+    }
+
+    fun prepare(keyword: String): Query? {
+        if (keyword.isEmpty() || keyword.any { it.isSurrogate() }) return null
+        val bits = IntArray(keyword.length * 4 - 2)
+        var bitIndex = 0
         var previous = -1
-        for (index in keyword.indices) {
-            val folded = foldChar(keyword[index])
-            if (!testUnigram(signature, folded)) return false
-            if (previous >= 0 && !testBigram(signature, previous, folded)) return false
+        for (char in keyword) {
+            val folded = foldChar(char)
+            bits[bitIndex++] = unigramFirst(folded)
+            bits[bitIndex++] = unigramSecond(folded)
+            if (previous >= 0) {
+                val packed = pack(previous, folded)
+                bits[bitIndex++] = bigramFirst(packed)
+                bits[bitIndex++] = bigramSecond(packed)
+            }
             previous = folded
         }
-        return true
+        return Query(bits)
+    }
+
+    class Query internal constructor(private val bits: IntArray) {
+        fun mayContain(signature: ByteArray?): Boolean =
+            signature == null || signature.size != STORED_BYTE_SIZE ||
+                signature.last() != FORMAT_VERSION || bits.all { getBit(signature, it) }
     }
 
     private fun addRange(signature: ByteArray, text: CharSequence, start: Int, end: Int) {
@@ -53,32 +73,25 @@ internal object SearchSignature {
     private fun foldChar(char: Char): Int = char.uppercaseChar().lowercaseChar().code
 
     private fun setUnigram(signature: ByteArray, folded: Int) {
-        val h1 = mix(folded xor 0x27d4eb2d)
-        val h2 = mix(folded * 31 + 0x165667b1)
-        setBit(signature, h1 and BIT_MASK)
-        setBit(signature, h2 and BIT_MASK)
-    }
-
-    private fun testUnigram(signature: ByteArray, folded: Int): Boolean {
-        val h1 = mix(folded xor 0x27d4eb2d)
-        val h2 = mix(folded * 31 + 0x165667b1)
-        return getBit(signature, h1 and BIT_MASK) && getBit(signature, h2 and BIT_MASK)
+        setBit(signature, unigramFirst(folded))
+        setBit(signature, unigramSecond(folded))
     }
 
     private fun setBigram(signature: ByteArray, first: Int, second: Int) {
-        val packed = (first shl 16) or (second and 0xFFFF)
-        val h1 = mix(packed xor -0x61c88647)
-        val h2 = mix(packed * -0x61c88647 + 0x517cc1b7)
-        setBit(signature, h1 and BIT_MASK)
-        setBit(signature, h2 and BIT_MASK)
+        val packed = pack(first, second)
+        setBit(signature, bigramFirst(packed))
+        setBit(signature, bigramSecond(packed))
     }
 
-    private fun testBigram(signature: ByteArray, first: Int, second: Int): Boolean {
-        val packed = (first shl 16) or (second and 0xFFFF)
-        val h1 = mix(packed xor -0x61c88647)
-        val h2 = mix(packed * -0x61c88647 + 0x517cc1b7)
-        return getBit(signature, h1 and BIT_MASK) && getBit(signature, h2 and BIT_MASK)
-    }
+    private fun pack(first: Int, second: Int): Int = (first shl 16) or second
+
+    private fun unigramFirst(folded: Int): Int = mix(folded xor 0x27d4eb2d) and BIT_MASK
+
+    private fun unigramSecond(folded: Int): Int = mix(folded * 31 + 0x165667b1) and BIT_MASK
+
+    private fun bigramFirst(packed: Int): Int = mix(packed xor -0x61c88647) and BIT_MASK
+
+    private fun bigramSecond(packed: Int): Int = mix(packed * -0x61c88647 + 0x517cc1b7) and BIT_MASK
 
     private fun setBit(signature: ByteArray, bit: Int) {
         val byteIndex = bit ushr 3

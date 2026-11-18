@@ -39,10 +39,17 @@ internal data class IndexDelta(
     val signatures: Map<NotePath, ByteArray> = emptyMap(),
 )
 
+internal data class IndexedSearchSignature(
+    val fingerprint: FileFingerprint,
+    val bytes: ByteArray,
+)
+
 internal interface NoteIndex {
     suspend fun load(vaultId: VaultId): List<IndexedNote>
 
-    suspend fun bodyCandidates(vaultId: VaultId, keyword: String): Set<NotePath>? = null
+    suspend fun searchSignatures(vaultId: VaultId): Map<NotePath, IndexedSearchSignature> = emptyMap()
+
+    suspend fun pathsNeedingSearchSignature(vaultId: VaultId): Set<NotePath> = emptySet()
 
     suspend fun version(vaultId: VaultId): Long
 
@@ -72,4 +79,11 @@ internal fun indexedNote(
 }
 
 internal fun SavedNote.toIndexedNote(): IndexedNote =
-    indexedNote(stored.id.vaultId, stored.root, stored.file, stored.content, metadata)
+    indexedNote(
+        stored.id.vaultId,
+        stored.root,
+        stored.file,
+        stored.content,
+        metadata,
+        fingerprint = stored.fingerprint ?: stored.file.fingerprint(),
+    )

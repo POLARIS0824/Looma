@@ -1,5 +1,7 @@
 package com.example.looma.data.note
 
+import com.example.looma.data.index.FileFingerprint
+import com.example.looma.data.index.fingerprint
 import com.example.looma.domain.markdown.ImageContext
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
@@ -32,6 +34,7 @@ internal data class StoredMarkdown(
     val root: File,
     val file: File,
     val revision: NoteRevision,
+    val fingerprint: FileFingerprint? = null,
 )
 
 internal data class StoredNoteStats(
@@ -75,7 +78,8 @@ internal class NoteFileStore(
     ): StoredMarkdown = withContext(Dispatchers.IO) {
         val ops = VaultFileOps(File(vault.rootPath))
         val file = ops.newNoteFile(folder, title, fallbackName = UNTITLED_FALLBACK)
-        storedMarkdown(vault, ops.rootDir, file, byteArrayOf())
+        val fingerprint = FileFingerprint(0L, file.lastModified())
+        storedMarkdown(vault, ops.rootDir, file, byteArrayOf(), fingerprint)
     }
 
     suspend fun discardNote(id: NoteId) = withContext(Dispatchers.IO) {
@@ -91,6 +95,7 @@ internal class NoteFileStore(
     ): StoredMarkdown = withContext(Dispatchers.IO) {
         val (vault, ops) = currentVault(id.vaultId)
         val file = ops.noteFile(id.path)
+        val before = file.fingerprint()
         val current = readMarkdownBytes(file)
         val actualRevision = NoteRevision.of(current)
         val expectedRevision = when (mode) {
@@ -100,14 +105,14 @@ internal class NoteFileStore(
         if (actualRevision != expectedRevision) throw NoteChangedExternallyException(actualRevision)
         val bytes = markdownBytes(content)
         if (mode is NoteWriteMode.Checked && content == current.toString(Charsets.UTF_8)) {
-            return@withContext storedMarkdown(vault, ops.rootDir, file, current)
+            return@withContext storedMarkdown(vault, ops.rootDir, file, current, verifiedFingerprint(file, before, current))
         }
         if (mode is NoteWriteMode.Overwrite) backupConflictBytes(ops.rootDir, id.path, current)
-        writeBytesAtomically(file, bytes) {
+        val fingerprint = writeBytesAtomically(file, bytes) {
             val observed = if (file.isFile) NoteRevision.of(readMarkdownBytes(file)) else NoteRevision.Unknown
             if (observed != actualRevision) throw NoteChangedExternallyException(observed)
         }
-        storedMarkdown(vault, ops.rootDir, file, bytes)
+        storedMarkdown(vault, ops.rootDir, file, bytes, fingerprint)
     }
 
     suspend fun writeConflictCopy(
@@ -124,11 +129,11 @@ internal class NoteFileStore(
         if (previous != null && target != null && current != null && NoteRevision.of(current) == previous.revision) {
             if (bytes.contentEquals(current)) return@withContext storedMarkdown(vault, root, target, current)
             try {
-                writeBytesAtomically(target, bytes) {
+                val fingerprint = writeBytesAtomically(target, bytes) {
                     val observed = readConflictCopy(target)?.let(NoteRevision::of) ?: NoteRevision.Unknown
                     if (observed != previous.revision) throw NoteChangedExternallyException(observed)
                 }
-                return@withContext storedMarkdown(vault, root, target, bytes)
+                return@withContext storedMarkdown(vault, root, target, bytes, fingerprint)
             } catch (_: NoteChangedExternallyException) {
             }
         }
@@ -203,17 +208,14 @@ internal class NoteFileStore(
         val ops = VaultFileOps(File(vault.rootPath))
         val record = ops.trashed().firstOrNull { it.trashId == trashId }
             ?: throw VaultFileException(VaultFileFailure.NOT_FOUND)
-        val bytes = readMarkdownBytes(record.file)
-        val file = ops.restore(record)
-        storedMarkdown(vault, ops.rootDir, file, bytes)
+        restore(ops, record)
     }
 
     suspend fun restoreNotes(trashIds: List<String>): Pair<List<StoredMarkdown>, TrashBulkOutcome> =
         withContext(Dispatchers.IO) {
             val ops = VaultFileOps(File(vault.rootPath))
             bulkOverTrash(ops, trashIds) { record ->
-                val bytes = readMarkdownBytes(record.file)
-                storedMarkdown(vault, ops.rootDir, ops.restore(record), bytes)
+                restore(ops, record)
             }
         }
 
@@ -295,14 +297,31 @@ internal class NoteFileStore(
         return vault to VaultFileOps(File(vault.rootPath))
     }
 
-    private fun storedMarkdown(vault: Vault, root: File, file: File, bytes: ByteArray): StoredMarkdown =
+    private fun restore(ops: VaultFileOps, record: TrashRecord): StoredMarkdown {
+        val before = record.file.fingerprint()
+        val bytes = readMarkdownBytes(record.file)
+        val file = ops.restore(record)
+        return storedMarkdown(vault, ops.rootDir, file, bytes, verifiedFingerprint(file, before, bytes))
+    }
+
+    private fun verifiedFingerprint(file: File, before: FileFingerprint, bytes: ByteArray): FileFingerprint? =
+        before.takeIf { it.sizeBytes == bytes.size.toLong() && it == file.fingerprint() }
+
+    private fun storedMarkdown(
+        vault: Vault,
+        root: File,
+        file: File,
+        bytes: ByteArray,
+        fingerprint: FileFingerprint? = null,
+    ): StoredMarkdown =
         StoredMarkdown(
             id = NoteId(vault.id, NotePath(file.relativeTo(root).invariantSeparatorsPath)),
             content = bytes.toString(Charsets.UTF_8),
-            modifiedAt = Instant.ofEpochMilli(file.lastModified()),
+            modifiedAt = Instant.ofEpochMilli(fingerprint?.modifiedAtMillis ?: file.lastModified()),
             root = root,
             file = file,
             revision = NoteRevision.of(bytes),
+            fingerprint = fingerprint,
         )
 
     private fun ensureDirectory(directory: File) {

@@ -268,5 +268,15 @@ class NoteSearchTest {
         assertEquals("unclosed fence token", hit!!.matches.single().text)
     }
 
+    @Test
+    fun `mixed line endings keep the first line after frontmatter searchable`() {
+        val text = "---\rmetadata\r---\nneedle\n---\n"
+        val expected = NoteSearchHit(null, emptyList(), listOf(SearchMatch("needle", listOf(0..5))))
+
+        assertEquals(expected, searchNote("Note", emptySet(), text, "needle"))
+        assertEquals(expected, searchNote("Note", emptySet(), text.reader().buffered(), "needle"))
+        assertTrue(SearchSignature.mayContain(SearchSignature.fromBody(text), "needle"))
+    }
+
     private fun SearchMatch.highlightedText(): List<String> = ranges.map { text.substring(it) }
 }

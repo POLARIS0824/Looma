@@ -12,6 +12,13 @@ import kotlinx.coroutines.sync.withLock
 internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteIndex {
 
     private val dao = database.noteIndexDao()
+    private var searchSnapshot: SearchSnapshot? = null
+
+    private data class SearchSnapshot(
+        val vaultId: VaultId,
+        val version: Long,
+        val signatures: Map<NotePath, IndexedSearchSignature>,
+    )
 
     override suspend fun load(vaultId: VaultId): List<IndexedNote> {
         val key = vaultId.value
@@ -34,17 +41,24 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
         }
     }
 
-    override suspend fun bodyCandidates(vaultId: VaultId, keyword: String): Set<NotePath> {
-        val rows = dao.signatures(vaultId.value)
-        if (rows.isEmpty()) return emptySet()
-        val matched = HashSet<NotePath>()
-        for (row in rows) {
-            if (SearchSignature.mayContain(row.signature, keyword)) {
-                matched.add(NotePath(row.path))
+    override suspend fun searchSignatures(vaultId: VaultId): Map<NotePath, IndexedSearchSignature> =
+        database.indexWriteMutex.withLock {
+            val version = currentVersion(vaultId)
+            val cached = searchSnapshot
+            if (cached?.vaultId == vaultId && cached.version == version) return@withLock cached.signatures
+            val signatures = dao.signatures(vaultId.value, SearchSignature.STORED_BYTE_SIZE).associate { row ->
+                NotePath(row.path) to IndexedSearchSignature(
+                    fingerprint = FileFingerprint(row.sizeBytes, row.modifiedAt),
+                    bytes = row.signature,
+                )
             }
+            searchSnapshot = SearchSnapshot(vaultId, version, signatures)
+            signatures
         }
-        return matched
-    }
+
+    override suspend fun pathsNeedingSearchSignature(vaultId: VaultId): Set<NotePath> =
+        dao.pathsNeedingSearchSignature(vaultId.value, SearchSignature.STORED_BYTE_SIZE)
+            .mapTo(HashSet()) { NotePath(it) }
 
     override suspend fun version(vaultId: VaultId): Long =
         database.indexWriteMutex.withLock { currentVersion(vaultId) }
@@ -62,6 +76,7 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
             if (expectedVersion != null && version != expectedVersion) return@withLock false
             if (delta.upserts.isNotEmpty() || delta.removed.isNotEmpty()) {
                 database.indexVersions[delta.vaultId] = version + 1
+                if (searchSnapshot?.vaultId == delta.vaultId) searchSnapshot = null
                 write(delta)
             }
             true
