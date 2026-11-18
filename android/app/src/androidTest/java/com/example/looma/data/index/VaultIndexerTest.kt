@@ -3,10 +3,20 @@ package com.example.looma.data.index
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.looma.data.note.MarkdownParser
+import com.example.looma.data.note.NoteFileStore
+import com.example.looma.data.note.savedNote
+import com.example.looma.data.vault.VaultWriteCoordinator
+import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.model.NotePath
+import com.example.looma.domain.model.NoteWriteMode
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultId
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -19,6 +29,8 @@ class VaultIndexerTest {
 
     private lateinit var database: NoteIndexDatabase
     private lateinit var vaultDir: File
+    private lateinit var vault: Vault
+    private lateinit var index: NoteIndex
     private lateinit var indexer: VaultIndexer
 
     private val vaultId = VaultId("vault")
@@ -30,8 +42,9 @@ class VaultIndexerTest {
             .allowMainThreadQueries()
             .build()
         vaultDir = File(context.cacheDir, "indexer-test-${System.nanoTime()}").apply { mkdirs() }
-        val vault = Vault(id = vaultId, name = "vault", rootPath = vaultDir.path)
-        indexer = VaultIndexer(vaultDir, vault, RoomNoteIndex(database))
+        vault = Vault(id = vaultId, name = "vault", rootPath = vaultDir.path)
+        index = RoomNoteIndex(database)
+        indexer = VaultIndexer(vaultDir, vault, index)
     }
 
     @After
@@ -79,6 +92,14 @@ class VaultIndexerTest {
         assertEquals(1, fourth.report.filesRemoved)
         assertEquals(1, fourth.notes.size)
         assertEquals(listOf("tagged.md"), fourth.notes.map { it.id.path.relativePath })
+
+        val externalFolder = File(vaultDir, "external").apply { mkdir() }
+        File(externalFolder, "new.MD").writeText("# Added externally\n")
+        val fifth = indexer.scan()
+        assertEquals(1, fifth.report.filesRead)
+        assertEquals(1, fifth.report.filesKept)
+        assertEquals(setOf("tagged.md", "external/new.MD"), fifth.notes.map { it.id.path.relativePath }.toSet())
+        assertEquals(listOf("external"), fifth.folders.map { it.path.relativePath })
     }
 
     @Test
@@ -94,5 +115,104 @@ class VaultIndexerTest {
         val scan = indexer.scan()
         assertEquals(0, scan.report.filesRead)
         assertEquals("原标题", database.noteIndexDao().notes(vaultId.value).single().title)
+    }
+
+    @Test
+    fun scanDoesNotReplaceANewerSave() = runBlocking {
+        val file = File(vaultDir, "note.md").apply {
+            writeText("# Older\n\n#old [[Old]]\n")
+        }
+        val originalFingerprint = FileFingerprint(file.length(), file.lastModified())
+        val scanReady = CompletableDeferred<Unit>()
+        val resumeScan = CompletableDeferred<Unit>()
+        val scan = async { pausedIndexer(scanReady, resumeScan).scan() }
+
+        withTimeout(10_000) { scanReady.await() }
+        try {
+            VaultWriteCoordinator.write(vault) {
+                val store = NoteFileStore(vault)
+                val id = NoteId(vaultId, NotePath(file.name))
+                val mode = NoteWriteMode.Checked(store.readNote(id).revision)
+                val saved = store.saveNote(id, "# Newer\n\n#new [[New]]\n", mode)
+                assertTrue(file.setLastModified(originalFingerprint.modifiedAtMillis))
+                val note = MarkdownParser().savedNote(saved).toIndexedNote()
+                assertEquals(originalFingerprint, note.fingerprint)
+                NoteIndexUpdater(index).apply(vault, IndexDelta(vaultId, upserts = listOf(note)))
+            }
+        } finally {
+            resumeScan.complete(Unit)
+        }
+
+        val result = scan.await()
+        val latest = index.load(vaultId).single()
+        assertEquals("Newer", latest.title)
+        assertEquals(listOf("new"), latest.tags)
+        assertEquals(listOf("New"), latest.links.map { it.target })
+        assertEquals(latest, result.notes.single())
+    }
+
+    @Test
+    fun scanDoesNotRemoveARestoredNote() = runBlocking {
+        val file = File(vaultDir, "note.md").apply { writeText("# Restored\n") }
+        indexer.scan()
+        val notes = index.load(vaultId)
+        val trash = NoteFileStore(vault).deleteNote(notes.single().id)
+        val scanReady = CompletableDeferred<Unit>()
+        val resumeScan = CompletableDeferred<Unit>()
+        val scan = async { pausedIndexer(scanReady, resumeScan).scan() }
+
+        withTimeout(10_000) { scanReady.await() }
+        try {
+            VaultWriteCoordinator.write(vault) {
+                val restored = NoteFileStore(vault).restoreNote(trash.trashId)
+                val note = MarkdownParser().savedNote(restored).toIndexedNote()
+                NoteIndexUpdater(index).apply(vault, IndexDelta(vaultId, upserts = listOf(note)))
+            }
+        } finally {
+            resumeScan.complete(Unit)
+        }
+
+        val result = scan.await()
+        assertEquals(listOf(file.name), index.load(vaultId).map { it.id.path.relativePath })
+        assertEquals(listOf(file.name), result.notes.map { it.id.path.relativePath })
+        assertEquals(0, result.report.filesRemoved)
+    }
+
+    @Test
+    fun scanWithoutChangesReturnsANewerIndexUpdate() = runBlocking {
+        val file = File(vaultDir, "note.md").apply { writeText("# Older\n") }
+        indexer.scan()
+        val scanReady = CompletableDeferred<Unit>()
+        val resumeScan = CompletableDeferred<Unit>()
+        val scan = async { pausedIndexer(scanReady, resumeScan).scan() }
+
+        withTimeout(10_000) { scanReady.await() }
+        try {
+            VaultWriteCoordinator.write(vault) {
+                val store = NoteFileStore(vault)
+                val id = NoteId(vaultId, NotePath(file.name))
+                val mode = NoteWriteMode.Checked(store.readNote(id).revision)
+                val saved = store.saveNote(id, "# Newer and longer\n", mode)
+                val note = MarkdownParser().savedNote(saved).toIndexedNote()
+                NoteIndexUpdater(index).apply(vault, IndexDelta(vaultId, upserts = listOf(note)))
+            }
+        } finally {
+            resumeScan.complete(Unit)
+        }
+
+        assertEquals("Newer and longer", scan.await().notes.single().title)
+    }
+
+    private fun pausedIndexer(
+        scanReady: CompletableDeferred<Unit>,
+        resumeScan: CompletableDeferred<Unit>,
+    ): VaultIndexer {
+        val pausedIndex = object : NoteIndex by index {
+            override suspend fun applyIfVersion(delta: IndexDelta, expectedVersion: Long): Boolean {
+                if (scanReady.complete(Unit)) withTimeout(10_000) { resumeScan.await() }
+                return index.applyIfVersion(delta, expectedVersion)
+            }
+        }
+        return VaultIndexer(vaultDir, vault, pausedIndex)
     }
 }

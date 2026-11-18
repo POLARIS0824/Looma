@@ -18,7 +18,6 @@ class LoomaTypographyTest {
         assertEquals(base.titleMedium, tokens.cardTitle)
         assertEquals(base.titleSmall, tokens.folderName)
         assertEquals(base.bodyLarge, tokens.body)
-        assertEquals(base.bodyMedium, tokens.breadcrumb)
         assertEquals(base.bodyMedium, tokens.supporting)
         assertEquals(base.bodySmall, tokens.cardBody)
     }

@@ -3,6 +3,7 @@ package com.example.looma.ui.markdown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -17,7 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ripple
@@ -29,9 +32,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -59,14 +61,21 @@ import com.mikepenz.markdown.compose.LocalMarkdownInlineContent
 import com.mikepenz.markdown.compose.LocalMarkdownPadding
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.MarkdownBulletList
+import com.mikepenz.markdown.compose.elements.MarkdownBlockQuote
+import com.mikepenz.markdown.compose.elements.MarkdownCodeBackground
+import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
+import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
 import com.mikepenz.markdown.compose.elements.MarkdownOrderedList
 import com.mikepenz.markdown.compose.elements.MarkdownText
+import com.mikepenz.markdown.compose.extendedspans.ExtendedSpans
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.MarkdownColors
+import com.mikepenz.markdown.model.MarkdownExtendedSpans
 import com.mikepenz.markdown.model.MarkdownPadding
 import com.mikepenz.markdown.model.MarkdownTypography
 import com.mikepenz.markdown.model.markdownAnnotatorConfig
+import com.mikepenz.markdown.model.markdownExtendedSpans
 import com.mikepenz.markdown.model.markdownInlineContent
 import com.mikepenz.markdown.model.markdownPadding
 import org.intellij.markdown.IElementType
@@ -82,6 +91,11 @@ data class LoomaMarkdownTheme(
     val colors: MarkdownColors,
     val typography: MarkdownTypography,
     val padding: MarkdownPadding,
+    val codeShape: Shape,
+    val tableShape: Shape,
+    val tableHeader: Color,
+    val accent: Color,
+    val extendedSpans: MarkdownExtendedSpans,
 )
 
 @Immutable
@@ -120,15 +134,24 @@ fun loomaMarkdownTheme(
 ): LoomaMarkdownTheme {
     val colors = LoomaTokens.colors
     val scheme = MaterialTheme.colorScheme
+    val shapes = MaterialTheme.shapes
+    val inlineCorner = shapes.extraSmall.topStart
+    val inset = if (compact) colors.cardInset else scheme.surfaceContainer
+    val inlineBackground = if (compact) colors.cardInset else scheme.surfaceContainerHigh
     val type = LoomaTokens.type
     val scale = remember(type, compact, preview) { loomaMarkdownScale(type, compact, preview) }
+    val extendedSpans = markdownExtendedSpans {
+        remember(inlineBackground, inlineCorner) {
+            ExtendedSpans(InlineCodeBackground(inlineBackground, inlineCorner))
+        }
+    }
     return LoomaMarkdownTheme(
         colors = markdownColor(
             text = textColor,
-            codeBackground = if (compact) scheme.surfaceContainerHighest else scheme.surfaceContainerHigh,
-            inlineCodeBackground = scheme.surfaceContainerHighest,
-            dividerColor = colors.divider,
-            tableBackground = if (compact) colors.card else scheme.surfaceContainer,
+            codeBackground = if (compact) inset else scheme.surfaceContainerLow,
+            inlineCodeBackground = inlineBackground,
+            dividerColor = scheme.outlineVariant,
+            tableBackground = Color.Transparent,
             highlightText = colors.onChip,
             highlightBackground = colors.chip,
         ),
@@ -158,6 +181,11 @@ fun loomaMarkdownTheme(
             codeBlock = PaddingValues(if (compact) 6.dp else 12.dp),
             blockQuote = PaddingValues(horizontal = if (compact) 8.dp else 12.dp),
         ),
+        codeShape = if (compact) shapes.medium else shapes.large,
+        tableShape = if (compact) shapes.small else shapes.medium,
+        tableHeader = inset,
+        accent = scheme.primary,
+        extendedSpans = extendedSpans,
     )
 }
 
@@ -169,7 +197,6 @@ internal val loomaAnnotatorConfig = markdownAnnotatorConfig(
 internal fun loomaMarkdownComponents(
     theme: LoomaMarkdownTheme,
     compact: Boolean,
-    dividerColor: Color,
     onCheckboxToggle: ((position: Int, checked: Boolean) -> Unit)? = null,
     bodyStart: Int = 0,
     showImages: Boolean = true,
@@ -197,15 +224,38 @@ internal fun loomaMarkdownComponents(
         }
     }
 
+    val code: @Composable (String, String?, TextStyle) -> Unit = { text, language, style ->
+        MarkdownCodeBackground(
+            color = theme.colors.codeBackground,
+            shape = theme.codeShape,
+            modifier = Modifier.fillMaxWidth().padding(vertical = if (compact) 4.dp else 8.dp),
+            language = language,
+            code = text,
+        ) {
+            BasicText(
+                text = text,
+                style = style,
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(theme.padding.codeBlock),
+            )
+        }
+    }
     return markdownComponents(
-        heading1 = heading(theme.typography.h1, MarkdownTokenTypes.ATX_CONTENT, if (compact) 10.dp else 20.dp, headingBottom, null, links, math),
-        heading2 = heading(theme.typography.h2, MarkdownTokenTypes.ATX_CONTENT, if (compact) 8.dp else 16.dp, if (compact) 0.dp else 6.dp, if (compact) null else dividerColor, links, math),
-        heading3 = heading(theme.typography.h3, MarkdownTokenTypes.ATX_CONTENT, if (compact) 6.dp else 12.dp, headingBottom, null, links, math),
-        heading4 = heading(theme.typography.h4, MarkdownTokenTypes.ATX_CONTENT, if (compact) 4.dp else 8.dp, headingBottom, null, links, math),
-        heading5 = heading(theme.typography.h5, MarkdownTokenTypes.ATX_CONTENT, if (compact) 4.dp else 8.dp, headingBottom, null, links, math),
-        heading6 = heading(theme.typography.h6, MarkdownTokenTypes.ATX_CONTENT, if (compact) 4.dp else 8.dp, headingBottom, null, links, math),
-        setextHeading1 = heading(theme.typography.h1, MarkdownTokenTypes.SETEXT_CONTENT, if (compact) 10.dp else 20.dp, headingBottom, null, links, math),
-        setextHeading2 = heading(theme.typography.h2, MarkdownTokenTypes.SETEXT_CONTENT, if (compact) 8.dp else 16.dp, if (compact) 0.dp else 6.dp, if (compact) null else dividerColor, links, math),
+        table = { model -> LoomaMarkdownTable(model, theme, compact) },
+        blockQuote = { model ->
+            MarkdownBlockQuote(model.content, model.node, style = theme.typography.quote.copy(color = theme.accent))
+        },
+        codeFence = { model -> MarkdownCodeFence(model.content, model.node, theme.typography.code, code) },
+        codeBlock = { model -> MarkdownCodeBlock(model.content, model.node, theme.typography.code, code) },
+        heading1 = heading(theme.typography.h1, MarkdownTokenTypes.ATX_CONTENT, if (compact) 10.dp else 20.dp, headingBottom, links, math),
+        heading2 = heading(theme.typography.h2, MarkdownTokenTypes.ATX_CONTENT, if (compact) 8.dp else 16.dp, if (compact) 0.dp else 6.dp, links, math),
+        heading3 = heading(theme.typography.h3, MarkdownTokenTypes.ATX_CONTENT, if (compact) 6.dp else 12.dp, headingBottom, links, math),
+        heading4 = heading(theme.typography.h4, MarkdownTokenTypes.ATX_CONTENT, if (compact) 4.dp else 8.dp, headingBottom, links, math),
+        heading5 = heading(theme.typography.h5, MarkdownTokenTypes.ATX_CONTENT, if (compact) 4.dp else 8.dp, headingBottom, links, math),
+        heading6 = heading(theme.typography.h6, MarkdownTokenTypes.ATX_CONTENT, if (compact) 4.dp else 8.dp, headingBottom, links, math),
+        setextHeading1 = heading(theme.typography.h1, MarkdownTokenTypes.SETEXT_CONTENT, if (compact) 10.dp else 20.dp, headingBottom, links, math),
+        setextHeading2 = heading(theme.typography.h2, MarkdownTokenTypes.SETEXT_CONTENT, if (compact) 8.dp else 16.dp, if (compact) 0.dp else 6.dp, links, math),
         unorderedList = { model ->
             MarkdownBulletList(
                 content = model.content,
@@ -248,7 +298,6 @@ private fun heading(
     contentChildType: IElementType,
     top: Dp,
     bottom: Dp,
-    borderColor: Color?,
     links: WikiAnnotator?,
     math: MathRenderState?,
 ): MarkdownComponent = { model ->
@@ -265,22 +314,7 @@ private fun heading(
             content = annotated,
             node = model.node,
             style = style,
-            modifier = Modifier
-                .padding(top = top, bottom = bottom)
-                .then(
-                    if (borderColor != null) {
-                        Modifier.drawBehind {
-                            drawLine(
-                                color = borderColor,
-                                start = Offset(0f, size.height),
-                                end = Offset(size.width, size.height),
-                                strokeWidth = 1.dp.toPx(),
-                            )
-                        }
-                    } else {
-                        Modifier
-                    },
-                ),
+            modifier = Modifier.padding(top = top, bottom = bottom),
             sourceContent = model.content,
         )
     }

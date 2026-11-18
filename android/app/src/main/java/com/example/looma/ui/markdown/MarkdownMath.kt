@@ -74,33 +74,36 @@ internal fun rememberMathRenderState(
     fontSize: TextUnit,
     color: Color,
 ): MathRenderState {
-    val displayState = remember(spans, color) { mutableStateOf(emptyMap<Int, DisplayList>()) }
+    val cachedDisplays = remember(spans, color) { mathDisplays.forSpans(spans, color) }
+    val displayState = remember(spans, color) { mutableStateOf(cachedDisplays) }
     LaunchedEffect(spans, color) {
-        if (spans.isEmpty()) return@LaunchedEffect
+        if (cachedDisplays.size == spans.size) return@LaunchedEffect
         withContext(Dispatchers.Default) {
             runCatching { RaTeXFontLoader.ensureLoaded() }
                 .onFailure { if (it is CancellationException) throw it }
-            val parsed = mutableMapOf<Int, DisplayList>()
+            val parsed = cachedDisplays.toMutableMap()
             var publishedCount = 0
+            fun loadedCount() = parsed.size - cachedDisplays.size
             suspend fun publish() {
                 val displays = parsed.toMap()
                 withContext(Dispatchers.Main) { displayState.value = displays }
-                publishedCount = displays.size
+                publishedCount = loadedCount()
             }
 
             for (span in spans) {
                 ensureActive()
+                if (span.range.first in parsed) continue
                 val display = mathDisplays.get(span.latex, span.display, color)
                     ?: runCatching { RaTeXEngine.parseBlocking(span.latex, span.display, color) }
                         .getOrNull()
                         ?.also { mathDisplays.put(span.latex, span.display, color, it) }
                     ?: continue
                 parsed[span.range.first] = display
-                if (parsed.size >= publishedCount * 2) {
+                if (loadedCount() >= publishedCount * 2) {
                     publish()
                 }
             }
-            if (parsed.size > publishedCount) publish()
+            if (loadedCount() > publishedCount) publish()
         }
     }
     val displays = displayState.value
@@ -189,19 +192,26 @@ private fun mathTag(start: Int): String ="looma-math-$start"
 
 private object mathDisplays {
     private const val MAX_ENTRIES = 64
-    private val entries = object : LinkedHashMap<String, DisplayList>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DisplayList>) =
+    private data class Key(val latex: String, val display: Boolean, val color: Color)
+
+    private val entries = object : LinkedHashMap<Key, DisplayList>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, DisplayList>) =
             size > MAX_ENTRIES
     }
 
     @Synchronized
-    fun get(latex: String, display: Boolean, color: Color): DisplayList? = entries[key(latex, display, color)]
+    fun forSpans(spans: List<MathSpan>, color: Color): Map<Int, DisplayList> = buildMap {
+        for (span in spans) {
+            val display = mathDisplays.entries[Key(span.latex, span.display, color)] ?: continue
+            put(span.range.first, display)
+        }
+    }
+
+    @Synchronized
+    fun get(latex: String, display: Boolean, color: Color): DisplayList? = entries[Key(latex, display, color)]
 
     @Synchronized
     fun put(latex: String, display: Boolean, color: Color, displayList: DisplayList) {
-        entries[key(latex, display, color)] = displayList
+        entries[Key(latex, display, color)] = displayList
     }
-
-    private fun key(latex: String, display: Boolean, color: Color): String =
-"${display}:${color.value}:$latex"
 }

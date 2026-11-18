@@ -4,16 +4,25 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -22,16 +31,25 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberDecoratedNavEntries
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.scene.SceneInfo
+import androidx.navigation3.scene.SinglePaneSceneStrategy
+import androidx.navigation3.scene.rememberNavigationEventState
+import androidx.navigation3.scene.rememberSceneState
 import androidx.navigation3.ui.NavDisplay
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.NavigationEventTransitionState.InProgress
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.NavigationEventState
+import androidx.navigationevent.compose.rememberNavigationEventState
 import com.example.looma.LaunchGate
 import com.example.looma.data.folder.FolderRepository
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.search.SearchHistoryRepository
 import com.example.looma.data.settings.SettingsRepository
-import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
@@ -39,19 +57,24 @@ import com.example.looma.feature.home.HomeRoute
 import com.example.looma.feature.home.HomeViewModel
 import com.example.looma.feature.note.NoteRoute
 import com.example.looma.feature.note.NoteViewModel
+import com.example.looma.feature.note.titleEditFor
 import com.example.looma.feature.settings.SettingsRoute
 import com.example.looma.feature.settings.SettingsViewModel
 import com.example.looma.feature.trash.TrashRoute
 import com.example.looma.feature.trash.TrashViewModel
+import com.example.looma.feature.vault.VaultSelection
 import com.example.looma.feature.vault.VaultSetupRoute
 import com.example.looma.feature.vault.VaultSetupViewModel
 import com.example.looma.feature.vault.VaultState
 import com.example.looma.ui.components.DelayedLoadingIndicator
 import kotlinx.coroutines.launch
 
+private val LocalSceneBackState = compositionLocalOf<NavigationEventState<SceneInfo<NavKey>>> {
+    error("Missing scene back state")
+}
+
 @Composable
 fun LoomaNavGraph(
-    vaultRepository: VaultRepository,
     noteRepository: NoteRepository,
     folderRepository: FolderRepository,
     searchHistoryRepository: SearchHistoryRepository,
@@ -80,21 +103,21 @@ fun LoomaNavGraph(
 
     val start: NavKey = if (status is VaultState.Ready) LoomaRoute.Home else LoomaRoute.VaultSetup
     val backStack = rememberNavBackStack(start)
+    val reset = setupState.vaultStackReset(backStack)
 
-    LaunchedEffect(setupState.selectionSaved, status) {
-        if (setupState.selectionSaved && status is VaultState.Ready) {
-            backStack.clear()
-            backStack.add(LoomaRoute.Home)
-            vaultSetupViewModel.onNavigationHandled()
-        } else if (status !is VaultState.Ready && backStack.lastOrNull() != LoomaRoute.VaultSetup) {
-            backStack.clear()
-            backStack.add(LoomaRoute.VaultSetup)
+    LaunchedEffect(setupState.selection as? VaultSelection.Activated, reset) {
+        val latest = vaultSetupViewModel.uiState.value
+        val root = latest.vaultStackReset(backStack) ?: return@LaunchedEffect
+        backStack.clear()
+        backStack.add(root)
+        if (root == LoomaRoute.Home) {
+            (latest.selection as? VaultSelection.Activated)?.let(vaultSetupViewModel::onActivationHandled)
         }
     }
+    if (reset == LoomaRoute.VaultSetup) return
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    val noteBackHandlers = remember { mutableMapOf<String, () -> Unit>() }
     val current = backStack.lastOrNull()
     LaunchedEffect(status, current) {
         if (status is VaultState.Ready && current != LoomaRoute.Home) {
@@ -102,7 +125,7 @@ fun LoomaNavGraph(
         }
     }
     val destination = current.toDestination()
-    val vault by vaultRepository.currentVaultFlow.collectAsStateWithLifecycle(initialValue = null)
+    val vault = (status as? VaultState.Ready)?.vault
 
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
@@ -128,18 +151,8 @@ fun LoomaNavGraph(
         },
         modifier = modifier.fillMaxSize(),
     ) {
-        NavDisplay(
-            modifier = Modifier.fillMaxSize(),
-
+        val entries = rememberDecoratedNavEntries(
             backStack = backStack,
-            onBack = {
-                if (backStack.size > 1) {
-                    val route = backStack.lastOrNull() as? LoomaRoute.Note
-                    val handler = route?.let { noteBackHandlers[it.visitId] }
-                    if (handler != null) handler() else backStack.removeLastOrNull()
-                }
-            },
-
             entryDecorators = listOf(
                 rememberSaveableStateHolderNavEntryDecorator(),
                 rememberViewModelStoreNavEntryDecorator(),
@@ -154,10 +167,9 @@ fun LoomaNavGraph(
                     )
                 }
 
-                entry<LoomaRoute.Home> {
+                entry<LoomaRoute.Home>(clazzContentKey = { "home/${vault?.id?.value.orEmpty()}" }) {
                     val homeViewModel: HomeViewModel = viewModel(
                         factory = HomeViewModel.factory(
-                            vaultRepository = vaultRepository,
                             noteRepository = noteRepository,
                             folderRepository = folderRepository,
                             searchHistoryRepository = searchHistoryRepository,
@@ -223,23 +235,32 @@ fun LoomaNavGraph(
                             isNewNote = route.isNew,
                         ),
                     )
+                    val titleBuffer = rememberSaveable(saver = TextFieldState.Saver) { TextFieldState() }
+                    val titleFocused = remember { mutableStateOf(false) }
+                    val isActive = {
+                        (backStack.lastOrNull() as? LoomaRoute.Note)?.visitId == route.visitId
+                    }
                     val navigateUp = {
-                        val active = backStack.lastOrNull() as? LoomaRoute.Note
-                        if (active?.visitId == route.visitId && backStack.size > 1) {
+                        if (isActive() && backStack.size > 1) {
                             backStack.removeLastOrNull()
                         }
                         Unit
                     }
-                    DisposableEffect(route.visitId, noteViewModel) {
-                        noteBackHandlers[route.visitId] = {
-                            val state = noteViewModel.uiState.value
-                            if (state.isLoading || state.loadFailed) navigateUp()
-                            else noteViewModel.requestLeave()
-                        }
-                        onDispose { noteBackHandlers.remove(route.visitId) }
+                    if (isActive()) {
+                        NoteBackHandler(
+                            viewModel = noteViewModel,
+                            titleBuffer = titleBuffer,
+                            titleFocused = titleFocused,
+                            enabled = backStack.size > 1 && !drawerState.isOpen,
+                            vaultBusy = setupState.isBusy,
+                            canLeave = { isActive() && !vaultSetupViewModel.uiState.value.isBusy },
+                            onNavigateUp = navigateUp,
+                        )
                     }
                     NoteRoute(
                         viewModel = noteViewModel,
+                        titleBuffer = titleBuffer,
+                        onTitleFocusChange = { titleFocused.value = it },
                         noteId = noteId,
                         retargetVersion = route.retargetVersion,
                         onNavigateUp = navigateUp,
@@ -250,6 +271,77 @@ fun LoomaNavGraph(
                     )
                 }
             },
+        )
+        val onBack = {
+            if (backStack.size > 1 &&
+                backStack.lastOrNull() !is LoomaRoute.Note &&
+                !vaultSetupViewModel.uiState.value.isBusy
+            ) {
+                backStack.removeLastOrNull()
+            }
+            Unit
+        }
+        val sceneState = rememberSceneState(
+            entries = entries,
+            sceneStrategies = listOf(SinglePaneSceneStrategy()),
+            onBack = onBack,
+        )
+        val noteVisitId = (current as? LoomaRoute.Note)?.visitId
+        val sceneBackState = key(noteVisitId) { rememberNavigationEventState(sceneState) }
+        if (noteVisitId == null) {
+            NavigationBackHandler(
+                state = sceneBackState,
+                isBackEnabled = backStack.size > 1 && !drawerState.isOpen,
+                onBackCompleted = onBack,
+            )
+        }
+        CompositionLocalProvider(LocalSceneBackState provides sceneBackState) {
+            NavDisplay(
+                sceneState = sceneState,
+                navigationEventState = sceneBackState,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NoteBackHandler(
+    viewModel: NoteViewModel,
+    titleBuffer: TextFieldState,
+    titleFocused: State<Boolean>,
+    enabled: Boolean,
+    vaultBusy: Boolean,
+    canLeave: () -> Boolean,
+    onNavigateUp: () -> Unit,
+) {
+    val focusManager = LocalFocusManager.current
+    val sceneBackState = LocalSceneBackState.current
+    val saveBackState = rememberNavigationEventState(NavigationEventInfo.None)
+    val noteState by viewModel.uiState.collectAsStateWithLifecycle()
+    val needsSave by remember(viewModel, noteState, titleBuffer, titleFocused) {
+        derivedStateOf(structuralEqualityPolicy()) {
+            viewModel.requiresSaveBeforeLeaving(noteState) ||
+                (titleFocused.value && !noteState.isLoading && !noteState.loadFailed &&
+                    titleEditFor(titleBuffer.text.toString(), noteState.fileName, lastCommitted = null)
+                        .renameTo != null)
+        }
+    }
+    val gestureState by remember(sceneBackState, saveBackState) {
+        derivedStateOf(structuralEqualityPolicy()) {
+            when {
+                sceneBackState.transitionState is InProgress -> sceneBackState
+                saveBackState.transitionState is InProgress -> saveBackState
+                else -> null
+            }
+        }
+    }
+    val backState = gestureState ?: if (needsSave || vaultBusy) saveBackState else sceneBackState
+    NavigationBackHandler(state = backState, isBackEnabled = enabled) {
+        if (!canLeave()) return@NavigationBackHandler
+        viewModel.requestLeave(
+            clearFocus = { focusManager.clearFocus(force = true) },
+            onAlreadySaved = onNavigateUp,
         )
     }
 }

@@ -6,6 +6,7 @@ import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
 import java.time.Instant
+import kotlinx.coroutines.sync.withLock
 
 internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteIndex {
 
@@ -33,8 +34,30 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
         }
     }
 
+    override suspend fun version(vaultId: VaultId): Long =
+        database.indexWriteMutex.withLock { currentVersion(vaultId) }
+
     override suspend fun apply(delta: IndexDelta) {
-        if (delta.upserts.isEmpty() && delta.removed.isEmpty()) return
+        writeIfVersion(delta, expectedVersion = null)
+    }
+
+    override suspend fun applyIfVersion(delta: IndexDelta, expectedVersion: Long): Boolean =
+        writeIfVersion(delta, expectedVersion)
+
+    private suspend fun writeIfVersion(delta: IndexDelta, expectedVersion: Long?): Boolean =
+        database.indexWriteMutex.withLock {
+            val version = currentVersion(delta.vaultId)
+            if (expectedVersion != null && version != expectedVersion) return@withLock false
+            if (delta.upserts.isNotEmpty() || delta.removed.isNotEmpty()) {
+                database.indexVersions[delta.vaultId] = version + 1
+                write(delta)
+            }
+            true
+        }
+
+    private fun currentVersion(vaultId: VaultId): Long = database.indexVersions[vaultId] ?: 0L
+
+    private suspend fun write(delta: IndexDelta) {
         database.withTransaction {
             val vaultId = delta.vaultId.value
             val upsertPaths = delta.upserts.map { it.id.path.relativePath }

@@ -1,0 +1,601 @@
+[
+  {
+    "id": "zh-01",
+    "group": "zh",
+    "text": "同事改了共用稿，文件日期和字节数看起来都没变化，怎样确定我手里的编辑稿还能直接保存？",
+    "terms": [
+      "共用稿",
+      "文件日期",
+      "字节数",
+      "保存"
+    ],
+    "relevant": {
+      "外部改稿": [
+        "即使文件大小和修改时间都相同，只要内容指纹变了，普通保存就会停下来并提示冲突。"
+      ],
+      "concurrent-memo": [
+        "Compare the persisted bytes against the fingerprint captured at open; a mismatch blocks an ordinary save."
+      ]
+    }
+  },
+  {
+    "id": "zh-02",
+    "group": "zh",
+    "text": "正文里搜两个汉字时，三元组索引找不到，通配符又要按原字面匹配，有什么兜底？",
+    "terms": [
+      "三元组",
+      "两个汉字",
+      "通配符",
+      "正文"
+    ],
+    "relevant": {
+      "标签关键词": [
+        "三元组全文索引无法匹配只有两个字符的子串查询，此时正文搜索回退到转义后的 LIKE。",
+        "标签结果保持按修改时间倒序，用户输入的百分号和下划线按字面比较。"
+      ],
+      "small-cjk-token": [
+        "With a trigram index, route one- and two-character substring terms to an escaped LIKE predicate."
+      ]
+    }
+  },
+  {
+    "id": "zh-03",
+    "group": "zh",
+    "text": "不同文件夹都有相同标题，没写路径的内部引用会先找哪一篇？",
+    "terms": [
+      "文件夹",
+      "标题",
+      "路径",
+      "内部引用"
+    ],
+    "relevant": {
+      "文件夹同名": [
+        "对于仅写了文件名的链接，解析器先尝试引用者所在目录里的同名笔记。"
+      ],
+      "atlas-links": [
+        "For an unqualified name shared by several notes, resolve to the sibling of the referring note when available."
+      ]
+    }
+  },
+  {
+    "id": "zh-04",
+    "group": "zh",
+    "text": "给展示公式的空行插入隐形字符，怎么防止后面的待办勾选写错字？",
+    "terms": [
+      "公式",
+      "空行",
+      "隐形字符",
+      "待办"
+    ],
+    "relevant": {
+      "复选框偏移": [
+        "公式预处理只能用等长替换，避免后续任务框写回源文档时定位偏移。"
+      ],
+      "anex-render-tree": [
+        "The math preprocessor must preserve string length because every interactive checkbox uses an offset into the original Markdown."
+      ]
+    }
+  },
+  {
+    "id": "zh-05",
+    "group": "zh",
+    "text": "一直敲字从来没有停顿，自动落盘的静置计时器推后了很久，怎样保证过一段时间会保存一次？",
+    "terms": [
+      "敲字",
+      "静置",
+      "计时器",
+      "保存"
+    ],
+    "relevant": {
+      "收班前备份": [
+        "连续输入时设置一次最长等待期限，让保存任务即使始终收不到安静窗口也会落盘。"
+      ],
+      "draft-cadence": [
+        "After the maximum dirty interval expires, persist the draft even when typing has never become idle."
+      ]
+    }
+  },
+  {
+    "id": "zh-06",
+    "group": "zh",
+    "text": "标本柜那种带绿色线的湿度卡，哪些小珠变粉红就该换干燥袋？",
+    "terms": [
+      "标本柜",
+      "绿色线",
+      "粉红",
+      "干燥袋"
+    ],
+    "relevant": {
+      "east-wing-lab": [
+        "参考线旁的珠子全部变成粉红色就更换干燥包，再把更换时刻记在柜门卡片背面。"
+      ],
+      "salt-card": [
+        "Replace the desiccant pack once all indicator beads next to the green stripe have turned pink."
+      ]
+    }
+  },
+  {
+    "id": "zh-07",
+    "group": "zh",
+    "text": "夜间补回昨日测到的雨量，日报按机房日期算还是测点所在地当天算？",
+    "terms": [
+      "雨量",
+      "日报",
+      "机房日期",
+      "测点"
+    ],
+    "relevant": {
+      "河岸浮标": [
+        "雨量日报按测点所在时区的自然日归档，跨午夜补发的旧测量仍归到它实际发生的那一天。"
+      ],
+      "ledger-date-boundary": [
+        "groupKey = sent.atZone(stationZone).toLocalDate()"
+      ]
+    }
+  },
+  {
+    "id": "zh-08",
+    "group": "zh",
+    "text": "移动盘扫完根目录就断开，没扫到的笔记记录可以删了吗？",
+    "terms": [
+      "移动盘",
+      "根目录",
+      "断开",
+      "记录"
+    ],
+    "relevant": {
+      "目录普查": [
+        "只有完整遍历全部子目录，索引器才有依据移除本次扫描未见到的记录。"
+      ],
+      "stale-shelf": [
+        "An interrupted walk keeps existing rows for paths it did not manage to visit."
+      ],
+      "remote-walk": [
+        "Keep cached entries on any partial directory traversal and prune them only after a complete census."
+      ],
+      "catalog-commit": [
+        "deletion candidates are actionable only after all directories have been enumerated."
+      ]
+    }
+  },
+  {
+    "id": "en-01",
+    "group": "en",
+    "text": "An older folder walk finishes after an editor publishes a new title. What should prevent its rows from replacing the edit?",
+    "terms": [
+      "folder",
+      "walk",
+      "editor",
+      "title"
+    ],
+    "relevant": {
+      "stale-shelf": [
+        "At publication, a refresh may replace search rows only if its starting generation still matches the shelf's current generation."
+      ],
+      "catalog-commit": [
+        "The catalog writer compares a revision counter under the commit lock and discards any scan built from a superseded snapshot."
+      ],
+      "目录普查": [
+        "扫描开始时记录索引代数；提交前再次对比，避免用早先读到的摘要覆盖用户刚保存的新摘要。"
+      ]
+    }
+  },
+  {
+    "id": "en-02",
+    "group": "en",
+    "text": "If I pull from the screen edge and change my mind partway through, how should the open reader and its scroll position behave?",
+    "terms": [
+      "edge",
+      "reader",
+      "scroll",
+      "change"
+    ],
+    "relevant": {
+      "android-back-gesture": [
+        "The host now keeps its original entry throughout the drag and resets the animation when the drag is abandoned.",
+        "Only the committed gesture removes the destination from the navigation stack."
+      ],
+      "手势回退": [
+        "拖到一半反悔时保留当前目的地与阅读状态，系统确认完成以后才出栈。"
+      ]
+    }
+  },
+  {
+    "id": "en-03",
+    "group": "en",
+    "text": "Which part of a note reference should move with the file, and what happens to the section and link caption?",
+    "terms": [
+      "note",
+      "reference",
+      "section",
+      "caption"
+    ],
+    "relevant": {
+      "atlas-links": [
+        "When updating incoming links after a move, change the destination path while preserving the fragment and the display label."
+      ],
+      "文件夹同名": [
+        "批量改目录时仅更新链接目标的路径部分，章节后缀和别名继续沿用。"
+      ]
+    }
+  },
+  {
+    "id": "en-04",
+    "group": "en",
+    "text": "Can the ferry gate approve a passenger using an out-of-date passenger list while its network is down?",
+    "terms": [
+      "ferry",
+      "gate",
+      "passenger",
+      "network"
+    ],
+    "relevant": {
+      "ferry-board": [
+        "The ticket gate refuses to confirm boarding offline when the passenger manifest has expired, even if yesterday's departure board still opens."
+      ],
+      "渡口检票": [
+        "当缓存的乘船名册超过有效期时，离线闸机拒绝确认上船。"
+      ]
+    }
+  },
+  {
+    "id": "en-05",
+    "group": "en",
+    "text": "Why is adding 24 hours to the previous start unreliable for a daily rain report at a clock change?",
+    "terms": [
+      "hours",
+      "daily",
+      "rain",
+      "clock"
+    ],
+    "relevant": {
+      "ledger-date-boundary": [
+        "Derive both endpoints from successive local midnights because a station day can last 23 or 25 hours."
+      ]
+    }
+  },
+  {
+    "id": "en-06",
+    "group": "en",
+    "text": "The thumbnail's animation is disabled in system settings. Does selecting it still finish opening the note route?",
+    "terms": [
+      "thumbnail",
+      "animation",
+      "system",
+      "route"
+    ],
+    "relevant": {
+      "motion-pref": [
+        "When system animation duration is zero, switch directly to the final layout while completing the navigation state transition."
+      ],
+      "低动态模式": [
+        "系统动画时长为零时直接展示目标布局，路由状态照常完成切换。"
+      ]
+    }
+  },
+  {
+    "id": "en-07",
+    "group": "en",
+    "text": "If the user chooses to force their version into a shared draft, what must succeed before the saved version is replaced?",
+    "terms": [
+      "force",
+      "shared",
+      "draft",
+      "replaced"
+    ],
+    "relevant": {
+      "concurrent-memo": [
+        "The explicit replace action first writes a recoverable copy of the previous disk contents and stops if that copy cannot be created."
+      ],
+      "外部改稿": [
+        "明确覆盖以前要先成功归档磁盘上的旧稿；归档失败就保持原件和草稿。"
+      ]
+    }
+  },
+  {
+    "id": "en-08",
+    "group": "en",
+    "text": "How can an attachment retry avoid creating a second copy when the server processed the first request but the client never got a reply?",
+    "terms": [
+      "attachment",
+      "retry",
+      "server",
+      "request"
+    ],
+    "relevant": {
+      "upload-burst": [
+        "Reuse the same idempotency key on each retry so the service returns the outcome of the original attachment upload."
+      ],
+      "挂起上传": [
+        "同一份附件的每次补传都使用最初生成的幂等键，避免重试创建重复对象。"
+      ]
+    }
+  },
+  {
+    "id": "mixed-01",
+    "group": "mixed",
+    "text": "编辑器退到 background 时还有 dirty buffer，怎么把最后一段送去落盘？",
+    "terms": [
+      "background",
+      "dirty",
+      "buffer",
+      "落盘"
+    ],
+    "relevant": {
+      "收班前备份": [
+        "界面退到后台时立即请求提交编辑缓冲区，带着尚未写入的最后一段文字。"
+      ],
+      "draft-cadence": [
+        "When the editor loses foreground, flush the still-dirty buffer immediately instead of waiting for the idle timer."
+      ]
+    }
+  },
+  {
+    "id": "mixed-02",
+    "group": "mixed",
+    "text": "遇到同名 `wiki link`，只填 filename 的情况下怎样优先选当前目录的讲义？",
+    "terms": [
+      "wiki link",
+      "filename",
+      "当前目录",
+      "讲义"
+    ],
+    "relevant": {
+      "文件夹同名": [
+        "对于仅写了文件名的链接，解析器先尝试引用者所在目录里的同名笔记。"
+      ],
+      "atlas-links": [
+        "For an unqualified name shared by several notes, resolve to the sibling of the referring note when available."
+      ]
+    }
+  },
+  {
+    "id": "mixed-03",
+    "group": "mixed",
+    "text": "display math 公式渲染时使用的 invisible marker 会把 checkbox 的 source offset 挪走吗？要维持什么条件？",
+    "terms": [
+      "invisible marker",
+      "checkbox",
+      "source offset",
+      "公式"
+    ],
+    "relevant": {
+      "复选框偏移": [
+        "公式预处理只能用等长替换，避免后续任务框写回源文档时定位偏移。"
+      ],
+      "anex-render-tree": [
+        "The math preprocessor must preserve string length because every interactive checkbox uses an offset into the original Markdown."
+      ]
+    }
+  },
+  {
+    "id": "mixed-04",
+    "group": "mixed",
+    "text": "索引 refresh 报 I/O error，未枚举到的文件能直接 prune 吗？缓存里那些旧条目怎么处理？",
+    "terms": [
+      "refresh",
+      "I/O error",
+      "prune",
+      "未枚举"
+    ],
+    "relevant": {
+      "目录普查": [
+        "只有完整遍历全部子目录，索引器才有依据移除本次扫描未见到的记录。"
+      ],
+      "stale-shelf": [
+        "An interrupted walk keeps existing rows for paths it did not manage to visit."
+      ],
+      "remote-walk": [
+        "Keep cached entries on any partial directory traversal and prune them only after a complete census."
+      ],
+      "catalog-commit": [
+        "deletion candidates are actionable only after all directories have been enumerated."
+      ]
+    }
+  },
+  {
+    "id": "mixed-05",
+    "group": "mixed",
+    "text": "截屏做 predictive back 验收时，drag 进行了一半又取消了，页面 entry 什么时候才该移除？",
+    "terms": [
+      "predictive back",
+      "drag",
+      "entry",
+      "取消"
+    ],
+    "relevant": {
+      "android-back-gesture": [
+        "Only the committed gesture removes the destination from the navigation stack."
+      ],
+      "手势回退": [
+        "拖到一半反悔时保留当前目的地与阅读状态，系统确认完成以后才出栈。"
+      ]
+    }
+  },
+  {
+    "id": "mixed-06",
+    "group": "mixed",
+    "text": "文件挪目录后的 `link rewrite` 应该保留 fragment 和 display label 吗？",
+    "terms": [
+      "link rewrite",
+      "fragment",
+      "display label",
+      "目录"
+    ],
+    "relevant": {
+      "atlas-links": [
+        "When updating incoming links after a move, change the destination path while preserving the fragment and the display label."
+      ],
+      "文件夹同名": [
+        "批量改目录时仅更新链接目标的路径部分，章节后缀和别名继续沿用。"
+      ]
+    }
+  },
+  {
+    "id": "mixed-07",
+    "group": "mixed",
+    "text": "CJK 两字 substring 走 FTS trigram 不命中，回退查询应怎样看待 underscore？",
+    "terms": [
+      "CJK",
+      "substring",
+      "trigram",
+      "underscore"
+    ],
+    "relevant": {
+      "标签关键词": [
+        "三元组全文索引无法匹配只有两个字符的子串查询，此时正文搜索回退到转义后的 LIKE。",
+        "标签结果保持按修改时间倒序，用户输入的百分号和下划线按字面比较。"
+      ],
+      "small-cjk-token": [
+        "With a trigram index, route one- and two-character substring terms to an escaped LIKE predicate."
+      ]
+    }
+  },
+  {
+    "id": "mixed-08",
+    "group": "mixed",
+    "text": "一个现场 transport retry 怎么复用 attachment 的 request identity，避免创建两份对象？",
+    "terms": [
+      "transport retry",
+      "attachment",
+      "request identity",
+      "对象"
+    ],
+    "relevant": {
+      "upload-burst": [
+        "Reuse the same idempotency key on each retry so the service returns the outcome of the original attachment upload."
+      ],
+      "挂起上传": [
+        "同一份附件的每次补传都使用最初生成的幂等键，避免重试创建重复对象。"
+      ]
+    }
+  },
+  {
+    "id": "cross-01",
+    "group": "cross-language",
+    "text": "雨量日统计遇到夏令时切换，为什么不能直接拿昨天的起点加固定一昼夜？",
+    "terms": [
+      "雨量",
+      "夏令时",
+      "起点",
+      "一昼夜"
+    ],
+    "relevant": {
+      "ledger-date-boundary": [
+        "Derive both endpoints from successive local midnights because a station day can last 23 or 25 hours."
+      ]
+    }
+  },
+  {
+    "id": "cross-02",
+    "group": "cross-language",
+    "text": "平板旋转后图片才下载完，怎样记住读到的那一段，而不受页面高度后来变化影响？",
+    "terms": [
+      "平板",
+      "旋转",
+      "图片",
+      "高度"
+    ],
+    "relevant": {
+      "image-height": [
+        "Restore the paragraph key and the displacement within it after a rotation; a raw pixel offset drifts when illustrations load."
+      ]
+    }
+  },
+  {
+    "id": "cross-03",
+    "group": "cross-language",
+    "text": "雾天渡口改到对岸后，已经签到的乘客订单怎样转到替代船班？",
+    "terms": [
+      "雾天",
+      "渡口",
+      "签到",
+      "乘客订单"
+    ],
+    "relevant": {
+      "ferry-board": [
+        "During a diversion, orders already checked in can be moved to the replacement sailing through reconciliation."
+      ]
+    }
+  },
+  {
+    "id": "cross-04",
+    "group": "cross-language",
+    "text": "修一台桌面风扇换轴承，旧的薄垫圈应放到新零件的什么位置？",
+    "terms": [
+      "风扇",
+      "轴承",
+      "垫圈",
+      "零件"
+    ],
+    "relevant": {
+      "repair-list": [
+        "When the old bearing is removed, keep its shim and install it against the new bearing's inner race."
+      ]
+    }
+  },
+  {
+    "id": "cross-05",
+    "group": "cross-language",
+    "text": "For a large file transfer that stopped midway, what boundary should the next request start from when the UI had overreported progress?",
+    "terms": [
+      "transfer",
+      "boundary",
+      "progress",
+      "request"
+    ],
+    "relevant": {
+      "附件分片": [
+        "续传从服务端确认的最后一个完整分片之后开始，舍弃本地提前显示的进度。"
+      ]
+    }
+  },
+  {
+    "id": "cross-06",
+    "group": "cross-language",
+    "text": "If a paragraph splits across two PDF pages, which line should the sidebar jump to?",
+    "terms": [
+      "paragraph",
+      "PDF",
+      "line",
+      "sidebar"
+    ],
+    "relevant": {
+      "段尾锚点": [
+        "当导出器在页面底部拆开一个段落时，侧栏仍跳到这个段落的第一行。"
+      ]
+    }
+  },
+  {
+    "id": "cross-07",
+    "group": "cross-language",
+    "text": "On a keyboard-only grid, how can focus return to the selected card after the sort order changed while its detail pane was open?",
+    "terms": [
+      "keyboard",
+      "focus",
+      "sort",
+      "detail"
+    ],
+    "relevant": {
+      "边栏回放": [
+        "若条目的排序位置已改变，按该条目的稳定标识恢复键盘焦点。"
+      ]
+    }
+  },
+  {
+    "id": "cross-08",
+    "group": "cross-language",
+    "text": "When a dispatch ticket gets authorized by someone working offline, is the device clock or the server's signed receipt used for posting schedule switches?",
+    "terms": [
+      "dispatch",
+      "device",
+      "server",
+      "receipt"
+    ],
+    "relevant": {
+      "进度冲账": [
+        "调班审批以服务端收到签名的顺序落账，离线终端的本地时间只用于显示。"
+      ]
+    }
+  }
+]

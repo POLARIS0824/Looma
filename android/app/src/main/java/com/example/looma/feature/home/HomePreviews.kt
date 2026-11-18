@@ -30,7 +30,7 @@ private fun previewState(
 ): HomeUiState = HomeUiState(
     vaultName = "Looma",
     notes = notes.orderedBy(HomeSort.LAST_MODIFIED),
-    searchResults = notes.matching(query).orderedBy(HomeSort.LAST_MODIFIED),
+    searchResults = searchNotes(notes.orderedBy(HomeSort.LAST_MODIFIED), emptyMap(), query),
     query = query,
     isGridMode = isGridMode,
     isLoading = false,
@@ -165,7 +165,8 @@ private fun HomeSearchResultsPreview() {
                 )
                 HomeSearchResults(
                     query = "Java",
-                    notes = previewNotes().matching("Java"),
+                    results = searchNotes(previewNotes(), emptyMap(), "Java"),
+                    isGridMode = true,
                     onNoteClick = {},
                 )
             }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -13,15 +14,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
+import coil3.compose.AsyncImage
+import com.example.looma.R
 import com.example.looma.domain.markdown.ImageSize
 import com.example.looma.domain.markdown.ImageSource
-import com.example.looma.ui.image.LoomaAsyncImage
+import com.example.looma.ui.image.rememberImageRequest
 import com.mikepenz.markdown.model.ImageData
 import com.mikepenz.markdown.model.ImageTransformer
 import com.mikepenz.markdown.model.ImageWidth
@@ -31,16 +35,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 val LocalImageSourceResolver = staticCompositionLocalOf<(String) -> ImageSource?> { { null } }
+internal val LocalImageSourceRetryResolver = staticCompositionLocalOf<((String) -> ImageSource?)?> { null }
 
 @Composable
-internal fun rememberImageSource(link: String, readAspectRatio: Boolean = true): ImageResolution {
+internal fun rememberImageSource(link: String, attempt: Int, readAspectRatio: Boolean = true): ImageResolution {
     val resolver = LocalImageSourceResolver.current
-    var resolved by remember(link, resolver, readAspectRatio) {
+    val retryResolver = LocalImageSourceRetryResolver.current ?: resolver
+    var resolved by remember(link, resolver, retryResolver, readAspectRatio, attempt) {
         mutableStateOf<ImageResolution>(ImageResolution.Pending)
     }
-    LaunchedEffect(link, resolver, readAspectRatio) {
+    LaunchedEffect(link, resolver, retryResolver, readAspectRatio, attempt) {
         resolved = withContext(Dispatchers.IO) {
-            val source = resolver(link) ?: return@withContext ImageResolution.Missing
+            val source = (if (attempt == 0) resolver(link) else retryResolver(link))
+                ?: return@withContext ImageResolution.Missing
             ImageResolution.Found(source, if (readAspectRatio) source.aspectRatio() else null)
         }
     }
@@ -85,12 +92,21 @@ internal object InlineMarkdownImageTransformer : ImageTransformer {
 
 @Composable
 internal fun InlineMarkdownImage(link: String) {
-    val source = (rememberImageSource(link, readAspectRatio = false) as? ImageResolution.Found)?.source ?: return
-    LoomaAsyncImage(
-        source = source,
-        modifier = Modifier.fillMaxSize(),
-        contentDescription = "Image",
-    )
+    var attempt by remember(link, LocalImageSourceResolver.current) { mutableStateOf(0) }
+    val resolution = rememberImageSource(link, attempt, readAspectRatio = false)
+    key(link, attempt, resolution) {
+        var failed by remember { mutableStateOf(false) }
+        when {
+            failed || resolution == ImageResolution.Missing -> ImageFailure(Modifier.fillMaxSize()) { attempt++ }
+            resolution is ImageResolution.Found -> AsyncImage(
+                model = rememberImageRequest(resolution.source, reload = attempt > 0),
+                modifier = Modifier.fillMaxSize(),
+                contentDescription = stringResource(R.string.markdown_image),
+                onError = { failed = true },
+            )
+            else -> ImagePlaceholder(Modifier.fillMaxSize())
+        }
+    }
 }
 
 internal fun imageFrameModifier(size: ImageSize?, aspectRatio: Float?): Modifier = Modifier.layout { measurable, constraints ->

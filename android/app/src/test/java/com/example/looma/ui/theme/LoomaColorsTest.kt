@@ -29,6 +29,18 @@ class LoomaColorsTest {
         assertTrue(failures.joinToString("\n"), failures.isEmpty())
     }
 
+    @Test
+    fun `card inset is a visible step from the card in both themes`() {
+        val failures = mutableListOf<String>()
+        forEachScheme { label, scheme ->
+            val colors = loomaColors(scheme)
+            val (low, high) = listOf(colors.cardInset.luminance(), colors.card.luminance()).sorted()
+            val ratio = (high + 0.05f) / (low + 0.05f)
+            if (ratio < 1.08f) failures += "$label cardInset contrast with card was only %.3f".format(ratio)
+        }
+        assertTrue(failures.joinToString("\n"), failures.isEmpty())
+    }
+
     private fun forEachScheme(block: (String, ColorScheme) -> Unit) {
         listOf(false, true).forEach { dark ->
             val mode = if (dark) "dark" else "light"

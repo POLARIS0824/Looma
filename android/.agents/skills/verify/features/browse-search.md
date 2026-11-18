@@ -8,7 +8,7 @@ Users browse folders and recent notes, change list/grid and sorting, search titl
 - `browse-folders`: create, open, go up, rename, move and delete a folder.
 - `browse-selection`: long-press selects notes or one folder (never both); batch Move to…/Delete; single-note Rename and File info; snackbar Undo.
 - `browse-relink`: renaming or moving a note or folder rewrites wiki links in other notes; the rename snackbar reports how many.
-- `search-match`: title, body and tag queries list matching notes; a result opens the note.
+- `search-match`: title, body and tag queries list matching notes. Body matches show the lines around the keyword with the keyword highlighted, and several matches in one note share one card. Cards reuse the home note card in the current list/grid mode; a result opens the note.
 - `search-empty-clear`: blank query hint, `No matching notes`, Clear search and Close search.
 - `search-history`: submitted or opened queries appear under `Recent searches`.
 - `browse-stalled`: an unfinished rename/move journal shows a banner with Abandon. Source-only: no user path creates one.
@@ -31,12 +31,12 @@ Preconditions: doctor passes on connected Home. Create two notes via [notes.md](
 - **Move.** Long-press a note; `v tap --desc 'Move to…'`; `v doctor --system`. DocumentsUI opens at the vault folder: `v tap --text Projects`; `v tap --text 'USE THIS FOLDER'`; `v tap --text ALLOW`. Expect `1 moved` + Undo, and the file under `Projects/`. A link that uses the bare file name keeps resolving and is not rewritten. Undo expires after about 10 s; a `v files` pull before tapping it can take longer.
 - **Batch.** Long-press note A, then tap note B: the title is `2`, `File info` disappears and `Rename` is disabled. `v tap --desc Delete` has no confirmation: `2 moved to trash` + Undo → `Undone`.
 - **Folder delete.** `v tap --text Projects --long`; `v tap --desc Delete`; `v assert --text 'Delete “Projects”?'`; the message is `1 note in this folder will move to the trash.` or `This folder is empty and will be removed.` `v tap --text Delete` → `Folder deleted · 1 note moved to trash` + Undo. The note lands in `.looma/trash/` with `originalPath=Projects/<name>.md`.
-- **Search.** `v tap --class android.widget.EditText`; with no history expect `Search titles, text and tags`. `v text Verification` → result `Verification note`. `v tap --desc 'Clear search'`; `v text Persistence` (body); clear; `v text '#verify'` (tag). A result row shows the note's stored excerpt, not a snippet around the match. Tapping it opens the note and records the query. Reopen the field: `Recent searches` lists `#verify`. `v text nonexistent-verify-token` → `No matching notes`. `v tap --desc 'Clear search'`; `v tap --desc 'Close search'` → `v assert --desc 'Show as list'`.
+- **Search.** `v tap --class android.widget.EditText`; with no history expect `Search titles, text and tags`. `v text Verification` → result `Verification note`. `v tap --desc 'Clear search'`; `v text Persistence` (body); clear; `v text '#verify'` (tag). A body result card shows the matching lines with the keyword highlighted and groups several matches from one note in one card. Press Enter: the query is recorded, the keyboard hides and the results stay. `v key KEYCODE_BACK` then returns Home and clears the query. Tapping a result also opens the note and records the query. Reopen the field: `Recent searches` lists `#verify`. `v text nonexistent-verify-token` → `No matching notes`. `v tap --desc 'Clear search'`; `v tap --desc 'Close search'` → `v assert --desc 'Show as list'`.
 
 ## Gotchas
 
 - Titles repeat across Recent, Notes and the selection bar. Resolve `--index` from `v ui`.
-- Do not press Enter while inspecting results: submit records the query, collapses search and clears it. Closing search also clears it.
+- Do not press Enter until the results you want to inspect are on screen: submit records the query, hides the keyboard and keeps the results. A single Back then closes search; closing search clears the query.
 - Dialog actions are text (`Create`, `Save`, `Delete`, `OK`); bar controls are descriptions.
 - Snackbars with Undo use the long duration. Assert the message before slow steps.
 - A stalled relocation needs a broken `.looma/operations/op-<uuid>` journal. No harness command or user path creates one; report it as source-only.

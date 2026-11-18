@@ -129,7 +129,13 @@ class Control:
 
     def dump(self):
         self.owned()
-        self.device("shell", "uiautomator", "dump", "/data/local/tmp/looma-verify-ui.xml", timeout=25)
+        for attempt in range(6):
+            self.device("shell", "rm", "-f", "/data/local/tmp/looma-verify-ui.xml", check=False)
+            self.device("shell", "uiautomator", "dump", "/data/local/tmp/looma-verify-ui.xml", timeout=25)
+            listed = self.device("shell", "ls", "/data/local/tmp/looma-verify-ui.xml", check=False)
+            if listed.endswith("looma-verify-ui.xml") or attempt == 5:
+                break
+            time.sleep(2)
         xml = self.device("shell", "cat", "/data/local/tmp/looma-verify-ui.xml")
         tree = ET.fromstring(xml)
         self.log(ui=xml)

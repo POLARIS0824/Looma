@@ -1,14 +1,9 @@
 package com.example.looma.feature.home.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridScope
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -30,8 +25,6 @@ import com.example.looma.feature.home.HomeFolderItem
 import com.example.looma.feature.home.HomeNoteItem
 import com.example.looma.feature.home.HomeSelection
 import com.example.looma.ui.theme.LoomaTokens
-
-private val HomeFabClearance = 96.dp
 
 @Composable
 internal fun HomeFilesGrid(
@@ -58,18 +51,10 @@ internal fun HomeFilesGrid(
         recentState.animateScrollToItem(targetIndex)
         acknowledge.value(request)
     }
-    LazyVerticalStaggeredGrid(
+    HomeNoteGrid(
+        isGridMode = isGridMode,
+        modifier = modifier,
         state = gridState,
-        columns = if (isGridMode) StaggeredGridCells.Adaptive(minSize = 150.dp) else StaggeredGridCells.Fixed(1),
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = LoomaTokens.spacing.pageMargin,
-            end = LoomaTokens.spacing.pageMargin,
-            top = 8.dp,
-            bottom = HomeFabClearance,
-        ),
-        horizontalArrangement = Arrangement.spacedBy(LoomaTokens.spacing.gridGap),
-        verticalItemSpacing = LoomaTokens.spacing.gridGap,
     ) {
         if (files.isAtRoot) {
             if (files.recents.isNotEmpty()) {

@@ -53,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.material3.ToggleFloatingActionButtonDefaults
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -86,7 +87,6 @@ import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.feature.home.components.HomeAbandonStalledRelocationDialog
-import com.example.looma.feature.home.components.HomeBreadcrumb
 import com.example.looma.feature.home.components.HomeDeleteFolderDialog
 import com.example.looma.feature.home.components.HomeFilesGrid
 import com.example.looma.feature.home.components.HomePropertiesDialog
@@ -122,7 +122,7 @@ data class HomeActions(
     val onRenameClick: () -> Unit = {},
     val onInfoClick: () -> Unit = {},
     val onDeleteClick: () -> Unit = {},
-    val onConfirmRename: (String) -> Unit = {},
+    val onConfirmRename: (HomeFileDialog.Rename, String) -> Unit = { _, _ -> },
     val onConfirmNewFolder: (String) -> Unit = {},
     val onDialogDismiss: () -> Unit = {},
     val onUndo: (HomeUndo) -> Unit = {},
@@ -245,6 +245,11 @@ fun HomeScreen(
     loadingFeedbackEnabled: Boolean = true,
 ) {
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
+    val folderScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    LaunchedEffect(state.files.path) {
+        folderScrollBehavior.state.heightOffset = 0f
+        folderScrollBehavior.state.contentOffset = 0f
+    }
     var sortSheetVisible by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
@@ -268,7 +273,9 @@ fun HomeScreen(
 
     Box(modifier.fillMaxSize()) {
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+            modifier = Modifier.fillMaxSize().nestedScroll(
+                if (state.isBrowsing) folderScrollBehavior.nestedScrollConnection else scrollBehavior.nestedScrollConnection,
+            ),
             containerColor = LoomaTokens.colors.page,
             topBar = {
                 AnimatedContent(
@@ -308,6 +315,8 @@ fun HomeScreen(
                         HomeSearchBar(
                             state = state,
                             scrollBehavior = scrollBehavior,
+                            folderScrollBehavior = folderScrollBehavior,
+                            onNavigateUp = actions.onNavigateUp,
                             onQueryChange = actions.onQueryChange,
                             onToggleLayout = actions.onToggleLayout,
                             onSortClick = { sortSheetVisible = true },
@@ -356,12 +365,14 @@ fun HomeScreen(
             }
         }
 
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .windowInsetsTopHeight(WindowInsets.statusBars)
-                .background(LoomaTokens.colors.page),
-        )
+        if (!state.isBrowsing) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsTopHeight(WindowInsets.statusBars)
+                    .background(LoomaTokens.colors.page),
+            )
+        }
     }
 
     if (sortSheetVisible) {
@@ -385,7 +396,7 @@ fun HomeScreen(
 @Composable
 private fun HomeFileDialogs(state: HomeUiState, actions: HomeActions) {
     when (val dialog = state.dialog) {
-        null -> Unit
+        null, is HomeFileDialog.LoadingProperties -> Unit
 
         is HomeFileDialog.Rename -> HomeTextInputDialog(
             title = stringResource(R.string.home_rename_title),
@@ -394,7 +405,7 @@ private fun HomeFileDialogs(state: HomeUiState, actions: HomeActions) {
             confirmLabel = stringResource(R.string.dialog_save),
             error = state.dialogError,
             busy = state.isActionRunning,
-            onConfirm = actions.onConfirmRename,
+            onConfirm = { name -> actions.onConfirmRename(dialog, name) },
             onDismiss = actions.onDialogDismiss,
         )
 
@@ -449,6 +460,9 @@ private fun homeNoticeText(notice: HomeNotice): String = when (notice) {
     is HomeNotice.Deleted -> stringResource(R.string.home_snackbar_deleted, notice.count)
     is HomeNotice.Restored -> stringResource(R.string.home_snackbar_restored, notice.count)
     is HomeNotice.Moved -> stringResource(R.string.home_snackbar_moved, notice.count)
+    is HomeNotice.MovePartial -> stringResource(R.string.home_move_partial, notice.succeeded, notice.failed)
+    is HomeNotice.DeletePartial -> stringResource(R.string.home_delete_partial, notice.succeeded, notice.failed)
+    is HomeNotice.UndoPartial -> stringResource(R.string.home_undo_partial, notice.succeeded, notice.failed)
     is HomeNotice.Renamed -> when {
         notice.linksFailed > 0 -> stringResource(R.string.home_snackbar_renamed_failed, notice.linksFailed)
         notice.linksUpdated > 0 -> stringResource(R.string.home_snackbar_renamed_links, notice.linksUpdated)
@@ -461,6 +475,11 @@ private fun homeNoticeText(notice: HomeNotice): String = when (notice) {
         pluralStringResource(R.plurals.home_folder_snackbar_deleted, notice.notes, notice.notes)
     } else {
         stringResource(R.string.home_folder_snackbar_deleted_empty)
+    }
+    is HomeNotice.FolderKept -> when {
+        notice.failed > 0 -> stringResource(R.string.home_folder_kept_partial, notice.trashed, notice.failed)
+        notice.trashed > 0 -> pluralStringResource(R.plurals.home_folder_kept_trashed, notice.trashed, notice.trashed)
+        else -> stringResource(R.string.home_folder_kept_no_notes)
     }
     HomeNotice.NameTaken -> stringResource(R.string.home_error_duplicate_name)
     HomeNotice.ActionFailed -> stringResource(R.string.home_error_action)
@@ -584,9 +603,6 @@ private fun HomeContent(
                 label = "home-folder",
             ) { snapshot ->
                 Column(Modifier.fillMaxSize()) {
-                    if (!snapshot.files.isAtRoot) {
-                        HomeBreadcrumb(crumbs = snapshot.files.crumbs, onBack = actions.onNavigateUp)
-                    }
                     Box(
                         Modifier
                             .fillMaxSize()

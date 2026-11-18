@@ -12,6 +12,7 @@ data class AppSettings(
     val imageUploadTarget: ImageUploadTarget = ImageUploadTarget.LocalAttachment,
     val imageBed: S3ImageBedConfig = S3ImageBedConfig(),
     val isLoaded: Boolean = false,
+    val s3CredentialsUnavailable: Boolean = false,
 )
 
 enum class ThemePreset(val seed: Color?) {

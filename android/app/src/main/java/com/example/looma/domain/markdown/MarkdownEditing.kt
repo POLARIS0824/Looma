@@ -55,12 +55,15 @@ object MarkdownEditing {
         val to = selection.to.coerceIn(0, text.length)
         val lineStart = text.lastIndexOf('\n', from - 1) + 1
         val lineEnd = text.indexOf('\n', from).let { if (it < 0) text.length else it }
-        val spans = spansInLine(text, lineStart, lineEnd)
-        val active = spans
-            .filter { from >= it.openStart && to <= it.closeEnd }
-            .mapTo(mutableSetOf()) { it.style }
-
-        val firstLine = linesInRange(text, from, to).firstOrNull { it.text.isNotBlank() }
+        val inCodeBlock = isInsideFence(text, lineEnd)
+        val active = if (inCodeBlock) {
+            emptySet()
+        } else {
+            spansInLine(text, lineStart, lineEnd)
+                .filter { from >= it.openStart && to <= it.closeEnd }
+                .mapTo(mutableSetOf()) { it.style }
+        }
+        val firstLine = lineSlices(text, from, to).firstOrNull { it.text.isNotBlank() }
         val parsed = firstLine?.let { parseLine(it.text) }
         val block = when {
             parsed == null -> MarkdownBlockStyle.Paragraph
@@ -71,9 +74,8 @@ object MarkdownEditing {
             parsed.list == ListKind.Checklist -> MarkdownBlockStyle.Checklist
             else -> MarkdownBlockStyle.Paragraph
         }
-        val inCodeBlock = isInsideFence(text, from)
         return MarkdownFormatState(
-            inline = if (inCodeBlock) emptySet() else active,
+            inline = active,
             headingLevel = parsed?.headingLevel,
             block = block,
             inCodeBlock = inCodeBlock,
@@ -385,19 +387,20 @@ object MarkdownEditing {
         )
     }
 
-    private fun linesInRange(text: String, from: Int, to: Int): List<LineSlice> {
+    private fun linesInRange(text: String, from: Int, to: Int): List<LineSlice> =
+        lineSlices(text, from, to).toList()
+
+    private fun lineSlices(text: String, from: Int, to: Int): Sequence<LineSlice> = sequence {
         val firstStart = text.lastIndexOf('\n', from - 1) + 1
         val lastPosition = if (to > from) (to - 1).coerceAtLeast(from) else to
         val lastStart = text.lastIndexOf('\n', lastPosition - 1) + 1
-        val lines = mutableListOf<LineSlice>()
         var start = firstStart
         while (start <= lastStart) {
             val end = text.indexOf('\n', start).let { if (it < 0) text.length else it }
-            lines += LineSlice(start, end, text.substring(start, end))
+            yield(LineSlice(start, end, text.substring(start, end)))
             if (end >= text.length) break
             start = end + 1
         }
-        return lines
     }
 
     private fun rewriteLines(
@@ -538,16 +541,20 @@ object MarkdownEditing {
         return count
     }
 
-    private fun isInsideFence(text: String, position: Int): Boolean {
-        var fences = 0
+    private fun isInsideFence(text: String, lineEnd: Int): Boolean {
+        var inside = false
         var lineStart = 0
-        while (lineStart < text.length && lineStart <= position) {
-            val lineEnd = text.indexOf('\n', lineStart).let { if (it < 0) text.length else it }
-            if (text.substring(lineStart, lineEnd).trimStart().startsWith("```")) fences++
-            if (lineEnd >= text.length) break
-            lineStart = lineEnd + 1
+        while (lineStart < lineEnd) {
+            var marker = lineStart
+            while (marker < lineEnd && text[marker] != '\n' && text[marker].isWhitespace()) {
+                marker++
+            }
+            if (text.startsWith("```", marker)) inside = !inside
+            val nextBreak = text.indexOf('\n', marker)
+            if (nextBreak < 0 || nextBreak >= lineEnd) break
+            lineStart = nextBreak + 1
         }
-        return fences % 2 == 1
+        return inside
     }
 
     private val MarkdownInlineStyle.marker: String

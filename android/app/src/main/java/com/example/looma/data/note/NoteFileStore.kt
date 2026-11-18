@@ -69,17 +69,6 @@ internal class NoteFileStore(
         )
     }
 
-    suspend fun modifiedAt(id: NoteId): Instant = withContext(Dispatchers.IO) {
-        val (_, ops) = currentVault(id.vaultId)
-        Instant.ofEpochMilli(ops.noteFile(id.path).lastModified())
-    }
-
-    suspend fun readText(id: NoteId): Pair<String, Instant> = withContext(Dispatchers.IO) {
-        val (_, ops) = currentVault(id.vaultId)
-        val file = ops.noteFile(id.path)
-        readMarkdown(file) to Instant.ofEpochMilli(file.lastModified())
-    }
-
     suspend fun createNote(
         title: String,
         folder: FolderPath = FolderPath.Root,

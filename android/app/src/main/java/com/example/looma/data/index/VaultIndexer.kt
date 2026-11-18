@@ -8,6 +8,10 @@ import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultFolder
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.NoSuchFileException
+import java.nio.file.attribute.BasicFileAttributes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -35,10 +39,15 @@ internal class VaultIndexer(
     private val parser = MarkdownParser()
 
     suspend fun scan(): IndexScan = withContext(Dispatchers.IO) {
+        scanAttempt(retryOnConflict = true)
+    }
+
+    private suspend fun scanAttempt(retryOnConflict: Boolean): IndexScan {
+        val version = index.version(vault.id)
         val ops = VaultFileOps(root)
         val rootDir = ops.rootDir
         val folders = mutableListOf<VaultFolder>()
-        val files = LinkedHashMap<NotePath, File>()
+        val onDisk = LinkedHashMap<NotePath, FileFingerprint>()
         var complete = true
 
         val pending = ArrayDeque<Pair<File, Int>>()
@@ -53,7 +62,15 @@ internal class VaultIndexer(
             }
             for (child in children) {
                 coroutineContext.ensureActive()
-                if (child.isDirectory) {
+                val attributes = try {
+                    Files.readAttributes(child.toPath(), BasicFileAttributes::class.java)
+                } catch (_: NoSuchFileException) {
+                    continue
+                } catch (_: IOException) {
+                    complete = false
+                    continue
+                }
+                if (attributes.isDirectory) {
                     val inside = runCatching { ops.isInside(child) }.getOrDefault(false)
                     if (!inside || child.name.startsWith('.')) continue
                     val path = FolderPath(child.relativeTo(rootDir).invariantSeparatorsPath)
@@ -65,13 +82,13 @@ internal class VaultIndexer(
                     }
                     continue
                 }
-                if (!child.isFile || !child.extension.equals("md", ignoreCase = true)) continue
+                if (!attributes.isRegularFile || !child.extension.equals("md", ignoreCase = true)) continue
                 if (!runCatching { ops.isInside(child) }.getOrDefault(false)) continue
-                files[NotePath(child.relativeTo(rootDir).invariantSeparatorsPath)] = child
+                val path = NotePath(child.relativeTo(rootDir).invariantSeparatorsPath)
+                onDisk[path] = attributes.fingerprint()
             }
         }
 
-        val onDisk = files.mapValues { (_, file) -> FileFingerprint(file.length(), file.lastModified()) }
         val indexed = index.load(vault.id)
         val plan = planScan(indexed, onDisk).let { if (complete) it else it.copy(removed = emptyList()) }
         val indexedByPath = indexed.associateBy { it.id.path }
@@ -82,33 +99,41 @@ internal class VaultIndexer(
         var readCount = 0
         for (path in plan.toRead) {
             coroutineContext.ensureActive()
-            val file = files[path] ?: continue
+            val file = File(rootDir, path.relativePath)
+            val fingerprint = onDisk.getValue(path)
             readCount++
-            try {
+            val note = try {
                 val text = readMarkdown(file)
                 val metadata = parser.parse(text, file.nameWithoutExtension)
-                fresh += indexedNote(vault.id, rootDir, file, text, metadata)
+                val note = indexedNote(vault.id, rootDir, file, text, metadata, fingerprint)
+                val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
+                note.takeIf { attributes.isRegularFile && attributes.fingerprint() == fingerprint }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
+                null
+            }
+            if (note != null) {
+                fresh += note
+            } else {
                 unreadable++
                 indexedByPath[path]?.let(retained::add)
             }
         }
 
-        val removed = plan.removed
-        if (fresh.isNotEmpty() || removed.isNotEmpty()) {
-            index.apply(IndexDelta(vaultId = vault.id, upserts = fresh, removed = removed))
-        }
+        val delta = IndexDelta(vaultId = vault.id, upserts = fresh, removed = plan.removed)
+        val applied = index.applyIfVersion(delta, expectedVersion = version)
+        if (!applied && retryOnConflict) return scanAttempt(retryOnConflict = false)
 
-        IndexScan(
-            notes = plan.kept + fresh + retained,
+        val notes = if (applied) plan.kept + fresh + retained else index.load(vault.id)
+        return IndexScan(
+            notes = notes,
             folders = folders.sortedBy { it.path.relativePath.lowercase() },
             unreadableCount = unreadable,
             report = ScanReport(
                 filesRead = readCount,
-                filesKept = plan.kept.size,
-                filesRemoved = removed.size,
+                filesKept = if (applied) plan.kept.size else notes.count { onDisk[it.id.path] == it.fingerprint },
+                filesRemoved = if (applied) plan.removed.size else 0,
             ),
         )
     }

@@ -223,6 +223,13 @@ internal fun HomeDeleteFolderDialog(
                     style = LoomaTokens.type.cardBody,
                     color = LoomaTokens.colors.title,
                 )
+                if (noteCount > 0) {
+                    Text(
+                        text = stringResource(R.string.home_folder_delete_retains_files),
+                        style = LoomaTokens.type.cardBody,
+                        color = LoomaTokens.colors.title,
+                    )
+                }
                 if (error != null) {
                     Text(
                         text = fileErrorText(error),

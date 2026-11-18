@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,6 +78,8 @@ import com.example.looma.feature.vault.vaultErrorText
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
 import com.example.looma.ui.theme.presetScheme
+import kotlinx.coroutines.launch
+import java.io.IOException
 
 @Composable
 fun SettingsRoute(
@@ -146,7 +149,7 @@ fun SettingsScreen(
     onShowInlineTitleChange: (Boolean) -> Unit,
     onToolbarOrderChange: (List<ToolbarItem>) -> Unit,
     onImageUploadTargetChange: (ImageUploadTarget) -> Unit,
-    onImageBedChange: (S3ImageBedConfig) -> Unit,
+    onImageBedChange: suspend (S3ImageBedConfig) -> Unit,
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -304,7 +307,9 @@ fun SettingsScreen(
                         index = 1,
                         count = 2,
                         title = stringResource(R.string.settings_image_bed),
-                        description = if (settings.imageBed.isConfigured) {
+                        description = if (settings.s3CredentialsUnavailable) {
+                            stringResource(R.string.settings_image_bed_credentials_unavailable)
+                        } else if (settings.imageBed.isConfigured) {
                             stringResource(
                                 R.string.settings_image_bed_configured,
                                 settings.imageBed.bucket,
@@ -393,7 +398,11 @@ fun SettingsScreen(
     if (imageBedSheetVisible) {
         ImageBedSheet(
             config = settings.imageBed,
-            onSave = { onImageBedChange(it); imageBedSheetVisible = false },
+            onSave = {
+                onImageBedChange(it)
+                imageBedSheetVisible = false
+            },
+            credentialsUnavailable = settings.s3CredentialsUnavailable,
             onDismiss = { imageBedSheetVisible = false },
         )
     }
@@ -451,7 +460,8 @@ private fun ImageTargetDialog(
 @Composable
 private fun ImageBedSheet(
     config: S3ImageBedConfig,
-    onSave: (S3ImageBedConfig) -> Unit,
+    onSave: suspend (S3ImageBedConfig) -> Unit,
+    credentialsUnavailable: Boolean,
     onDismiss: () -> Unit,
 ) {
     var endpoint by remember { mutableStateOf(config.endpoint) }
@@ -463,8 +473,11 @@ private fun ImageBedSheet(
     var publicBaseUrl by remember { mutableStateOf(config.publicBaseUrl) }
     var pathStyle by remember { mutableStateOf(config.pathStyle) }
     var publicRead by remember { mutableStateOf(config.publicRead) }
+    var saving by remember { mutableStateOf(false) }
+    var saveFailed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = { if (!saving) onDismiss() }) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -479,6 +492,14 @@ private fun ImageBedSheet(
                 text = stringResource(R.string.settings_image_bed_sheet_title),
                 style = MaterialTheme.typography.headlineSmall,
                 color = LoomaTokens.colors.title,
+            )
+            if (credentialsUnavailable) {
+                Text(stringResource(R.string.settings_image_bed_credentials_unavailable))
+            }
+            Text(
+                text = stringResource(R.string.settings_image_bed_credentials_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = LoomaTokens.colors.muted,
             )
             ImageBedField(
                 value = endpoint,
@@ -536,23 +557,39 @@ private fun ImageBedSheet(
                     onCheckedChange = { publicRead = it },
                 )
             }
+            if (saveFailed) {
+                Text(
+                    text = stringResource(R.string.settings_image_bed_save_failed),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
+                TextButton(onClick = onDismiss, enabled = !saving) { Text(stringResource(R.string.dialog_cancel)) }
                 TextButton(
+                    enabled = !saving,
                     onClick = {
-                        onSave(
-                            S3ImageBedConfig(
-                                endpoint = endpoint.trim(),
-                                region = region.trim(),
-                                bucket = bucket.trim(),
-                                accessKey = accessKey.trim(),
-                                secretKey = secretKey,
-                                pathPrefix = pathPrefix.trim(),
-                                publicBaseUrl = publicBaseUrl.trim(),
-                                pathStyle = pathStyle,
-                                publicRead = publicRead,
-                            ),
+                        val updatedConfig = S3ImageBedConfig(
+                            endpoint = endpoint.trim(),
+                            region = region.trim(),
+                            bucket = bucket.trim(),
+                            accessKey = accessKey.trim(),
+                            secretKey = secretKey,
+                            pathPrefix = pathPrefix.trim(),
+                            publicBaseUrl = publicBaseUrl.trim(),
+                            pathStyle = pathStyle,
+                            publicRead = publicRead,
                         )
+                        saving = true
+                        saveFailed = false
+                        scope.launch {
+                            try {
+                                onSave(updatedConfig)
+                            } catch (_: IOException) {
+                                saveFailed = true
+                            } finally {
+                                saving = false
+                            }
+                        }
                     },
                 ) { Text(stringResource(R.string.dialog_save)) }
             }

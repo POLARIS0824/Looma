@@ -2,14 +2,20 @@ package com.example.looma.feature.note
 
 import com.example.looma.domain.markdown.ImageContext
 import com.example.looma.domain.markdown.ToolbarItem
-import com.example.looma.domain.model.Note
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.wiki.WikiContext
-import java.time.Instant
 
-enum class NoteSaveState { Idle, Pending, Saving, Saved, Failed }
+sealed interface NoteSaveProblem {
+    data object WriteFailed : NoteSaveProblem
+    data class Conflict(
+        val actualRevision: NoteRevision,
+        val showBanner: Boolean = true,
+    ) : NoteSaveProblem
+}
+
+enum class NoteLeave { Idle, Saving, Blocked, Ready }
 
 data class ImageInsertion(val snippet: String, val token: Long)
 
@@ -35,25 +41,16 @@ sealed interface NoteTitleError {
 }
 
 data class NoteUiState(
-    val content: String = "",
-    val savedContent: String = "",
-    val modifiedAt: Instant? = null,
-    val revision: NoteRevision = NoteRevision.Unknown,
-    val conflictRevision: NoteRevision? = null,
-    val leaveReady: Boolean = false,
+    val saveProblem: NoteSaveProblem? = null,
+    val leave: NoteLeave = NoteLeave.Idle,
     val isLoading: Boolean = true,
     val loadFailed: Boolean = false,
-    val saveState: NoteSaveState = NoteSaveState.Idle,
-    val saveFailed: Boolean = false,
-    val isConflict: Boolean = false,
-    val leaveBlocked: Boolean = false,
     val keepEmptyNotes: Boolean = true,
     val isNewNote: Boolean = false,
     val fileName: String = "",
     val wiki: WikiContext = WikiContext.Empty,
     val imageContext: ImageContext? = null,
     val conflictCopy: NotePath? = null,
-    val reloadToken: Int = 0,
     val showInlineTitle: Boolean = true,
     val toolbarOrder: List<ToolbarItem> = ToolbarItem.DEFAULT_ORDER,
     val isUploadingImage: Boolean = false,
@@ -64,44 +61,32 @@ data class NoteUiState(
     val rename: NoteRename? = null,
     val isRenaming: Boolean = false,
 ) {
-    val isDirty: Boolean get() = !isLoading && content != savedContent
+    val isConflict: Boolean get() = saveProblem is NoteSaveProblem.Conflict
 
-    val willDiscardEmpty: Boolean
-        get() = isNewNote &&
-            !keepEmptyNotes &&
-            !isConflict &&
-            isContentBlank
+    val showSaveBanner: Boolean
+        get() = when (val problem = saveProblem) {
+            null -> false
+            NoteSaveProblem.WriteFailed -> true
+            is NoteSaveProblem.Conflict -> problem.showBanner
+        }
 
-    fun canAdoptDiskRevision(diskRevision: NoteRevision): Boolean =
-        !isLoading &&
-            !isDirty &&
-            !isConflict &&
-            !saveFailed &&
-            !leaveReady &&
-            !leaveBlocked &&
-            saveState != NoteSaveState.Saving &&
-            diskRevision != revision
+    internal fun shouldDiscardEmpty(content: CharSequence): Boolean =
+        isNewNote && !keepEmptyNotes && !isConflict && content.isBlank()
 
-    internal fun afterRename(note: Note, editorContent: String): NoteUiState {
-        val draft = if (editorContent == savedContent) note.content else editorContent
-        val pending = draft != note.content
-        val conflict = pending && note.content != savedContent
-        return copy(
-            content = draft,
-            savedContent = note.content,
-            modifiedAt = note.modifiedAt,
-            revision = note.revision,
-            conflictRevision = note.revision.takeIf { conflict },
-            saveState = when {
-                conflict -> NoteSaveState.Failed
-                pending -> NoteSaveState.Pending
-                else -> NoteSaveState.Saved
-            },
-            isConflict = conflict,
-            saveFailed = conflict,
-        )
+    internal fun canRefreshDraft(hasEdits: Boolean): Boolean =
+        !isLoading && !loadFailed && !hasEdits && saveProblem == null &&
+            leave != NoteLeave.Ready && leave != NoteLeave.Blocked
+
+    internal fun afterEditorEdit(): NoteUiState =
+        if (saveProblem == NoteSaveProblem.WriteFailed) copy(saveProblem = null) else this
+
+    internal fun whenSaveStarts(): NoteUiState =
+        copy(saveProblem = (saveProblem as? NoteSaveProblem.Conflict)?.copy(showBanner = false))
+
+    internal fun afterSaveFailure(actualRevision: NoteRevision? = null): NoteUiState {
+        val conflict = saveProblem as? NoteSaveProblem.Conflict
+        val revision = actualRevision ?: conflict?.actualRevision
+        val problem = revision?.let { NoteSaveProblem.Conflict(it) } ?: NoteSaveProblem.WriteFailed
+        return copy(saveProblem = problem)
     }
-
-    private val isContentBlank: Boolean
-        get() = content.isBlank()
 }

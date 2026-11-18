@@ -5,6 +5,9 @@ import com.example.looma.domain.model.NotePath
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.nio.file.FileAlreadyExistsException
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.time.Instant
 import java.util.Properties
 import java.util.UUID
@@ -30,6 +33,12 @@ internal data class TrashRecord(
     val deletedAt: Instant,
     val file: File,
     val metaFile: File,
+)
+
+internal data class FolderTrashResult(
+    val records: List<TrashRecord>,
+    val failed: Int,
+    val directoryRemoved: Boolean,
 )
 
 internal class VaultFileOps(root: File) {
@@ -135,15 +144,39 @@ internal class VaultFileOps(root: File) {
         return moved
     }
 
-    fun deleteFolder(path: FolderPath): List<TrashRecord> {
-        val directory = folderDirectory(path)
-        if (directory == root) throw VaultFileException(VaultFileFailure.INVALID_PATH)
-        if (!directory.isDirectory) throw VaultFileException(VaultFileFailure.NOT_FOUND)
+    fun deleteFolder(path: FolderPath): List<TrashRecord> = trashFolder(path, continueOnFailure = false).records
+
+    fun deleteFolderWithOutcome(path: FolderPath): FolderTrashResult = trashFolder(path, continueOnFailure = true)
+
+    fun deleteEmptyFolder(path: FolderPath): Boolean {
+        val directory = directoryForDeletion(path)
+        return directory.list()?.isEmpty() == true && directory.delete()
+    }
+
+    private fun trashFolder(path: FolderPath, continueOnFailure: Boolean): FolderTrashResult {
+        val directory = directoryForDeletion(path)
         val notes = mutableListOf<File>()
         collectNotes(directory, notes)
-        val records = notes.map { note -> trash(note) }
+        val records = mutableListOf<TrashRecord>()
+        var failed = 0
+        for (note in notes) {
+            try {
+                records += trash(note)
+            } catch (error: IOException) {
+                if (!continueOnFailure) throw error
+                failed++
+            }
+        }
         deleteEmptyDirectories(directory)
-        return records
+        return FolderTrashResult(records, failed, !directory.exists())
+    }
+
+    private fun directoryForDeletion(path: FolderPath): File {
+        val directory = folderDirectory(path)
+        if (directory == root) throw VaultFileException(VaultFileFailure.INVALID_PATH)
+        if (directory != File(root, path.relativePath)) throw VaultFileException(VaultFileFailure.INVALID_PATH)
+        if (!Files.isDirectory(directory.toPath(), NOFOLLOW_LINKS)) throw VaultFileException(VaultFileFailure.NOT_FOUND)
+        return directory
     }
 
     fun rename(note: File, newName: String): File {
@@ -242,7 +275,13 @@ internal class VaultFileOps(root: File) {
         destination.parentFile?.let { parent ->
             if (!parent.isDirectory && !parent.mkdirs()) throw VaultFileException(VaultFileFailure.IO)
         }
-        if (!record.file.renameTo(destination)) throw VaultFileException(VaultFileFailure.IO)
+        try {
+            Files.move(record.file.toPath(), destination.toPath())
+        } catch (error: FileAlreadyExistsException) {
+            throw VaultFileException(VaultFileFailure.RESTORE_CONFLICT, error)
+        } catch (error: IOException) {
+            throw VaultFileException(VaultFileFailure.IO, error)
+        }
         record.metaFile.delete()
         return destination
     }
@@ -277,6 +316,7 @@ internal class VaultFileOps(root: File) {
     private fun collectNotes(directory: File, into: MutableList<File>) {
         val children = directory.listFiles() ?: throw VaultFileException(VaultFileFailure.IO)
         children.sortedBy { it.name }.forEach { child ->
+            if (Files.isSymbolicLink(child.toPath())) return@forEach
             if (child.isDirectory) {
                 if (child.name.startsWith('.') || !isInside(child)) return@forEach
                 collectNotes(child, into)
@@ -288,7 +328,7 @@ internal class VaultFileOps(root: File) {
 
     private fun deleteEmptyDirectories(directory: File) {
         directory.listFiles().orEmpty()
-            .filter { it.isDirectory && !it.name.startsWith('.') }
+            .filter { Files.isDirectory(it.toPath(), NOFOLLOW_LINKS) && !it.name.startsWith('.') }
             .forEach(::deleteEmptyDirectories)
         val remaining = directory.listFiles() ?: return
         if (remaining.isEmpty()) directory.delete()

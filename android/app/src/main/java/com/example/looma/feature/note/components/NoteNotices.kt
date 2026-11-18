@@ -44,10 +44,10 @@ internal fun NoteSaveBanner(
     onOverwrite: () -> Unit,
 ) {
     var shown by remember { mutableStateOf(state) }
-    if (state.saveFailed) shown = state
+    if (state.showSaveBanner) shown = state
     val motion = MaterialTheme.motionScheme
     AnimatedVisibility(
-        visible = state.saveFailed,
+        visible = state.showSaveBanner,
         enter = expandVertically(motion.defaultSpatialSpec<IntSize>()) + fadeIn(motion.defaultEffectsSpec()),
         exit = shrinkVertically(motion.fastSpatialSpec<IntSize>()) + fadeOut(motion.fastEffectsSpec()),
     ) {

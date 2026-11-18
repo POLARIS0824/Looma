@@ -2,6 +2,7 @@ package com.example.looma.data.note
 
 import com.example.looma.domain.model.NoteSummary
 import com.example.looma.domain.model.StalledRelocation
+import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultFolder
 
 internal data class NoteListEntry(
@@ -12,6 +13,7 @@ internal data class NoteListEntry(
 )
 
 internal data class NoteListResult(
+    val vault: Vault,
     val items: List<NoteListEntry>,
     val folders: List<VaultFolder> = emptyList(),
     val unreadableCount: Int = 0,

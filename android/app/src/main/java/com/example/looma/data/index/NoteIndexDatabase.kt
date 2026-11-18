@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.looma.data.search.SearchHistoryDao
+import com.example.looma.domain.model.VaultId
+import kotlinx.coroutines.sync.Mutex
 
 @Database(
     entities = [
@@ -17,6 +19,9 @@ import com.example.looma.data.search.SearchHistoryDao
     exportSchema = true,
 )
 internal abstract class NoteIndexDatabase : RoomDatabase() {
+
+    internal val indexWriteMutex = Mutex()
+    internal val indexVersions = mutableMapOf<VaultId, Long>()
 
     abstract fun noteIndexDao(): NoteIndexDao
 

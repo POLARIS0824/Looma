@@ -9,6 +9,8 @@
 *.apk
 *.aab
 *.hprof
+__pycache__/
+*.pyc
 
 .audit/*
 !.audit/justmd-prototype.tsv

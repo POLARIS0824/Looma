@@ -2,9 +2,11 @@ package com.example.looma.feature.home
 
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteProperties
 import com.example.looma.domain.model.NoteSummary
 import com.example.looma.domain.model.StalledRelocation
+import com.example.looma.domain.model.VaultId
 import java.util.Locale
 
 sealed interface HomeError {
@@ -37,7 +39,7 @@ sealed interface HomeSelection {
 }
 
 sealed interface HomeUndo {
-    data class RestoreNotes(val trashIds: List<String>) : HomeUndo
+    data class RestoreNotes(val trashIds: List<String>, val vaultId: VaultId) : HomeUndo
 
     data class RenameNote(val id: NoteId, val name: String) : HomeUndo
 
@@ -47,10 +49,10 @@ sealed interface HomeUndo {
 
     data class MoveFolder(val path: FolderPath, val parent: FolderPath) : HomeUndo
 
-    data class DeleteFolder(val path: FolderPath) : HomeUndo
+    data class DeleteFolder(val path: FolderPath, val vaultId: VaultId) : HomeUndo
 }
 
-data class MovedNote(val id: NoteId, val folder: FolderPath)
+data class MovedNote(val id: NoteId, val originalPath: NotePath)
 
 data class HomeMessage(
     val notice: HomeNotice,
@@ -61,6 +63,9 @@ sealed interface HomeNotice {
     data class Deleted(val count: Int) : HomeNotice
     data class Restored(val count: Int) : HomeNotice
     data class Moved(val count: Int) : HomeNotice
+    data class MovePartial(val succeeded: Int, val failed: Int) : HomeNotice
+    data class DeletePartial(val succeeded: Int, val failed: Int) : HomeNotice
+    data class UndoPartial(val succeeded: Int, val failed: Int) : HomeNotice
 
     data class Renamed(val linksUpdated: Int, val linksFailed: Int = 0) : HomeNotice
     data object FolderCreated : HomeNotice
@@ -68,6 +73,7 @@ sealed interface HomeNotice {
     data object FolderMoved : HomeNotice
 
     data class FolderDeleted(val notes: Int) : HomeNotice
+    data class FolderKept(val trashed: Int, val failed: Int) : HomeNotice
     data object NameTaken : HomeNotice
     data object ActionFailed : HomeNotice
     data object InvalidMoveTarget : HomeNotice
@@ -79,7 +85,8 @@ sealed interface HomeNotice {
 }
 
 sealed interface HomeFileDialog {
-    data class Rename(val initialName: String) : HomeFileDialog
+    class Rename(val noteId: NoteId, val initialName: String) : HomeFileDialog
+    class LoadingProperties(val noteId: NoteId) : HomeFileDialog
     data class Properties(val properties: NoteProperties) : HomeFileDialog
     data object NewFolder : HomeFileDialog
 
@@ -120,11 +127,13 @@ internal fun HomeUiState.acknowledgeReveal(request: RecentReveal): HomeUiState =
 enum class HomeSort { LAST_MODIFIED, TITLE, TITLE_DESCENDING }
 
 data class HomeUiState(
+    val vaultId: VaultId? = null,
     val vaultName: String = "Looma",
     val vaultRootPath: String? = null,
     val notes: List<HomeNoteItem> = emptyList(),
-    val searchResults: List<HomeNoteItem> = emptyList(),
+    val searchResults: List<HomeSearchResult> = emptyList(),
     val query: String = "",
+    val isSearching: Boolean = false,
     val recentSearches: List<String> = emptyList(),
     val isGridMode: Boolean = true,
     val sort: HomeSort = HomeSort.LAST_MODIFIED,
@@ -148,15 +157,20 @@ data class HomeUiState(
     val isSelecting: Boolean get() = selection != HomeSelection.None
     val selectedFolder: HomeFolderItem? get() = selection.folder
     val selectedKeys: Set<String> get() = selection.noteKeys
-}
 
-internal fun List<HomeNoteItem>.matching(query: String): List<HomeNoteItem> {
-    val keyword = query.trim()
-    if (keyword.isEmpty()) return this
-    return filter { note ->
-        note.summary.title.contains(keyword, ignoreCase = true) ||
-            note.searchableText.contains(keyword, ignoreCase = true) ||
-            note.summary.tags.any { it.contains(keyword, ignoreCase = true) }
+    internal fun finishProperties(
+        request: HomeFileDialog.LoadingProperties,
+        properties: NoteProperties?,
+    ): HomeUiState {
+        if (dialog !== request) return this
+        if (vaultId != request.noteId.vaultId || selectedNotes.singleOrNull()?.id != request.noteId) {
+            return copy(dialog = null)
+        }
+        return if (properties != null) {
+            copy(dialog = HomeFileDialog.Properties(properties))
+        } else {
+            copy(dialog = null, message = HomeMessage(HomeNotice.ActionFailed))
+        }
     }
 }
 
