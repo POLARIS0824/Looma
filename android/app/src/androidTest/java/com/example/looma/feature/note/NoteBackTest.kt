@@ -182,6 +182,28 @@ class NoteBackTest {
         Unit
     }
 
+    @Test
+    fun newlyTypedWikiLinkResolvesLiveBeforeAndAfterAutosave() = runBlocking {
+        val repo = NoteRepository(vaults, RoomNoteIndex(database))
+        repo.listNotes()
+        withContext(Dispatchers.Main) {
+            viewModel.refreshWiki()
+        }
+        val ready = awaitState { it.wiki.linkables.isNotEmpty() }
+        withContext(Dispatchers.Main) {
+            viewModel.editor.edit { replace(0, length, "See [[Taken]]") }
+        }
+        assertEquals("Taken.md", ready.wiki.resolve("Taken")?.path?.relativePath)
+
+        withContext(Dispatchers.Main) {
+            viewModel.retrySave()
+            viewModel.requestLeave(clearFocus = {})
+        }
+        awaitState { it.leave == NoteLeave.Ready }
+        val targetContext = repo.wikiContext(NoteId(noteId.vaultId, NotePath("Taken.md")))
+        assertTrue(targetContext.backlinks.any { it.id == noteId })
+    }
+
     private suspend fun awaitState(predicate: (NoteUiState) -> Boolean): NoteUiState =
         withTimeout(5_000) { viewModel.uiState.first(predicate) }
 }

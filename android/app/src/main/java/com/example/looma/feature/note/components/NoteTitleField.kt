@@ -8,10 +8,12 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -37,6 +39,7 @@ internal fun NoteTitleField(
     onCommit: (String) -> Unit,
     onFocusChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    isRenaming: Boolean = false,
     requestInitialFocus: Boolean = false,
     onInitialFocusShown: () -> Unit = {},
     error: NoteTitleError? = null,
@@ -46,8 +49,8 @@ internal fun NoteTitleField(
     var lastCommitted by remember { mutableStateOf<String?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
 
-    LaunchedEffect(fileName) {
-        if (!focused && buffer.text.toString() != fileName) {
+    LaunchedEffect(fileName, isRenaming) {
+        if (!focused && !isRenaming && buffer.text.toString() != fileName) {
             buffer.setTextAndPlaceCursorAtEnd(fileName)
         }
     }
@@ -76,6 +79,18 @@ internal fun NoteTitleField(
         edit.renameTo?.let { name ->
             lastCommitted = name
             onCommit(name)
+        }
+    }
+
+    val latestFocusChange by rememberUpdatedState(onFocusChange)
+    val latestCommit by rememberUpdatedState(commitDraft)
+    DisposableEffect(Unit) {
+        onDispose {
+            if (focused) {
+                focused = false
+                latestFocusChange(false)
+                latestCommit()
+            }
         }
     }
 

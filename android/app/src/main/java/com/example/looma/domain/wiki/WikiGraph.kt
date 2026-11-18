@@ -18,8 +18,14 @@ data class WikiContext(
     private val targets: Map<String, NoteId> = emptyMap(),
     val backlinks: List<Backlink> = emptyList(),
     val linkables: List<WikiNote> = emptyList(),
+    private val sourcePath: NotePath? = null,
+    private val notes: List<WikiNote> = emptyList(),
 ) {
-    fun resolve(target: String): NoteId? = targets[normalizeWikiName(target)]
+    fun resolve(target: String): NoteId? {
+        targets[normalizeWikiName(target)]?.let { return it }
+        val from = sourcePath ?: return null
+        return resolveWikiTarget(target, from, notes)
+    }
 
     companion object {
         val Empty = WikiContext()
@@ -43,22 +49,8 @@ class WikiGraph(
         titles = notes.associate { it.id to it.title }
     }
 
-    fun resolve(target: String, from: NotePath): NoteId? {
-        val key = normalizeWikiName(target)
-        if (key.isEmpty()) return null
-        byPath[key]?.let { return it.id }
-
-        val candidates = if ('/' in key) {
-            val suffix = "/$key"
-            all.filter { normalizeWikiName(it.id.path.relativePath).endsWith(suffix) }
-        } else {
-            byName[key].orEmpty()
-        }
-        if (candidates.isEmpty()) return null
-
-        val sourceFolder = folderOf(from)
-        return (candidates.firstOrNull { folderOf(it.id.path) == sourceFolder } ?: candidates.first()).id
-    }
+    fun resolve(target: String, from: NotePath): NoteId? =
+        resolveWikiTarget(target, from, all, byPath, byName)
 
     fun backlinksOf(note: NoteId): List<Backlink> = linksByNote.entries
         .asSequence()
@@ -85,13 +77,44 @@ class WikiGraph(
             .map { WikiNote(it.id, titles[it.id].orEmpty().ifBlank { baseNameOf(it.id.path) }) }
             .sortedWith(compareBy({ it.title.lowercase() }, { it.id.path.relativePath }))
             .toList(),
+        sourcePath = note.path,
+        notes = all,
     )
 
-    private fun folderOf(path: NotePath): String = path.relativePath.substringBeforeLast('/', missingDelimiterValue = "")
-
     companion object {
-        private fun baseNameOf(path: NotePath): String = normalizeWikiName(path.relativePath.substringAfterLast('/'))
+        internal fun baseNameOf(path: NotePath): String = normalizeWikiName(path.relativePath.substringAfterLast('/'))
     }
+}
+
+private fun resolveWikiTarget(
+    target: String,
+    from: NotePath,
+    sortedNotes: List<WikiNote>,
+    byPath: Map<String, WikiNote>? = null,
+    byName: Map<String, List<WikiNote>>? = null,
+): NoteId? {
+    val key = normalizeWikiName(target)
+    if (key.isEmpty()) return null
+    if (byPath != null) {
+        byPath[key]?.let { return it.id }
+    } else {
+        sortedNotes.firstOrNull { normalizeWikiName(it.id.path.relativePath) == key }?.let { return it.id }
+    }
+
+    val candidates = if ('/' in key) {
+        val suffix = "/$key"
+        sortedNotes.filter { normalizeWikiName(it.id.path.relativePath).endsWith(suffix) }
+    } else if (byName != null) {
+        byName[key].orEmpty()
+    } else {
+        sortedNotes.filter { WikiGraph.baseNameOf(it.id.path) == key }
+    }
+    if (candidates.isEmpty()) return null
+
+    val sourceFolder = from.relativePath.substringBeforeLast('/', missingDelimiterValue = "")
+    return (candidates.firstOrNull {
+        it.id.path.relativePath.substringBeforeLast('/', missingDelimiterValue = "") == sourceFolder
+    } ?: candidates.first()).id
 }
 
 fun normalizeWikiName(raw: String): String {

@@ -112,4 +112,21 @@ class WikiGraphTest {
         assertEquals("Sub/Guide", wikiPathOf(path))
         assertEquals("Guide", wikiNameOf(path))
     }
+
+    @Test
+    fun `context resolves unindexed targets live with same-folder priority and self-links`() {
+        val current = wikiNote("A/Current.md", "Current")
+        val sameFolder = wikiNote("A/Topic.md", "Same")
+        val otherFolder = wikiNote("B/Topic.md", "Other")
+        val graph = WikiGraph(
+            notes = listOf(current, sameFolder, otherFolder),
+            linksByNote = emptyMap(),
+        )
+
+        val context = graph.context(current.id)
+        assertEquals("A/Topic.md", context.resolve("Topic")?.path?.relativePath)
+        assertEquals("B/Topic.md", context.resolve("B/Topic")?.path?.relativePath)
+        assertEquals("A/Current.md", context.resolve("Current")?.path?.relativePath)
+        assertNull(context.resolve("Missing"))
+    }
 }

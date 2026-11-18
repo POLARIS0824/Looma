@@ -1,5 +1,8 @@
 package com.example.looma.data.note
 
+import com.example.looma.data.index.FileFingerprint
+import com.example.looma.data.index.IndexedNote
+import com.example.looma.data.index.fingerprint
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
@@ -11,6 +14,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.Properties
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -479,6 +483,49 @@ class VaultRelocationTest {
             assertNoPendingJournal()
         }
     }
+
+    @Test
+    fun `fingerprint-guided relocation skips matching linkless notes while updating stale and hijacked notes`() {
+        val oldFile = note("old.md", "original")
+        val skippedFile = note("skipped.md", "[[old]]")
+        val staleFile = note("stale.md", "[[old]]")
+        note("late.md", "[[old]]")
+        val indexed = listOf(
+            indexedEntry("old.md", oldFile.fingerprint(), emptyList()),
+            indexedEntry("skipped.md", skippedFile.fingerprint(), emptyList()),
+            indexedEntry("stale.md", FileFingerprint(999L, 1L), emptyList()),
+        )
+
+        val result = VaultRelocation(vault, indexed).renameNote(id("old.md"), "new")
+
+        assertEquals("[[old]]", file("skipped.md").readText())
+        assertEquals("[[new]]", file("stale.md").readText())
+        assertEquals("[[new]]", file("late.md").readText())
+        assertEquals(2, result.linksUpdated)
+
+        setUp()
+        val aTopic = note("a/topic.md", "A")
+        val bDraft = note("b/draft.md", "B")
+        val bRef = note("b/ref.md", "[[topic]]")
+        val hijackIndexed = listOf(
+            indexedEntry("a/topic.md", aTopic.fingerprint(), emptyList()),
+            indexedEntry("b/draft.md", bDraft.fingerprint(), emptyList()),
+            indexedEntry("b/ref.md", bRef.fingerprint(), listOf(MarkdownLink("topic", embedded = false))),
+        )
+        VaultRelocation(vault, hijackIndexed).renameNote(id("b/draft.md"), "topic")
+        assertEquals("[[a/topic]]", file("b/ref.md").readText())
+    }
+
+    private fun indexedEntry(path: String, fingerprint: FileFingerprint, links: List<MarkdownLink>) = IndexedNote(
+        id = id(path),
+        title = path,
+        snippet = "",
+        coverPath = null,
+        modifiedAt = Instant.EPOCH,
+        fingerprint = fingerprint,
+        tags = emptyList(),
+        links = links,
+    )
 
     private fun seedRecoverableMove() {
         note("old.md", "[[old]] own")

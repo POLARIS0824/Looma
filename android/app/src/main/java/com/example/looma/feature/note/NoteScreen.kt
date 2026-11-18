@@ -430,6 +430,10 @@ private fun NoteWorkspace(
                 onNavigateUp = leaveWorkspace,
                 onToggleMode = {
                     val next = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
+                    if (next == NoteMode.Read) {
+                        focusManager.clearFocus(force = true)
+                        keyboard?.hide()
+                    }
                     val text = contentBuffer.text.toString()
                     val returnPosition = modeScrollReturn?.takeIf { it.source == text }?.position
                     pendingModeScroll = returnPosition ?: run {
@@ -468,6 +472,7 @@ private fun NoteWorkspace(
                                 buffer = titleBuffer,
                                 fileName = state.fileName,
                                 isNewNote = state.isNewNote,
+                                isRenaming = state.isRenaming,
                                 textStyle = LoomaTokens.type.sectionTitle.copy(
                                     textAlign = TextAlign.Center,
                                 ),
@@ -580,6 +585,7 @@ private fun NoteWorkspace(
                                     buffer = titleBuffer,
                                     fileName = state.fileName,
                                     isNewNote = state.isNewNote,
+                                    isRenaming = state.isRenaming,
                                     textStyle = LoomaTokens.type.noteTitle,
                                     focusRequester = titleFocus,
                                     onCommit = onCommitTitle,

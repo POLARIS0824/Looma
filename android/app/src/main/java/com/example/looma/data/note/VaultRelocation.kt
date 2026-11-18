@@ -1,5 +1,8 @@
 package com.example.looma.data.note
 
+import com.example.looma.data.index.FileFingerprint
+import com.example.looma.data.index.IndexedNote
+import com.example.looma.data.index.fingerprint
 import com.example.looma.domain.markdown.MarkdownIndex
 import com.example.looma.domain.markdown.WikiLinks
 import com.example.looma.domain.model.FolderPath
@@ -19,6 +22,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardOpenOption.READ
+import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.Properties
 import java.util.UUID
@@ -45,7 +49,10 @@ internal data class RelocationResult<P>(
     val changes: RelocationChanges,
 )
 
-internal class VaultRelocation(private val vault: Vault) {
+internal class VaultRelocation(
+    private val vault: Vault,
+    private val indexedNotes: List<IndexedNote> = emptyList(),
+) {
     private val ops = VaultFileOps(File(vault.rootPath))
     private val root = ops.rootDir
 
@@ -202,7 +209,8 @@ internal class VaultRelocation(private val vault: Vault) {
         safeFile(from)
         safeFile(to)
         if (from == to) return RelocationResult(pathOf(to), linksUpdated = 0, linksFailed = 0, changes = recovered)
-        val notePaths = listNotePaths()
+        val scannedNotes = scanNotes()
+        val notePaths = scannedNotes.map { it.path }
         val paths = notePaths.associateWith { path ->
             when {
                 path == from -> to
@@ -212,16 +220,25 @@ internal class VaultRelocation(private val vault: Vault) {
         }
         val before = graph(notePaths)
         val after = graph(paths.values.toList())
+        val indexedByPath = indexedNotes.associateBy { it.id.path.relativePath }
         val rewrites = mutableListOf<Rewrite>()
         val guards = mutableListOf<Guard>()
         var linksUpdated = 0
         var linksFailed = 0
-        for (path in notePaths) {
+        for (scanned in scannedNotes) {
+            val path = scanned.path
+            val newPath = paths.getValue(path)
+            val cached = indexedByPath[path]?.takeIf { it.fingerprint == scanned.fingerprint }
+            if (cached != null && !mayNeedRelink(cached.links, path, newPath, paths, before, after)) {
+                continue
+            }
             val bytes = readReferrer(path) ?: continue
-            val relinked = relink(text(bytes), path, paths.getValue(path), paths, before, after)
+            val content = text(bytes)
+            if ("[[" !in content) continue
+            val relinked = relink(content, path, newPath, paths, before, after)
             linksFailed += relinked.failed
-            val content = relinked.content ?: continue
-            rewrites += Rewrite(paths.getValue(path), bytes, markdownBytes(content))
+            val rewrittenContent = relinked.content ?: continue
+            rewrites += Rewrite(newPath, bytes, markdownBytes(rewrittenContent))
             guards += Guard(path, hash(bytes))
             linksUpdated += relinked.updated
         }
@@ -229,7 +246,7 @@ internal class VaultRelocation(private val vault: Vault) {
         val directories = missingParents(destination)
         val plan = Plan(moves, rewrites.map { it.record() }, directories, linksUpdated, linksFailed)
         validate(plan)
-        if (listNotePaths() != notePaths) throw IOException("Vault changed while planning relocation")
+        if (scanNotes() != scannedNotes) throw IOException("Vault changed while planning relocation")
         guards.forEach { if (fileHash(safeFile(it.path)) != it.hash) conflict(safeFile(it.path)) }
         checkState(plan)
         val journal = publish(plan, rewrites)
@@ -276,17 +293,41 @@ internal class VaultRelocation(private val vault: Vault) {
         return Relinked(rewritten?.let { bom + it }, updated, failed)
     }
 
-    private fun listNotePaths(): List<String> {
-        val notes = mutableListOf<String>()
+    private fun mayNeedRelink(
+        links: List<MarkdownLink>,
+        oldPath: String,
+        newPath: String,
+        paths: Map<String, String>,
+        before: WikiGraph,
+        after: WikiGraph,
+    ): Boolean {
+        if (links.isEmpty()) return false
+        val fromOld = NotePath(oldPath)
+        val fromNew = NotePath(newPath)
+        for (link in links) {
+            val original = before.resolve(link.target, fromOld) ?: continue
+            val intended = NoteId(vault.id, NotePath(paths.getValue(original.path.relativePath)))
+            if (after.resolve(link.target, fromNew) != intended) return true
+        }
+        return false
+    }
+
+    private fun scanNotes(): List<ScannedNote> {
+        val notes = mutableListOf<ScannedNote>()
         fun visit(directory: File, depth: Int) {
             val entries = directory.listFiles() ?: return
             for (child in entries.sortedBy { it.name }) {
                 val path = child.toPath()
-                if (Files.isSymbolicLink(path)) continue
-                if (Files.isDirectory(path, NOFOLLOW_LINKS)) {
+                val attrs = try {
+                    Files.readAttributes(path, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
+                } catch (_: IOException) {
+                    continue
+                }
+                if (attrs.isSymbolicLink) continue
+                if (attrs.isDirectory) {
                     if (!child.name.startsWith('.') && depth + 1 < MAX_DEPTH) visit(child, depth + 1)
-                } else if (Files.isRegularFile(path, NOFOLLOW_LINKS) && child.extension.equals("md", ignoreCase = true)) {
-                    notes += relative(child)
+                } else if (attrs.isRegularFile && child.extension.equals("md", ignoreCase = true)) {
+                    notes += ScannedNote(relative(child), attrs.fingerprint())
                 }
             }
         }
@@ -675,6 +716,7 @@ internal class VaultRelocation(private val vault: Vault) {
     }
     private fun encodeProperties(data: Properties): ByteArray = ByteArrayOutputStream().use { output -> data.store(output, null); output.toByteArray() }
 
+    private data class ScannedNote(val path: String, val fingerprint: FileFingerprint)
     private data class Relinked(val content: String?, val updated: Int, val failed: Int)
     private data class Guard(val path: String, val hash: String)
     private data class Member(val path: String, val hash: String?)

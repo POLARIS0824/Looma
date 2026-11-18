@@ -150,6 +150,7 @@ class NoteViewModel(
     }
 
     fun onRouteStarted(id: NoteId, routeVersion: Long) {
+        if (loadJob?.isActive == true && id == currentId && routeVersion <= retargetVersion) return
         enqueue {
             val retargeted = routeVersion > retargetVersion && currentId != id
             if (routeVersion > retargetVersion) {
@@ -364,6 +365,7 @@ class NoteViewModel(
                         conflictCopy = null,
                     )
                 }
+                refreshWiki()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -506,6 +508,7 @@ class NoteViewModel(
                 } catch (_: Exception) {
                 }
             }
+            refreshWiki()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
