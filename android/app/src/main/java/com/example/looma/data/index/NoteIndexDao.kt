@@ -31,10 +31,12 @@ internal interface NoteIndexDao {
         FROM indexed_note n
         JOIN note_search_signature s
             ON n.vaultId = s.vaultId AND n.path = s.notePath
-        WHERE n.vaultId = :vaultId AND length(s.signature) = :byteSize
+        WHERE n.vaultId = :vaultId
+            AND length(s.signature) = :byteSize
+            AND substr(s.signature, :byteSize, 1) = :version
         """,
     )
-    suspend fun signatures(vaultId: String, byteSize: Int): List<NoteSignatureRow>
+    suspend fun signatures(vaultId: String, byteSize: Int, version: ByteArray): List<NoteSignatureRow>
 
     @Query(
         """
@@ -42,10 +44,14 @@ internal interface NoteIndexDao {
         LEFT JOIN note_search_signature s
             ON n.vaultId = s.vaultId AND n.path = s.notePath
         WHERE n.vaultId = :vaultId
-            AND (s.signature IS NULL OR length(s.signature) != :byteSize)
+            AND (
+                s.signature IS NULL
+                OR length(s.signature) != :byteSize
+                OR substr(s.signature, :byteSize, 1) != :version
+            )
         """,
     )
-    suspend fun pathsNeedingSearchSignature(vaultId: String, byteSize: Int): List<String>
+    suspend fun pathsNeedingSearchSignature(vaultId: String, byteSize: Int, version: ByteArray): List<String>
 
     @Upsert
     suspend fun upsertNotes(notes: List<IndexedNoteEntity>)

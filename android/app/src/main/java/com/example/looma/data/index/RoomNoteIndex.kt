@@ -46,18 +46,19 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
             val version = currentVersion(vaultId)
             val cached = searchSnapshot
             if (cached?.vaultId == vaultId && cached.version == version) return@withLock cached.signatures
-            val signatures = dao.signatures(vaultId.value, SearchSignature.STORED_BYTE_SIZE).associate { row ->
-                NotePath(row.path) to IndexedSearchSignature(
-                    fingerprint = FileFingerprint(row.sizeBytes, row.modifiedAt),
-                    bytes = row.signature,
-                )
-            }
+            val signatures = dao.signatures(vaultId.value, SearchSignature.STORED_BYTE_SIZE, SIGNATURE_VERSION_BLOB)
+                .associate { row ->
+                    NotePath(row.path) to IndexedSearchSignature(
+                        fingerprint = FileFingerprint(row.sizeBytes, row.modifiedAt),
+                        bytes = row.signature,
+                    )
+                }
             searchSnapshot = SearchSnapshot(vaultId, version, signatures)
             signatures
         }
 
     override suspend fun pathsNeedingSearchSignature(vaultId: VaultId): Set<NotePath> =
-        dao.pathsNeedingSearchSignature(vaultId.value, SearchSignature.STORED_BYTE_SIZE)
+        dao.pathsNeedingSearchSignature(vaultId.value, SearchSignature.STORED_BYTE_SIZE, SIGNATURE_VERSION_BLOB)
             .mapTo(HashSet()) { NotePath(it) }
 
     override suspend fun version(vaultId: VaultId): Long =
@@ -143,5 +144,6 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
 
     private companion object {
         const val MAX_SQL_PATHS = 500
+        val SIGNATURE_VERSION_BLOB = byteArrayOf(SearchSignature.FORMAT_VERSION)
     }
 }

@@ -129,19 +129,22 @@ class NoteIndexDaoTest {
     fun cachedSearchSignaturesFollowUpdatesAndDeletes() = runBlocking {
         val alpha = note("alpha.md")
         val beta = note("beta.md")
+        val gamma = note("gamma.md")
         val signature = SearchSignature.fromBody("协程与文件指纹")
+        val outdatedSignature = ByteArray(SearchSignature.STORED_BYTE_SIZE).also { it[it.lastIndex] = 1 }
         index.apply(
             IndexDelta(
                 vaultId = vaultId,
-                upserts = listOf(alpha, beta),
+                upserts = listOf(alpha, beta, gamma),
                 signatures = mapOf(
                     alpha.id.path to signature,
                     beta.id.path to ByteArray(512),
+                    gamma.id.path to outdatedSignature,
                 ),
             ),
         )
 
-        assertEquals(setOf(beta.id.path), index.pathsNeedingSearchSignature(vaultId))
+        assertEquals(setOf(beta.id.path, gamma.id.path), index.pathsNeedingSearchSignature(vaultId))
         val indexed = index.searchSignatures(vaultId)
         assertEquals(setOf(alpha.id.path), indexed.keys)
         assertEquals(alpha.fingerprint, indexed.getValue(alpha.id.path).fingerprint)

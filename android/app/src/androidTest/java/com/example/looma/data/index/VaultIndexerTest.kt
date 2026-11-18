@@ -134,6 +134,30 @@ class VaultIndexerTest {
     }
 
     @Test
+    fun scanRefreshesOutdatedSignatureVersionWithoutFileTimestampChange() = runBlocking {
+        val file = File(vaultDir, "note.md")
+        file.writeText("---\n\"tags\": [refreshed]\n---\n[![alt](cover.png)](https://example.com)\n")
+        File(vaultDir, "cover.png").writeBytes(byteArrayOf(1))
+        val note = indexer.scan().notes.single()
+        val staleNote = note.copy(tags = emptyList(), coverPath = null)
+        val legacyVersionSignature = ByteArray(SearchSignature.STORED_BYTE_SIZE).also { it[it.lastIndex] = 1 }
+        index.apply(
+            IndexDelta(
+                vaultId = vaultId,
+                upserts = listOf(staleNote),
+                signatures = mapOf(note.id.path to legacyVersionSignature),
+            ),
+        )
+
+        val scan = indexer.scan()
+        assertEquals(1, scan.report.filesRead)
+        val refreshed = index.load(vaultId).single()
+        assertEquals(listOf("refreshed"), refreshed.tags)
+        assertEquals(File(vaultDir, "cover.png").canonicalPath, refreshed.coverPath)
+        assertEquals(0, indexer.scan().report.filesRead)
+    }
+
+    @Test
     fun scanDoesNotReplaceANewerSave() = runBlocking {
         val file = File(vaultDir, "note.md").apply {
             writeText("# Older\n\n#old [[Old]]\n")
