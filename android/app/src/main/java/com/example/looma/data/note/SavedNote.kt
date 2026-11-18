@@ -16,6 +16,9 @@ internal data class SavedNote(
 internal fun MarkdownParser.savedNote(stored: StoredMarkdown): SavedNote =
     SavedNote(stored, parse(stored.content, stored.file.nameWithoutExtension))
 
+internal fun MarkdownParser.indexSavedNote(stored: StoredMarkdown): SavedNote =
+    SavedNote(stored, parseForIndex(stored.content, stored.file.nameWithoutExtension))
+
 internal fun MarkdownParser.note(stored: StoredMarkdown): Note =
     stored.toNote(
         title = title(stored.content, stored.file.nameWithoutExtension),

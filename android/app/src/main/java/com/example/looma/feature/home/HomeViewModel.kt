@@ -15,23 +15,18 @@ import com.example.looma.data.search.SearchHistoryRepository
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.StalledRelocation
+import com.example.looma.domain.model.VaultId
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.TimeMark
-import kotlin.time.TimeSource
 
 class HomeViewModel(
     private val noteRepository: NoteRepository,
@@ -42,9 +37,17 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     private var refreshJob: Job? = null
     private var searchJob: Job? = null
-    private var searchSnapshot: Deferred<SearchSnapshot>? = null
+    private var searchNarrowing: SearchNarrowing? = null
     private var revealGeneration = 0L
     private var index: HomeVaultIndex = HomeVaultIndex.Empty
+
+    private data class SearchNarrowing(
+        val vaultId: VaultId,
+        val indexVersion: Long,
+        val notesSnapshot: List<HomeNoteItem>,
+        val keyword: String,
+        val matchedIds: Set<NoteId>,
+    )
 
     fun refresh(): Job {
         refreshJob?.cancel()
@@ -161,8 +164,7 @@ class HomeViewModel(
 
     private fun clearSearch() {
         searchJob?.cancel()
-        searchSnapshot?.cancel()
-        searchSnapshot = null
+        searchNarrowing = null
     }
 
     private fun scheduleSearch(value: String, debounce: Boolean = true) {
@@ -172,11 +174,47 @@ class HomeViewModel(
         _uiState.update { it.copy(isSearching = true) }
         searchJob = viewModelScope.launch {
             if (debounce) delay(SEARCH_DEBOUNCE_MS)
-            val notes = _uiState.value.notes
-            val texts = searchTexts(notes)
-            val sort = _uiState.value.sort
-            val results = withContext(Dispatchers.Default) {
-                searchNotes(notes, texts, keyword) { ensureActive() }.orderedBy(sort)
+            val snapshotState = _uiState.value
+            val vaultId = snapshotState.vaultId
+            val notes = snapshotState.notes
+            val sort = snapshotState.sort
+            val results = if (vaultId == null || notes.isEmpty()) {
+                emptyList()
+            } else {
+                try {
+                    val version = noteRepository.indexVersion(vaultId)
+                    val previous = searchNarrowing
+                    val candidateNotes = if (
+                        previous != null &&
+                        previous.vaultId == vaultId &&
+                        previous.indexVersion == version &&
+                        previous.notesSnapshot === notes &&
+                        canNarrowSearch(previous.keyword, keyword)
+                    ) {
+                        notes.filter { it.id in previous.matchedIds }
+                    } else {
+                        notes
+                    }
+                    withContext(Dispatchers.Default) {
+                        val matches = noteRepository.search(
+                            candidates = candidateNotes.map { it.toSearchableNote() },
+                            query = keyword,
+                        )
+                        val merged = mergeSearchMatches(candidateNotes, matches)
+                        searchNarrowing = SearchNarrowing(
+                            vaultId = vaultId,
+                            indexVersion = version,
+                            notesSnapshot = notes,
+                            keyword = keyword,
+                            matchedIds = merged.mapTo(HashSet(merged.size)) { it.id },
+                        )
+                        merged.orderedBy(sort)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    emptyList()
+                }
             }
             _uiState.update { current ->
                 if (current.query != value) {
@@ -190,31 +228,6 @@ class HomeViewModel(
             }
         }
     }
-
-    private suspend fun searchTexts(notes: List<HomeNoteItem>): Map<NoteId, String> {
-        searchSnapshot?.await()?.let { snapshot ->
-            if (snapshot.loadedAt.elapsedNow() < 2.seconds) return snapshot.texts
-        }
-        val snapshot = viewModelScope.async {
-            val texts = loadSearchTexts(notes)
-            SearchSnapshot(texts, TimeSource.Monotonic.markNow())
-        }
-        searchSnapshot = snapshot
-        return snapshot.await().texts
-    }
-
-    private suspend fun loadSearchTexts(notes: List<HomeNoteItem>): Map<NoteId, String> {
-        if (notes.isEmpty()) return emptyMap()
-        return try {
-            noteRepository.readTexts(notes.map { it.id })
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            emptyMap()
-        }
-    }
-
-    private data class SearchSnapshot(val texts: Map<NoteId, String>, val loadedAt: TimeMark)
 
     fun recordSearch() {
         val query = _uiState.value.query
@@ -703,5 +716,4 @@ private fun NoteListEntry.toHomeItem() = HomeNoteItem(
     summary = summary,
     coverPath = coverPath,
     markdownSnippet = markdownSnippet,
-    searchableText = searchText,
 )

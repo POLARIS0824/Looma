@@ -6,6 +6,7 @@ import com.example.looma.domain.model.NoteSummary
 import com.example.looma.domain.model.VaultId
 import java.time.Instant
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -64,6 +65,14 @@ class HomeSearchTest {
         assertEquals(listOf(first.id, second.id), results.map { it.id })
     }
 
+    @Test
+    fun `monotonic query extension narrows only when the next query contains the previous keyword`() {
+        assertTrue(canNarrowSearch("kot", "kotlin"))
+        assertTrue(canNarrowSearch("KOT", "read kotlin"))
+        assertFalse(canNarrowSearch("kotlin", "kot"))
+        assertFalse(canNarrowSearch("   ", "kot"))
+    }
+
     private fun note(
         title: String,
         text: String,
@@ -72,11 +81,9 @@ class HomeSearchTest {
         summary = NoteSummary(
             id = NoteId(VaultId("vault"), NotePath("$title.md")),
             title = title,
-            excerpt = "",
             modifiedAt = Instant.EPOCH,
             tags = tags,
         ),
-        markdownSnippet = text.take(20),
-        searchableText = text,
+        markdownSnippet = text,
     )
 }

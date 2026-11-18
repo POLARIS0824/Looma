@@ -114,6 +114,27 @@ class NoteIndexDaoTest {
         assertEquals(listOf("keep"), dao.recent("other", 10))
     }
 
+    @Test
+    fun bodyCandidatesFilterBySignatureAndCascadeOnDelete() = runBlocking {
+        val alpha = note("alpha.md")
+        val beta = note("beta.md")
+        index.apply(
+            IndexDelta(
+                vaultId = vaultId,
+                upserts = listOf(alpha, beta),
+                signatures = mapOf(
+                    alpha.id.path to com.example.looma.domain.search.SearchSignature.fromBody("协程与文件指纹"),
+                    beta.id.path to com.example.looma.domain.search.SearchSignature.fromBody("unrelated content"),
+                ),
+            ),
+        )
+
+        assertEquals(setOf(NotePath("alpha.md")), index.bodyCandidates(vaultId, "指纹"))
+
+        index.apply(IndexDelta(vaultId = vaultId, removed = listOf(NotePath("alpha.md"))))
+        assertTrue(index.bodyCandidates(vaultId, "指纹").isEmpty())
+    }
+
     private fun note(
         path: String,
         tags: List<String> = emptyList(),
@@ -121,7 +142,6 @@ class NoteIndexDaoTest {
     ) = IndexedNote(
         id = NoteId(vaultId, NotePath(path)),
         title = path,
-        excerpt = "",
         snippet = "",
         coverPath = null,
         modifiedAt = Instant.ofEpochMilli(1_000),

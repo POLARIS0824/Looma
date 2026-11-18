@@ -171,7 +171,6 @@ class HomeVaultIndexTest {
             summary = NoteSummary(
                 id = NoteId(vaultId, NotePath(path)),
                 title = title,
-                excerpt = "",
                 modifiedAt = modifiedAt,
             ),
             markdownSnippet = markdown,

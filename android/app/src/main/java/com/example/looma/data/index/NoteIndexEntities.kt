@@ -9,13 +9,45 @@ internal data class IndexedNoteEntity(
     val vaultId: String,
     val path: String,
     val title: String,
-    val excerpt: String,
     val snippet: String,
     val coverPath: String?,
     val modifiedAt: Long,
     val sizeBytes: Long,
     val indexedAt: Long,
 )
+
+@Entity(
+    tableName = "note_search_signature",
+    primaryKeys = ["vaultId", "notePath"],
+    foreignKeys = [
+        ForeignKey(
+            entity = IndexedNoteEntity::class,
+            parentColumns = ["vaultId", "path"],
+            childColumns = ["vaultId", "notePath"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+internal data class NoteSearchSignatureEntity(
+    val vaultId: String,
+    val notePath: String,
+    val signature: ByteArray,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is NoteSearchSignatureEntity) return false
+        return vaultId == other.vaultId &&
+            notePath == other.notePath &&
+            signature.contentEquals(other.signature)
+    }
+
+    override fun hashCode(): Int {
+        var result = vaultId.hashCode()
+        result = 31 * result + notePath.hashCode()
+        result = 31 * result + signature.contentHashCode()
+        return result
+    }
+}
 
 @Entity(
     tableName = "note_tag",

@@ -5,6 +5,7 @@ import com.example.looma.data.note.MarkdownLink
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
+import com.example.looma.domain.search.SearchSignature
 import java.time.Instant
 import kotlinx.coroutines.sync.withLock
 
@@ -21,7 +22,6 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
                 IndexedNote(
                     id = NoteId(vaultId, NotePath(note.path)),
                     title = note.title,
-                    excerpt = note.excerpt,
                     snippet = note.snippet,
                     coverPath = note.coverPath,
                     modifiedAt = Instant.ofEpochMilli(note.modifiedAt),
@@ -32,6 +32,18 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
                 )
             }
         }
+    }
+
+    override suspend fun bodyCandidates(vaultId: VaultId, keyword: String): Set<NotePath> {
+        val rows = dao.signatures(vaultId.value)
+        if (rows.isEmpty()) return emptySet()
+        val matched = HashSet<NotePath>()
+        for (row in rows) {
+            if (SearchSignature.mayContain(row.signature, keyword)) {
+                matched.add(NotePath(row.path))
+            }
+        }
+        return matched
     }
 
     override suspend fun version(vaultId: VaultId): Long =
@@ -63,11 +75,21 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
             val upsertPaths = delta.upserts.map { it.id.path.relativePath }
             if (upsertPaths.isNotEmpty()) {
                 upsertPaths.chunked(MAX_SQL_PATHS).forEach { paths ->
+                    dao.deleteSignatures(vaultId, paths)
                     dao.deleteTags(vaultId, paths)
                     dao.deleteLinks(vaultId, paths)
                 }
                 val indexedAt = System.currentTimeMillis()
                 dao.upsertNotes(delta.upserts.map { it.toEntity(vaultId, indexedAt) })
+                if (delta.signatures.isNotEmpty()) {
+                    val signatureEntities = delta.upserts.mapNotNull { note ->
+                        val bytes = delta.signatures[note.id.path] ?: return@mapNotNull null
+                        NoteSearchSignatureEntity(vaultId, note.id.path.relativePath, bytes)
+                    }
+                    if (signatureEntities.isNotEmpty()) {
+                        dao.upsertSignatures(signatureEntities)
+                    }
+                }
                 val tags = delta.upserts.flatMap { note -> note.tagEntities(vaultId) }
                 if (tags.isNotEmpty()) dao.insertTags(tags)
                 val links = delta.upserts.flatMap { note -> note.linkEntities(vaultId) }
@@ -85,7 +107,6 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
         vaultId = vaultId,
         path = id.path.relativePath,
         title = title,
-        excerpt = excerpt,
         snippet = snippet,
         coverPath = coverPath,
         modifiedAt = modifiedAt.toEpochMilli(),

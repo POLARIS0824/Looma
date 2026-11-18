@@ -9,7 +9,6 @@ internal data class NoteListEntry(
     val summary: NoteSummary,
     val coverPath: String?,
     val markdownSnippet: String,
-    val searchText: String,
 )
 
 internal data class NoteListResult(

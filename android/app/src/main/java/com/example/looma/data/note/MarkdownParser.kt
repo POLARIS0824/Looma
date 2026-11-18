@@ -28,6 +28,21 @@ internal class MarkdownParser {
 
     fun tags(text: String): Set<String> = TAG_PATTERN.findAll(text).map { it.groupValues[1] }.toSet()
 
+    fun parseForIndex(text: String, fallbackTitle: String): MarkdownMetadata {
+        val links = MarkdownIndex.index(text, fallbackTitle).links
+            .map { MarkdownLink(target = it.target, embedded = it.embedded) }
+        val firstImageReference = MARKDOWN_IMAGE.find(text)?.groupValues?.get(1)
+            ?: WIKI_IMAGE.find(text)?.groupValues?.get(1)
+        return MarkdownMetadata(
+            title = extractTitle(bodyLines(text), fallbackTitle),
+            excerpt = "",
+            tags = tags(text),
+            checklist = emptyList(),
+            links = links,
+            firstImageReference = firstImageReference,
+        )
+    }
+
     fun parse(text: String, fallbackTitle: String): MarkdownMetadata {
         val body = bodyLines(text).toList()
         val excerpt = body.asSequence()

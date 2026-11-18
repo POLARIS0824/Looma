@@ -114,7 +114,6 @@ class HomeSelectionMachineTest {
         summary = NoteSummary(
             id = NoteId(VaultId("vault"), NotePath("$name.md")),
             title = name,
-            excerpt = "",
             modifiedAt = Instant.parse("2026-11-01T00:00:00Z"),
             tags = emptySet(),
         ),

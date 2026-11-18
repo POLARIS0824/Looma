@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 @Database(
     entities = [
         IndexedNoteEntity::class,
+        NoteSearchSignatureEntity::class,
         NoteTagEntity::class,
         NoteLinkEntity::class,
         SearchHistoryEntity::class,

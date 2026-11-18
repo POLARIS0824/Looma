@@ -1,6 +1,8 @@
 package com.example.looma.domain.search
 
 import com.example.looma.domain.markdown.frontmatterEnd
+import com.example.looma.domain.model.NoteId
+import java.io.BufferedReader
 
 data class SearchMatch(
     val text: String,
@@ -13,6 +15,17 @@ data class NoteSearchHit(
     val matches: List<SearchMatch>,
 )
 
+data class SearchableNote(
+    val id: NoteId,
+    val title: String,
+    val tags: Set<String>,
+)
+
+data class NoteSearchMatch(
+    val id: NoteId,
+    val hit: NoteSearchHit,
+)
+
 fun searchNote(
     title: String,
     tags: Set<String>,
@@ -23,46 +36,239 @@ fun searchNote(
     val keyword = query.trim()
     if (keyword.isEmpty()) return null
     val titleMatch = matchOf(title, keyword)
-    val tagMatches = tags.asSequence()
-        .mapNotNull { tag -> matchOf("#$tag", keyword) }
-        .take(DEFAULT_MAX_MATCHES)
-        .toList()
+    val tagMatches = matchTags(tags, keyword)
     val matches = bodyMatches(text, title.takeIf { titleMatch != null }?.trim(), keyword, maxMatches)
     if (titleMatch == null && tagMatches.isEmpty() && matches.isEmpty()) return null
     return NoteSearchHit(titleMatch, tagMatches, matches)
 }
 
-private fun bodyMatches(text: String, matchedTitle: String?, keyword: String, limit: Int): List<SearchMatch> {
-    if (limit <= 0) return emptyList()
-    return text.substring(frontmatterEnd(text))
-        .lineSequence()
-        .filterNot { line ->
-            matchedTitle != null &&
-                line.startsWith("# ") &&
-                line.substring(2).trim().equals(matchedTitle, ignoreCase = true)
-        }
-        .mapNotNull { line -> bodyMatch(line, keyword) }
-        .distinctBy { it.text }
-        .take(limit)
-        .toList()
+fun searchNote(
+    title: String,
+    tags: Set<String>,
+    reader: BufferedReader,
+    query: String,
+    maxMatches: Int = DEFAULT_MAX_MATCHES,
+): NoteSearchHit? {
+    val keyword = query.trim()
+    if (keyword.isEmpty()) return null
+    val titleMatch = matchOf(title, keyword)
+    val tagMatches = matchTags(tags, keyword)
+    val matches = bodyMatches(reader, title.takeIf { titleMatch != null }?.trim(), keyword, maxMatches)
+    if (titleMatch == null && tagMatches.isEmpty() && matches.isEmpty()) return null
+    return NoteSearchHit(titleMatch, tagMatches, matches)
 }
 
-private fun bodyMatch(line: String, keyword: String): SearchMatch? {
-    val first = line.indexOf(keyword, ignoreCase = true)
+private fun matchTags(tags: Set<String>, keyword: String): List<SearchMatch> {
+    if (tags.isEmpty()) return emptyList()
+    val results = ArrayList<SearchMatch>(minOf(tags.size, DEFAULT_MAX_MATCHES))
+    for (tag in tags) {
+        val match = matchOf("#$tag", keyword) ?: continue
+        results.add(match)
+        if (results.size >= DEFAULT_MAX_MATCHES) break
+    }
+    return results
+}
+
+private fun bodyMatches(text: String, matchedTitle: String?, keyword: String, limit: Int): List<SearchMatch> {
+    if (limit <= 0) return emptyList()
+    val bodyStart = frontmatterEnd(text)
+    if (bodyStart >= text.length) return emptyList()
+    if (text.indexOf(keyword, bodyStart, ignoreCase = true) < 0 && !hasInlineSyntax(text, bodyStart, text.length)) {
+        return emptyList()
+    }
+    val results = ArrayList<SearchMatch>(minOf(limit, DEFAULT_MAX_MATCHES))
+    val seen = HashSet<String>(minOf(limit, DEFAULT_MAX_MATCHES) * 2)
+    forEachLineRange(text, bodyStart) { start, end ->
+        if (!isRepeatedHeading(text, start, end, matchedTitle)) {
+            val first = indexOfInRange(text, start, end, keyword)
+            if (first >= 0 || (end - start <= MAX_MARKDOWN_CONTEXT_CHARS && mayMatchAfterCleanup(text, start, end, keyword))) {
+                val line = text.substring(start, end)
+                val match = bodyMatch(line, keyword, first)
+                if (match != null && seen.add(match.text)) {
+                    results.add(match)
+                    if (results.size >= limit) return@forEachLineRange false
+                }
+            }
+        }
+        true
+    }
+    return results
+}
+
+private fun bodyMatches(
+    reader: BufferedReader,
+    matchedTitle: String?,
+    keyword: String,
+    limit: Int,
+): List<SearchMatch> {
+    if (limit <= 0) return emptyList()
+    val firstLine = reader.readLine() ?: return emptyList()
+    val results = ArrayList<SearchMatch>(minOf(limit, DEFAULT_MAX_MATCHES))
+    val seen = HashSet<String>(minOf(limit, DEFAULT_MAX_MATCHES) * 2)
+
+    fun accept(line: String): Boolean {
+        if (isRepeatedHeading(line, 0, line.length, matchedTitle)) return false
+        val first = line.indexOf(keyword, ignoreCase = true)
+        if (first < 0 && (line.length > MAX_MARKDOWN_CONTEXT_CHARS || !mayMatchAfterCleanup(line, 0, line.length, keyword))) {
+            return false
+        }
+        val match = bodyMatch(line, keyword, first) ?: return false
+        if (seen.add(match.text)) {
+            results.add(match)
+            if (results.size >= limit) return true
+        }
+        return false
+    }
+
+    if (firstLine == "---") {
+        val pending = ArrayList<String>(16)
+        var closed = false
+        while (true) {
+            val line = reader.readLine() ?: break
+            if (line.trim() == "---") {
+                closed = true
+                break
+            }
+            pending.add(line)
+        }
+        if (!closed) {
+            if (accept(firstLine)) return results
+            for (line in pending) {
+                if (accept(line)) return results
+            }
+            return results
+        }
+    } else if (accept(firstLine)) {
+        return results
+    }
+
+    while (true) {
+        val line = reader.readLine() ?: break
+        if (accept(line)) return results
+    }
+    return results
+}
+
+internal inline fun forEachLineRange(
+    text: String,
+    startOffset: Int,
+    visit: (start: Int, end: Int) -> Boolean,
+) {
+    var cursor = startOffset
+    val length = text.length
+    while (cursor < length) {
+        var end = cursor
+        while (end < length && text[end] != '\n' && text[end] != '\r') {
+            end++
+        }
+        if (!visit(cursor, end)) return
+        if (end >= length) return
+        cursor = if (text[end] == '\r' && end + 1 < length && text[end + 1] == '\n') {
+            end + 2
+        } else {
+            end + 1
+        }
+    }
+}
+
+private fun isRepeatedHeading(
+    text: CharSequence,
+    start: Int,
+    end: Int,
+    matchedTitle: String?,
+): Boolean {
+    if (matchedTitle == null || end - start < 2 || text[start] != '#' || text[start + 1] != ' ') {
+        return false
+    }
+    var left = start + 2
+    var right = end
+    while (left < right && text[left].isWhitespace()) left++
+    while (right > left && text[right - 1].isWhitespace()) right--
+    return right - left == matchedTitle.length &&
+        text.regionMatches(left, matchedTitle, 0, matchedTitle.length, ignoreCase = true)
+}
+
+private fun indexOfInRange(text: CharSequence, start: Int, end: Int, keyword: String): Int {
+    val keywordLength = keyword.length
+    val lastStart = end - keywordLength
+    if (lastStart < start) return -1
+    val firstChar = keyword[0]
+    var index = start
+    while (index <= lastStart) {
+        if (text[index].equals(firstChar, ignoreCase = true) &&
+            text.regionMatches(index, keyword, 0, keywordLength, ignoreCase = true)
+        ) {
+            return index - start
+        }
+        index++
+    }
+    return -1
+}
+
+private fun bodyMatch(line: String, keyword: String, first: Int): SearchMatch? {
     if (line.length <= MAX_MARKDOWN_CONTEXT_CHARS &&
-        (first >= 0 || mayMatchAfterCleanup(line, keyword))
+        (first >= 0 || mayMatchAfterCleanup(line, 0, line.length, keyword))
     ) {
         matchOf(plainText(line), keyword)?.let { return it }
     }
     return matchOf(line, keyword, first)
 }
 
-private fun mayMatchAfterCleanup(line: String, keyword: String): Boolean {
-    if (keyword.length > line.length || line.none { it in "`[_*~" }) return false
-    var matched = 0
-    for (char in line) {
-        if (char.equals(keyword[matched], ignoreCase = true)) matched++
-        if (matched == keyword.length) return true
+internal fun hasInlineSyntax(text: CharSequence, start: Int, end: Int): Boolean {
+    for (index in start until end) {
+        when (text[index]) {
+            '`', '[', '_', '*', '~' -> return true
+        }
+    }
+    return false
+}
+
+private fun mayMatchAfterCleanup(
+    text: CharSequence,
+    start: Int,
+    end: Int,
+    keyword: String,
+): Boolean {
+    val keywordLength = keyword.length
+    if (keywordLength <= 1 || keywordLength > end - start) return false
+
+    val firstChar = keyword[0]
+    var firstPos = -1
+    for (index in start..end - keywordLength) {
+        if (text[index].equals(firstChar, ignoreCase = true)) {
+            firstPos = index
+            break
+        }
+    }
+    if (firstPos < 0) return false
+
+    val lastChar = keyword[keywordLength - 1]
+    var lastPos = -1
+    for (index in end - 1 downTo firstPos + keywordLength - 1) {
+        if (text[index].equals(lastChar, ignoreCase = true)) {
+            lastPos = index
+            break
+        }
+    }
+    if (lastPos < 0) return false
+
+    var interiorDelimiter = false
+    for (index in firstPos + 1 until lastPos) {
+        when (text[index]) {
+            '`', '[', ']', '_', '*', '~' -> {
+                interiorDelimiter = true
+                break
+            }
+        }
+    }
+    if (!interiorDelimiter) return false
+
+    var matched = 1
+    for (index in firstPos + 1..lastPos) {
+        if (text[index].equals(keyword[matched], ignoreCase = true)) {
+            matched++
+            if (matched == keywordLength) return true
+        }
     }
     return false
 }
@@ -100,24 +306,68 @@ private fun String.codePointBoundaryAtOrAfter(index: Int): Int =
         index
     }
 
-private fun plainText(line: String): String {
-    if (RULE.matches(line)) return ""
-    return line
-        .replace(WIKI_IMAGE, "")
-        .replace(MARKDOWN_IMAGE, "")
-        .replace(WIKI_LINK) { match -> wikiLabel(match.groupValues[1]) }
-        .replace(MARKDOWN_LINK, "$1")
-        .replace(CHECKBOX, "")
-        .replace(LIST_MARKER, "")
-        .replace(HEADING, "")
-        .replace(QUOTE, "")
-        .replace(BOLD, "$1")
-        .replace(STRIKE, "$1")
-        .replace(BOLD_UNDERSCORE, "$1")
-        .replace(ITALIC, "$1")
-        .replace(ITALIC_UNDERSCORE, "$1")
-        .replace(CODE_SPAN, "$1")
-        .trim()
+internal fun plainText(line: String): String {
+    val firstNonSpace = line.firstNonWhitespaceIndex()
+    if (firstNonSpace < 0) return ""
+    val firstChar = line[firstNonSpace]
+    if ((firstChar == '-' || firstChar == '*' || firstChar == '_') && RULE.matches(line)) return ""
+
+    var current = line
+    if ('[' in current) {
+        if ("![[" in current) current = current.replace(WIKI_IMAGE, "")
+        if ("![" in current && "](" in current) current = current.replace(MARKDOWN_IMAGE, "")
+        if ("[[" in current) current = current.replace(WIKI_LINK) { match -> wikiLabel(match.groupValues[1]) }
+        if ("](" in current) current = current.replace(MARKDOWN_LINK, "$1")
+    }
+    if (current.startsWithTaskOrListLeader()) {
+        if ('[' in current) current = current.replace(CHECKBOX, "")
+        if (current.startsWithTaskOrListLeader()) current = current.replace(LIST_MARKER, "")
+    }
+    if (current.startsWithHeadingLeader()) {
+        current = current.replace(HEADING, "")
+    }
+    if (current.startsWithQuoteLeader()) {
+        current = current.replace(QUOTE, "")
+    }
+    if ('*' in current) {
+        if ("**" in current) current = current.replace(BOLD, "$1")
+        if ('*' in current) current = current.replace(ITALIC, "$1")
+    }
+    if ("~~" in current) {
+        current = current.replace(STRIKE, "$1")
+    }
+    if ('_' in current) {
+        if ("__" in current) current = current.replace(BOLD_UNDERSCORE, "$1")
+        if ('_' in current) current = current.replace(ITALIC_UNDERSCORE, "$1")
+    }
+    if ('`' in current) {
+        current = current.replace(CODE_SPAN, "$1")
+    }
+    return current.trim()
+}
+
+private fun String.firstNonWhitespaceIndex(): Int {
+    for (index in indices) {
+        if (!this[index].isWhitespace()) return index
+    }
+    return -1
+}
+
+private fun String.startsWithTaskOrListLeader(): Boolean {
+    val index = firstNonWhitespaceIndex()
+    if (index < 0) return false
+    val char = this[index]
+    return char == '-' || char == '*' || char == '+' || char.isDigit()
+}
+
+private fun String.startsWithHeadingLeader(): Boolean {
+    val index = firstNonWhitespaceIndex()
+    return index in 0..3 && this[index] == '#'
+}
+
+private fun String.startsWithQuoteLeader(): Boolean {
+    val index = firstNonWhitespaceIndex()
+    return index >= 0 && this[index] == '>'
 }
 
 private fun wikiLabel(link: String): String {
@@ -126,8 +376,8 @@ private fun wikiLabel(link: String): String {
     return alias.ifEmpty { target.substringBefore('#').ifBlank { target } }
 }
 
-private const val DEFAULT_MAX_MATCHES = 3
-private const val MAX_MARKDOWN_CONTEXT_CHARS = 2_048
+internal const val DEFAULT_MAX_MATCHES = 3
+internal const val MAX_MARKDOWN_CONTEXT_CHARS = 2_048
 private const val MAX_MATCH_CHARS = 140
 private const val LEAD_CHARS = 28
 private const val ELLIPSIS = "\u2026"

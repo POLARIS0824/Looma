@@ -1,9 +1,12 @@
 package com.example.looma.data.note
 
+import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.InputStreamReader
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
@@ -14,10 +17,18 @@ internal fun readMarkdown(file: File): String = readMarkdownBytes(file).toString
 
 internal fun readMarkdownBytes(file: File): ByteArray = readBytesBounded(file, MAX_MARKDOWN_BYTES)
 
-internal fun readBytesBounded(file: File, maxBytes: Long): ByteArray {
+internal fun openMarkdownReader(file: File, maxBytes: Long = MAX_MARKDOWN_BYTES): BufferedReader {
     if (file.length() > maxBytes) throw NoteTooLargeException(file.name, maxBytes)
+    val bounded = BoundedMarkdownInputStream(file.inputStream(), file.name, maxBytes)
+    return BufferedReader(InputStreamReader(bounded, Charsets.UTF_8), DEFAULT_BUFFER_SIZE)
+}
+
+internal fun readBytesBounded(file: File, maxBytes: Long): ByteArray {
+    val knownLength = file.length()
+    if (knownLength > maxBytes) throw NoteTooLargeException(file.name, maxBytes)
     return file.inputStream().use { input ->
-        val output = ByteArrayOutputStream()
+        val initialCapacity = knownLength.coerceIn(32L, DEFAULT_BUFFER_SIZE.toLong() * 8).toInt()
+        val output = ByteArrayOutputStream(initialCapacity)
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         var total = 0L
         while (true) {
@@ -29,6 +40,35 @@ internal fun readBytesBounded(file: File, maxBytes: Long): ByteArray {
         }
         output.toByteArray()
     }
+}
+
+private class BoundedMarkdownInputStream(
+    private val delegate: InputStream,
+    private val fileName: String,
+    private val maxBytes: Long,
+) : InputStream() {
+    private var total = 0L
+
+    override fun read(): Int {
+        val value = delegate.read()
+        if (value >= 0 && ++total > maxBytes) {
+            throw NoteTooLargeException(fileName, maxBytes)
+        }
+        return value
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (len == 0) return 0
+        val maxRead = minOf(len.toLong(), maxBytes - total + 1).toInt()
+        val count = delegate.read(b, off, maxRead)
+        if (count > 0) {
+            total += count
+            if (total > maxBytes) throw NoteTooLargeException(fileName, maxBytes)
+        }
+        return count
+    }
+
+    override fun close() = delegate.close()
 }
 
 internal fun markdownBytes(text: String): ByteArray = text.toByteArray(Charsets.UTF_8).also {

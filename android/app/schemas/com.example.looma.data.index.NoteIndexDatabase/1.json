@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "fa2ebf9cf61ed643d18680082d0302fb",
+    "identityHash": "b37d82b2697fd9bbb7d00f5e132ef040",
     "entities": [
       {
         "tableName": "indexed_note",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`vaultId` TEXT NOT NULL, `path` TEXT NOT NULL, `title` TEXT NOT NULL, `excerpt` TEXT NOT NULL, `snippet` TEXT NOT NULL, `coverPath` TEXT, `modifiedAt` INTEGER NOT NULL, `sizeBytes` INTEGER NOT NULL, `indexedAt` INTEGER NOT NULL, PRIMARY KEY(`vaultId`, `path`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`vaultId` TEXT NOT NULL, `path` TEXT NOT NULL, `title` TEXT NOT NULL, `snippet` TEXT NOT NULL, `coverPath` TEXT, `modifiedAt` INTEGER NOT NULL, `sizeBytes` INTEGER NOT NULL, `indexedAt` INTEGER NOT NULL, PRIMARY KEY(`vaultId`, `path`))",
         "fields": [
           {
             "fieldPath": "vaultId",
@@ -23,12 +23,6 @@
           {
             "fieldPath": "title",
             "columnName": "title",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "excerpt",
-            "columnName": "excerpt",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -69,6 +63,52 @@
             "path"
           ]
         }
+      },
+      {
+        "tableName": "note_search_signature",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`vaultId` TEXT NOT NULL, `notePath` TEXT NOT NULL, `signature` BLOB NOT NULL, PRIMARY KEY(`vaultId`, `notePath`), FOREIGN KEY(`vaultId`, `notePath`) REFERENCES `indexed_note`(`vaultId`, `path`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "vaultId",
+            "columnName": "vaultId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notePath",
+            "columnName": "notePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "signature",
+            "columnName": "signature",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "vaultId",
+            "notePath"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "indexed_note",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "vaultId",
+              "notePath"
+            ],
+            "referencedColumns": [
+              "vaultId",
+              "path"
+            ]
+          }
+        ]
       },
       {
         "tableName": "note_tag",
@@ -246,7 +286,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'fa2ebf9cf61ed643d18680082d0302fb')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b37d82b2697fd9bbb7d00f5e132ef040')"
     ]
   }
 }
