@@ -175,6 +175,8 @@ class NoteBackTest {
         withContext(Dispatchers.Main) {
             assertFalse(viewModel.requiresSaveBeforeLeaving(viewModel.uiState.value))
             viewModel.onRouteStarted(noteId, routeVersion = 0)
+            assertFalse(viewModel.requiresSaveBeforeLeaving(viewModel.uiState.value))
+            viewModel.onRouteStarted(noteId, routeVersion = 0)
             assertTrue(viewModel.requiresSaveBeforeLeaving(viewModel.uiState.value))
             viewModel.requestLeave(clearFocus = {}, onAlreadySaved = { error("Refresh is pending") })
         }

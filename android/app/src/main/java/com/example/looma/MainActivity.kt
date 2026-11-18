@@ -15,6 +15,7 @@ import com.example.looma.navigation.LoomaNavGraph
 import com.example.looma.ui.theme.LoomaTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 class MainActivity : AppCompatActivity() {
     private val container get() = application as LoomaApp
@@ -31,7 +32,7 @@ class MainActivity : AppCompatActivity() {
             !launchGate.isReleased && launchGate.remainingMillis > 0
         }
         lifecycleScope.launch {
-            delay(launchGate.remainingMillis)
+            delay(launchGate.remainingMillis.milliseconds)
             launchGate.release()
         }
         enableEdgeToEdge()

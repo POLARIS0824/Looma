@@ -68,6 +68,7 @@ class NoteViewModel(
     private var titleCommit: Deferred<TitleCommitResult>? = null
     private var operationGeneration = 0
     private var loadJob: Job? = null
+    private var initialStartPending = true
     private var lastConflictCopy: ConflictCopy? = null
     private val scheduler = SaveScheduler(viewModelScope, onSave = { saveFromScheduler() })
 
@@ -150,7 +151,9 @@ class NoteViewModel(
     }
 
     fun onRouteStarted(id: NoteId, routeVersion: Long) {
-        if (loadJob?.isActive == true && id == currentId && routeVersion <= retargetVersion) return
+        val isInitialStart = initialStartPending
+        initialStartPending = false
+        if ((isInitialStart || loadJob?.isActive == true) && id == currentId && routeVersion <= retargetVersion) return
         enqueue {
             val retargeted = routeVersion > retargetVersion && currentId != id
             if (routeVersion > retargetVersion) {
@@ -347,6 +350,7 @@ class NoteViewModel(
     }
 
     fun reloadFromDisk() {
+        initialStartPending = false
         operationGeneration++
         scheduler.cancel()
         _uiState.update { it.copy(isLoading = true, leave = NoteLeave.Idle) }
@@ -377,6 +381,7 @@ class NoteViewModel(
     }
 
     fun onEnterBackground() {
+        initialStartPending = false
         scheduler.cancel()
         enqueue { generation ->
             val state = _uiState.value
