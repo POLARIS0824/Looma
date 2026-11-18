@@ -9,8 +9,6 @@ import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.model.removeMarkdownSuffix
 import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.search.SearchableNote
-import com.example.looma.domain.search.cappedForModel
-import com.example.looma.domain.search.semanticChunks
 import com.example.looma.embedding.EmbeddingGemma
 import java.io.IOException
 import java.util.PriorityQueue

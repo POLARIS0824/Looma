@@ -1,5 +1,6 @@
 package com.example.looma.domain.search
 
+import com.example.looma.data.index.SearchSignature
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

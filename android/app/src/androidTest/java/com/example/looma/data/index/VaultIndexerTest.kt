@@ -12,7 +12,6 @@ import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteWriteMode
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultId
-import com.example.looma.domain.search.SearchSignature
 import java.io.File
 import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred

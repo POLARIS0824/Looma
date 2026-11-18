@@ -5,7 +5,6 @@ import com.example.looma.data.note.MarkdownLink
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
-import com.example.looma.domain.search.SearchSignature
 import com.example.looma.domain.wiki.WikiContext
 import java.time.Instant
 import kotlinx.coroutines.sync.withLock

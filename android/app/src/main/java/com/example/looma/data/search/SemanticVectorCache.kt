@@ -4,7 +4,6 @@ import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.model.VaultId
 import com.example.looma.domain.search.PassageAnchor
-import com.example.looma.domain.search.SemanticChunk
 import com.example.looma.embedding.EmbeddingGemma
 import java.io.DataInputStream
 import java.io.DataOutputStream

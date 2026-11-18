@@ -5,6 +5,7 @@ import com.example.looma.data.index.IndexDelta
 import com.example.looma.data.index.IndexedNote
 import com.example.looma.data.index.NoteIndex
 import com.example.looma.data.index.NoteIndexUpdater
+import com.example.looma.data.index.SearchSignature
 import com.example.looma.data.index.fingerprint
 import com.example.looma.data.index.indexedNote
 import com.example.looma.data.index.toIndexedNote
@@ -26,7 +27,6 @@ import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultFolder
 import com.example.looma.domain.model.VaultId
 import com.example.looma.domain.search.NoteSearchMatch
-import com.example.looma.domain.search.SearchSignature
 import com.example.looma.domain.search.SearchableNote
 import com.example.looma.domain.search.searchNote
 import com.example.looma.domain.wiki.WikiContext

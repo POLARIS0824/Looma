@@ -1,6 +1,7 @@
-package com.example.looma.domain.search
+package com.example.looma.data.search
 
 import com.example.looma.domain.model.NoteRevision
+import com.example.looma.domain.search.PassageAnchor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

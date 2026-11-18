@@ -1,4 +1,4 @@
-package com.example.looma.domain.search
+package com.example.looma.data.search
 
 import com.example.looma.domain.markdown.WikiImageFlavour
 import com.example.looma.domain.markdown.frontmatterEnd
