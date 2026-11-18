@@ -131,6 +131,10 @@ class ImageReferenceTest {
             resolveCover(root, note, "pic.png"),
         )
         assertNull(resolveCover(root, note, "https://img.example.com/shot.png"))
+        assertEquals(
+            File(root, "notes/pic.png").canonicalPath,
+            resolveCover(root, note, listOf("https://img.example.com/shot.png", "pic.png")),
+        )
     }
     @Test
     fun `preserves remote encoding queries and fragments`() {

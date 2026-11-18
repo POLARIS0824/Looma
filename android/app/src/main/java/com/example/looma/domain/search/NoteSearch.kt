@@ -111,7 +111,7 @@ private fun bodyMatches(
         checkActive()
         return reader.readLine()
     }
-    val firstLine = nextLine() ?: return emptyList()
+    val firstLine = (nextLine() ?: return emptyList()).removePrefix("\uFEFF")
     val results = ArrayList<SearchMatch>(minOf(limit, DEFAULT_MAX_MATCHES))
     val seen = HashSet<String>(minOf(limit, DEFAULT_MAX_MATCHES) * 2)
 

@@ -23,10 +23,24 @@ class MarkdownParserLinksTest {
     }
 
     @Test
-    fun `first image reference still prefers a markdown image`() {
-        val metadata = parser.parse("![[cover.png]]\n\n![图](pics/photo.jpg)", "笔记")
+    fun `image references keep document order and skip code blocks`() {
+        val text = """
+            ```md
+            ![code](code.png)
+            ![[code-wiki.png]]
+            ```
 
-        assertEquals("pics/photo.jpg", metadata.firstImageReference)
+            `![inline](inline.png)`
+
+            ![[cover.png]]
+
+            ![图](pics/photo.jpg)
+        """.trimIndent()
+        val metadata = parser.parse(text, "笔记")
+
+        assertEquals("cover.png", metadata.firstImageReference)
+        assertEquals(listOf("cover.png", "pics/photo.jpg"), metadata.imageReferences)
+        assertEquals(listOf("cover.png", "pics/photo.jpg"), parser.parseForIndex(text, "笔记").imageReferences)
     }
 
     @Test

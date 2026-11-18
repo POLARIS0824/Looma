@@ -278,5 +278,14 @@ class NoteSearchTest {
         assertTrue(SearchSignature.mayContain(SearchSignature.fromBody(text), "needle"))
     }
 
+    @Test
+    fun `bom and yaml dot-end frontmatter stay out of string and reader search`() {
+        val text = "\uFEFF---\ntags: hidden-token\n...\nbody only"
+
+        assertNull(searchNote("Note", emptySet(), text, "hidden-token"))
+        assertNull(searchNote("Note", emptySet(), text.reader().buffered(), "hidden-token"))
+        assertEquals("body only", searchNote("Note", emptySet(), text.reader().buffered(), "body")!!.matches.single().text)
+    }
+
     private fun SearchMatch.highlightedText(): List<String> = ranges.map { text.substring(it) }
 }

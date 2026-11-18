@@ -62,4 +62,13 @@ class PreparedMarkdownTest {
         assertTrue('\u200B' in preview.state.content)
         assertEquals("https://example.com/docs", preview.state.referenceLinkHandler.find("[ref]"))
     }
+
+    @Test
+    fun `bom frontmatter strips metadata cleanly instead of rendering yaml as a heading`() {
+        val source = "\uFEFF---\ntitle: Meta\n---\n# Real Title\nBody"
+        val preview = prepareMarkdownOnCurrentThread(source, CancellationToken.NonCancellable) as PreparedMarkdown.Ready
+
+        assertEquals("Real Title", preview.index.heading)
+        assertEquals("# Real Title\nBody", preview.state.content)
+    }
 }

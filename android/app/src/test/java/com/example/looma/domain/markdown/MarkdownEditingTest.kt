@@ -301,4 +301,26 @@ class MarkdownEditingTest {
         val result = edit(MarkdownCommand.Quote, "", 0)
         assertEquals("> ", result.text)
     }
+
+    @Test
+    fun formatStateHandlesTildeFencesInlineTripleBackticksAndNestedFenceLengths() {
+        val tilde = "~~~\n**inside**\n~~~\n**outside**"
+        assertEquals(true, state(tilde, tilde.indexOf("inside")).inCodeBlock)
+        assertEquals(emptySet<MarkdownInlineStyle>(), state(tilde, tilde.indexOf("inside")).inline)
+        val afterTilde = state(tilde, tilde.indexOf("outside"))
+        assertEquals(false, afterTilde.inCodeBlock)
+        assertEquals(setOf(MarkdownInlineStyle.Bold), afterTilde.inline)
+
+        val inlineTriple = "```inline```\n**bold after**"
+        val afterInline = state(inlineTriple, inlineTriple.indexOf("bold after"))
+        assertEquals(false, afterInline.inCodeBlock)
+        assertEquals(setOf(MarkdownInlineStyle.Bold), afterInline.inline)
+
+        val nested = "````md\n```\n**still inside**\n````\n**outside**"
+        assertEquals(true, state(nested, nested.indexOf("still inside")).inCodeBlock)
+        assertEquals(false, state(nested, nested.indexOf("outside")).inCodeBlock)
+
+        val charSeq: CharSequence = StringBuilder("**buffer**")
+        assertEquals(setOf(MarkdownInlineStyle.Bold), MarkdownEditing.formatState(charSeq, TextSelection(3, 3)).inline)
+    }
 }

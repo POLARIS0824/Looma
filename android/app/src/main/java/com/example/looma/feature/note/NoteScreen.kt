@@ -255,7 +255,7 @@ private fun NoteWorkspace(
         derivedStateOf {
             val selection = contentBuffer.selection
             MarkdownEditing.formatState(
-                text = contentBuffer.text.toString(),
+                text = contentBuffer.text,
                 selection = TextSelection(selection.start, selection.end),
             )
         }

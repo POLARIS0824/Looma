@@ -1,6 +1,8 @@
 package com.example.looma.data.note
 
 import com.example.looma.domain.markdown.MarkdownIndex
+import com.example.looma.domain.markdown.filterOutFencedLines
+import com.example.looma.domain.markdown.frontmatterEnd
 
 data class MarkdownChecklistItem(
     val text: String,
@@ -19,38 +21,38 @@ data class MarkdownMetadata(
     val checklist: List<MarkdownChecklistItem>,
     val links: List<MarkdownLink>,
     val firstImageReference: String?,
+    val imageReferences: List<String> = emptyList(),
 )
-
-internal val TAG_PATTERN = Regex("""(?<![\p{L}\p{N}])#([\p{L}\p{N}_/-]+)""")
 
 internal class MarkdownParser {
     fun title(text: String, fallbackTitle: String): String = extractTitle(bodyLines(text), fallbackTitle)
 
-    fun tags(text: String): Set<String> = TAG_PATTERN.findAll(text).map { it.groupValues[1] }.toSet()
+    fun tags(text: String): Set<String> = MarkdownIndex.extractMetadata(text).tags
 
     fun parseForIndex(text: String, fallbackTitle: String): MarkdownMetadata {
+        val ast = MarkdownIndex.extractMetadata(text)
         val links = MarkdownIndex.index(text, fallbackTitle).links
             .map { MarkdownLink(target = it.target, embedded = it.embedded) }
-        val firstImageReference = MARKDOWN_IMAGE.find(text)?.groupValues?.get(1)
-            ?: WIKI_IMAGE.find(text)?.groupValues?.get(1)
         return MarkdownMetadata(
-            title = extractTitle(bodyLines(text), fallbackTitle),
+            title = extractTitle(bodyLines(text, ast.bodyStart), fallbackTitle),
             excerpt = "",
-            tags = tags(text),
+            tags = ast.tags,
             checklist = emptyList(),
             links = links,
-            firstImageReference = firstImageReference,
+            firstImageReference = ast.imageReferences.firstOrNull(),
+            imageReferences = ast.imageReferences,
         )
     }
 
     fun parse(text: String, fallbackTitle: String): MarkdownMetadata {
-        val body = bodyLines(text).toList()
-        val excerpt = body.asSequence()
+        val ast = MarkdownIndex.extractMetadata(text)
+        val body = bodyLines(text, ast.bodyStart).toList()
+        val nonFencedBody = filterOutFencedLines(body)
+        val excerpt = nonFencedBody.asSequence()
             .filterNot { it.matches(HEADING) || it.matches(CHECKLIST) }
             .filterNot {
-                it.trim().startsWith("```") ||
-                        it.trim().startsWith("![[") ||
-                        it.trim().startsWith("![")
+                it.trim().startsWith("![[") ||
+                    it.trim().startsWith("![")
             }
             .map { stripInlineMarkdown(it.trim().replace(LIST_MARKER, "")) }
             .filter { it.isNotBlank() }
@@ -58,7 +60,7 @@ internal class MarkdownParser {
             .joinToString("\n")
             .take(360)
 
-        val checklist = body.mapNotNull { line ->
+        val checklist = nonFencedBody.mapNotNull { line ->
             val match = CHECKLIST.matchEntire(line) ?: return@mapNotNull null
             MarkdownChecklistItem(
                 text = match.groupValues[2],
@@ -68,16 +70,15 @@ internal class MarkdownParser {
 
         val links = MarkdownIndex.index(text, fallbackTitle).links
             .map { MarkdownLink(target = it.target, embedded = it.embedded) }
-        val firstImageReference = MARKDOWN_IMAGE.find(text)?.groupValues?.get(1)
-            ?: WIKI_IMAGE.find(text)?.groupValues?.get(1)
 
         return MarkdownMetadata(
             title = extractTitle(body.asSequence(), fallbackTitle),
             excerpt = excerpt,
-            tags = tags(text),
+            tags = ast.tags,
             checklist = checklist,
             links = links,
-            firstImageReference = firstImageReference,
+            firstImageReference = ast.imageReferences.firstOrNull(),
+            imageReferences = ast.imageReferences,
         )
     }
 
@@ -89,12 +90,8 @@ internal class MarkdownParser {
         .replace(EMPHASIS, "")
         .replace(CODE_SPAN, "$1")
 
-    private fun bodyLines(text: String): Sequence<String> {
-        val lines = text.lineSequence()
-        if (lines.firstOrNull()?.trim() != "---") return lines
-        val end = lines.drop(1).indexOfFirst { it.trim() == "---" }
-        return if (end >= 0) lines.drop(end + 2) else lines
-    }
+    private fun bodyLines(text: String, bodyStart: Int = frontmatterEnd(text)): Sequence<String> =
+        text.substring(bodyStart).lineSequence()
 
     private fun extractTitle(lines: Sequence<String>, fallback: String): String =
         lines.firstOrNull { it.startsWith("# ") }

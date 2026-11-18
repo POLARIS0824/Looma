@@ -5,6 +5,7 @@ import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.ast.getTextInNode
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
+import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 import org.intellij.markdown.parser.CancellationToken
 import org.intellij.markdown.parser.MarkdownParser
 
@@ -12,6 +13,12 @@ internal data class MarkdownReadingIndex(
     val bodyStart: Int,
     val heading: String?,
     val checkboxes: List<MarkdownCheckbox>,
+)
+
+internal data class MarkdownAstMetadata(
+    val bodyStart: Int,
+    val tags: Set<String>,
+    val imageReferences: List<String>,
 )
 
 object MarkdownIndex {
@@ -40,6 +47,101 @@ object MarkdownIndex {
         val facts = Facts(code = null)
         walk(tree, body, bodyStart, facts)
         return MarkdownReadingIndex(bodyStart, facts.heading?.takeIf { it.isNotBlank() }, facts.checkboxes)
+    }
+
+    internal fun extractMetadata(source: String): MarkdownAstMetadata {
+        val span = frontmatterSpan(source)
+        val body = source.substring(span.bodyStart)
+        val tree = MarkdownParser(WikiImageFlavour(), cancellationToken = CancellationToken.NonCancellable)
+            .buildMarkdownTreeFromString(body as CharSequence)
+        val codeRanges = mutableListOf<IntRange>()
+        val excludedRanges = mutableListOf<IntRange>()
+        val imageReferences = mutableListOf<String>()
+        collectBodyFacts(tree, body, codeRanges, excludedRanges, imageReferences)
+        for (link in WikiLinks.occurrences(body, 0, codeRanges)) {
+            excludedRanges += link.range
+        }
+        for (math in collectMathSpans(body, tree)) {
+            excludedRanges += math.range
+        }
+        excludedRanges.sortBy { it.first }
+        val fmTags = span.contentRange?.let { range ->
+            parseFrontmatterTags(source.subSequence(range.first, range.last + 1))
+        }.orEmpty()
+        val inlineTags = findInlineTags(body, excludedRanges).map { it.tag }
+        return MarkdownAstMetadata(
+            bodyStart = span.bodyStart,
+            tags = fmTags + inlineTags,
+            imageReferences = imageReferences,
+        )
+    }
+
+    internal fun excludedTagRanges(body: String): List<IntRange> {
+        val tree = MarkdownParser(WikiImageFlavour(), cancellationToken = CancellationToken.NonCancellable)
+            .buildMarkdownTreeFromString(body as CharSequence)
+        val codeRanges = mutableListOf<IntRange>()
+        val excludedRanges = mutableListOf<IntRange>()
+        collectBodyFacts(tree, body, codeRanges, excludedRanges, imageReferences = null)
+        for (link in WikiLinks.occurrences(body, 0, codeRanges)) {
+            excludedRanges += link.range
+        }
+        for (math in collectMathSpans(body, tree)) {
+            excludedRanges += math.range
+        }
+        excludedRanges.sortBy { it.first }
+        return excludedRanges
+    }
+
+    private fun collectBodyFacts(
+        node: ASTNode,
+        body: String,
+        codeRanges: MutableList<IntRange>,
+        excludedRanges: MutableList<IntRange>,
+        imageReferences: MutableList<String>?,
+    ) {
+        when (node.type) {
+            MarkdownElementTypes.CODE_FENCE,
+            MarkdownElementTypes.CODE_BLOCK,
+            MarkdownElementTypes.CODE_SPAN,
+            -> {
+                val range = node.startOffset until node.endOffset
+                codeRanges += range
+                excludedRanges += range
+                return
+            }
+
+            MarkdownElementTypes.IMAGE -> {
+                excludedRanges += node.startOffset until node.endOffset
+                if (imageReferences != null) {
+                    firstLinkDestination(node, body)?.takeIf { it.isNotEmpty() }?.let(imageReferences::add)
+                }
+                return
+            }
+
+            MarkdownElementTypes.INLINE_LINK,
+            MarkdownElementTypes.FULL_REFERENCE_LINK,
+            MarkdownElementTypes.SHORT_REFERENCE_LINK,
+            MarkdownElementTypes.LINK_DEFINITION,
+            MarkdownElementTypes.AUTOLINK,
+            GFMTokenTypes.GFM_AUTOLINK,
+            MarkdownElementTypes.HTML_BLOCK,
+            MarkdownTokenTypes.HTML_TAG,
+            -> {
+                excludedRanges += node.startOffset until node.endOffset
+                return
+            }
+        }
+        node.children.forEach { collectBodyFacts(it, body, codeRanges, excludedRanges, imageReferences) }
+    }
+
+    private fun firstLinkDestination(node: ASTNode, body: String): String? {
+        if (node.type == MarkdownElementTypes.LINK_DESTINATION) {
+            return node.getTextInNode(body).toString().trim()
+        }
+        for (child in node.children) {
+            firstLinkDestination(child, body)?.let { return it }
+        }
+        return null
     }
 
     private fun walk(node: ASTNode, text: String, base: Int, facts: Facts) {

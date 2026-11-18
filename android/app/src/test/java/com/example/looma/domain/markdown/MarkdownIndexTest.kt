@@ -126,4 +126,18 @@ class MarkdownIndexTest {
         assertEquals("另一篇笔记", source.substring(span.targetRange.first, span.targetRange.last + 1))
         assertEquals("别名", span.alias)
     }
+
+    @Test
+    fun `bom before frontmatter or heading keeps source offsets aligned`() {
+        val withFm = "\uFEFF---\ntitle: Meta\n...\n# Heading\n- [ ] Task"
+        val docFm = MarkdownIndex.index(withFm, "Fallback")
+        assertEquals("Heading", docFm.heading)
+        assertEquals("[ ]", withFm.substring(docFm.checkboxes.single().range.first, docFm.checkboxes.single().range.last + 1))
+        assertEquals("\uFEFF---\ntitle: Meta\n...\n# Heading\n- [x] Task", docFm.withCheckboxChecked(docFm.checkboxes.single().range.first, true))
+
+        val noFm = "\uFEFF# Heading\n- [ ] Task"
+        val docNoFm = MarkdownIndex.index(noFm, "Fallback")
+        assertEquals("Heading", docNoFm.heading)
+        assertEquals("[ ]", noFm.substring(docNoFm.checkboxes.single().range.first, docNoFm.checkboxes.single().range.last + 1))
+    }
 }

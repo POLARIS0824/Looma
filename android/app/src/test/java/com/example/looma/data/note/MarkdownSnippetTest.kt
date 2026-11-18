@@ -62,4 +62,34 @@ class MarkdownSnippetTest {
     fun `blank body stays blank`() {
         assertEquals("", markdownSnippetOf("", "空"))
     }
+
+    @Test
+    fun `closing frontmatter at eof without newline does not crash`() {
+        val source = "\uFEFF---\ntags: [a]\n---"
+        assertEquals("", markdownSnippetOf(source, "Title"))
+    }
+
+    @Test
+    fun `thematic breaks and hashes in code or links stay intact`() {
+        val thematic = "-----\nParagraph\n---\nEnd"
+        assertEquals(thematic, markdownSnippetOf(thematic, "Title"))
+
+        val codeAndLinks = """
+            ```c
+            #include <stdio.h>
+            #pragma once
+            ```
+
+            See [sec](#anchor) and [[Note (1)#sec]] #work
+        """.trimIndent()
+        val expected = """
+            ```c
+            #include <stdio.h>
+            #pragma once
+            ```
+
+            See [sec](#anchor) and [[Note (1)#sec]]
+        """.trimIndent()
+        assertEquals(expected, markdownSnippetOf(codeAndLinks, "Title"))
+    }
 }

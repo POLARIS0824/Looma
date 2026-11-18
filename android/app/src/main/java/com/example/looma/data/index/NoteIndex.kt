@@ -70,7 +70,7 @@ internal fun indexedNote(
         id = NoteId(vaultId, NotePath(file.relativeTo(root).invariantSeparatorsPath)),
         title = metadata.title,
         snippet = markdownSnippetOf(text, metadata.title),
-        coverPath = resolveCover(root, file, metadata.firstImageReference),
+        coverPath = resolveCover(root, file, metadata.imageReferences),
         modifiedAt = Instant.ofEpochMilli(fingerprint.modifiedAtMillis),
         fingerprint = fingerprint,
         tags = metadata.tags.toList(),
