@@ -250,7 +250,7 @@ internal class VaultFileOps(root: File) {
     fun moveDestination(note: File, target: FolderPath): File {
         val directory = folderDirectory(target)
         if (directory.exists() && !directory.isDirectory) throw VaultFileException(VaultFileFailure.INVALID_PATH)
-        if (directory == note.parentFile) return note
+        if (directory.path == note.parentFile?.path) return note
         return uniqueIn(directory, note.name)
     }
 

@@ -1,8 +1,9 @@
 package com.example.looma.data.note
 
-import com.example.looma.data.index.FileFingerprint
-import com.example.looma.data.index.IndexedNote
+import com.example.looma.data.image.resolveAttachmentDirectory
+import com.example.looma.data.image.resolveAttachmentReference
 import com.example.looma.data.index.fingerprint
+import com.example.looma.domain.markdown.ImageSource
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
@@ -13,8 +14,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.attribute.FileTime
 import java.security.MessageDigest
-import java.time.Instant
 import java.util.Properties
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -24,6 +25,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeNoException
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -485,47 +487,240 @@ class VaultRelocationTest {
     }
 
     @Test
-    fun `fingerprint-guided relocation skips matching linkless notes while updating stale and hijacked notes`() {
-        val oldFile = note("old.md", "original")
-        val skippedFile = note("skipped.md", "[[old]]")
-        val staleFile = note("stale.md", "[[old]]")
-        note("late.md", "[[old]]")
-        val indexed = listOf(
-            indexedEntry("old.md", oldFile.fingerprint(), emptyList()),
-            indexedEntry("skipped.md", skippedFile.fingerprint(), emptyList()),
-            indexedEntry("stale.md", FileFingerprint(999L, 1L), emptyList()),
-        )
+    fun `rename rewrites a referrer whose external edit kept its size and timestamp`() {
+        note("old.md", "original")
+        val referrer = note("ref.md", "plain!!")
+        val before = referrer.fingerprint()
+        referrer.writeText("[[old]]")
+        Files.setLastModifiedTime(referrer.toPath(), FileTime.fromMillis(before.modifiedAtMillis))
+        assertEquals(before, referrer.fingerprint())
 
-        val result = VaultRelocation(vault, indexed).renameNote(id("old.md"), "new")
+        val result = relocation.renameNote(id("old.md"), "new")
 
-        assertEquals("[[old]]", file("skipped.md").readText())
-        assertEquals("[[new]]", file("stale.md").readText())
-        assertEquals("[[new]]", file("late.md").readText())
-        assertEquals(2, result.linksUpdated)
-
-        setUp()
-        val aTopic = note("a/topic.md", "A")
-        val bDraft = note("b/draft.md", "B")
-        val bRef = note("b/ref.md", "[[topic]]")
-        val hijackIndexed = listOf(
-            indexedEntry("a/topic.md", aTopic.fingerprint(), emptyList()),
-            indexedEntry("b/draft.md", bDraft.fingerprint(), emptyList()),
-            indexedEntry("b/ref.md", bRef.fingerprint(), listOf(MarkdownLink("topic", embedded = false))),
-        )
-        VaultRelocation(vault, hijackIndexed).renameNote(id("b/draft.md"), "topic")
-        assertEquals("[[a/topic]]", file("b/ref.md").readText())
+        assertEquals("[[new]]", referrer.readText())
+        assertEquals(1, result.linksUpdated)
     }
 
-    private fun indexedEntry(path: String, fingerprint: FileFingerprint, links: List<MarkdownLink>) = IndexedNote(
-        id = id(path),
-        title = path,
-        snippet = "",
-        coverPath = null,
-        modifiedAt = Instant.EPOCH,
-        fingerprint = fingerprint,
-        tags = emptyList(),
-        links = links,
-    )
+    @Test
+    fun `rename preserves a referrer when the new name would shadow its target`() {
+        note("a/topic.md", "A")
+        note("b/draft.md", "B")
+        val referrer = note("b/ref.md", "[[topic]]")
+
+        val result = relocation.renameNote(id("b/draft.md"), "topic")
+
+        assertEquals(1, result.linksUpdated)
+        assertEquals("[[a/topic]]", referrer.readText())
+    }
+
+    @Test
+    fun `abandon preserves an interrupted case-only note rename and its external replacement`() {
+        note("Original.md", "original bytes")
+        failAfter("move")
+        val error = assertThrows(RelocationStalledException::class.java) {
+            relocation.renameNote(id("Original.md"), "original")
+        }
+        val journalId = error.stalled.journalId
+        val replacement = note("original.md", "external bytes")
+        val recovery = VaultRelocation(vault)
+        assertEquals(journalId, recovery.recoverPending().stalled?.journalId)
+
+        recovery.abandon(journalId)
+
+        assertEquals("external bytes", replacement.readText())
+        assertEquals("original bytes", file(".looma/abandoned-operations/$journalId/recovered/Original.md").readText())
+        assertFalse(file(".looma-case-$journalId").exists())
+        assertNull(recovery.recoverPending().stalled)
+    }
+
+    @Test
+    fun `abandon preserves an interrupted case-only folder rename including its attachments`() {
+        note("parent/Docs/note.md", "original note")
+        note("parent/Docs/assets/image.png", "attachment bytes")
+        failAfter("move")
+        val error = assertThrows(RelocationStalledException::class.java) {
+            relocation.renameFolder(FolderPath("parent/Docs"), "docs")
+        }
+        val journalId = error.stalled.journalId
+        val replacement = note("parent/docs/note.md", "external note")
+        val recovery = VaultRelocation(vault)
+        assertEquals(journalId, recovery.recoverPending().stalled?.journalId)
+
+        recovery.abandon(journalId)
+
+        val archive = file(".looma/abandoned-operations/$journalId/recovered/Docs")
+        assertEquals("original note", archive.resolve("note.md").readText())
+        assertEquals("attachment bytes", archive.resolve("assets/image.png").readText())
+        assertEquals("external note", replacement.readText())
+        assertFalse(file("parent/.looma-case-$journalId").exists())
+        assertNull(recovery.recoverPending().stalled)
+    }
+
+    @Test
+    fun `abandon can resume after the original was moved into the journal`() {
+        note("Original.md", "same bytes")
+        failAfter("move")
+        val error = assertThrows(RelocationStalledException::class.java) {
+            relocation.renameNote(id("Original.md"), "original")
+        }
+        val journalId = error.stalled.journalId
+        val replacement = note("original.md", "same bytes")
+        assertEquals(journalId, VaultRelocation(vault).recoverPending().stalled?.journalId)
+
+        failAfter("archive-case-hop")
+        assertThrows(IOException::class.java) { relocation.abandon(journalId) }
+        val recovery = VaultRelocation(vault)
+        assertEquals(journalId, recovery.recoverPending().stalled?.journalId)
+
+        recovery.abandon(journalId)
+
+        assertEquals("same bytes", file(".looma/abandoned-operations/$journalId/recovered/Original.md").readText())
+        assertEquals("same bytes", replacement.readText())
+        assertNull(recovery.recoverPending().stalled)
+    }
+
+    @Test
+    fun `abandon restores case hop to original path when neither source nor destination exists`() {
+        note("Z/topic.md", "Z")
+        note("b/topic.md", "B")
+        val referrer = note("c/ref.md", "[[topic]]")
+        failAfter("move")
+        val error = assertThrows(RelocationStalledException::class.java) {
+            relocation.renameFolder(FolderPath("Z"), "z")
+        }
+        val journalId = error.stalled.journalId
+        referrer.writeText("edited externally")
+        val recovery = VaultRelocation(vault)
+        assertEquals(journalId, recovery.recoverPending().stalled?.journalId)
+
+        recovery.abandon(journalId)
+
+        assertEquals("Z", file("Z/topic.md").readText())
+        assertFalse(file(".looma-case-$journalId").exists())
+        assertFalse(file(".looma/abandoned-operations/$journalId/recovered").exists())
+        assertNull(recovery.recoverPending().stalled)
+    }
+
+    @Test
+    fun `abandon tolerates a corrupted out-of-vault case-only journal manifest`() {
+        val journalId = "op-00000000-0000-0000-0000-000000000099"
+        val journal = file(".looma/operations/$journalId").apply { mkdirs() }
+        val manifest = Properties().apply {
+            setProperty("version", "1")
+            setProperty("moves", "1")
+            setProperty("move.0.source", "../outside.md")
+            setProperty("move.0.destination", "../OUTSIDE.MD")
+            setProperty("move.0.members", "1")
+            setProperty("move.0.0.path", "")
+            setProperty("move.0.0.hash", "a".repeat(64))
+            setProperty("writes", "0")
+            setProperty("directories", "0")
+            setProperty("linksUpdated", "0")
+            setProperty("linksFailed", "0")
+        }
+        journal.resolve("intent.properties").writeBytes(store(manifest))
+        val recovery = VaultRelocation(vault)
+        assertEquals(journalId, recovery.recoverPending().stalled?.journalId)
+
+        recovery.abandon(journalId)
+
+        assertTrue(file(".looma/abandoned-operations/$journalId/intent.properties").isFile)
+        assertNull(recovery.recoverPending().stalled)
+    }
+
+    @Test
+    fun `moving a note keeps its inserted relative attachment`() {
+        assertMovedAttachment(shadow = false)
+    }
+
+    @Test
+    fun `moving a note keeps its inserted relative attachment when the destination has a shadow`() {
+        assertMovedAttachment(shadow = true)
+    }
+
+    private fun assertMovedAttachment(shadow: Boolean) {
+        val from = if (shadow) "i" else "a"
+        val to = if (shadow) "\u0130" else "b"
+        note(".obsidian/app.json", """{"attachmentFolderPath":"./assets","newLinkFormat":"relative"}""")
+        val original = note("$from/N.md", "")
+        val imageName = "photo]#q[[topic.png"
+        val attachment = resolveAttachmentDirectory(root, NotePath("$from/N.md")).resolve(imageName)
+        attachment.parentFile?.mkdirs()
+        attachment.writeBytes(byteArrayOf(1, 2, 3))
+        val reference = resolveAttachmentReference(root, NotePath("$from/N.md"), attachment)
+        val escapedEmbed = "\\![[$reference]]"
+        val evenPrefix = "\\\\"
+        val comment = "<!-- ![[$reference]] -->"
+        val legacyReference = reference.replace("%5D", "]").replace("%5B", "[")
+        val punctuationImage = note("$from/assets/other!.png", "escaped destination")
+        original.writeText("![[$reference|320]]\n\n$escapedEmbed\n\n$evenPrefix![[$legacyReference]]\n\n![[assets/other\\!.png]]\n\n$comment\n\n`![[$reference]]`")
+        if (shadow) {
+            file(to).mkdir()
+            assumeTrue(file(from).canonicalPath != file(to).canonicalPath)
+            note("$to/assets/$imageName", "external image")
+        }
+        note("$from/topic.png.md", "original note")
+        note("$to/topic.png.md", "other note")
+        assertEquals(attachment.canonicalPath, (resolveImageSource(root.path, original.path, reference) as ImageSource.Local).path)
+
+        val moved = relocation.moveNote(id("$from/N.md"), FolderPath(to))
+        assertEquals(NotePath("$to/N.md"), moved.path)
+        val body = file(moved.path.relativePath).readText()
+        val target = body.lineSequence().first().removePrefix("![[").removeSuffix("]]")
+
+        assertEquals(attachment.canonicalPath, (resolveImageSource(root.path, file(moved.path.relativePath).path, target) as? ImageSource.Local)?.path)
+        assertTrue(body.endsWith("`![[$reference]]`"))
+        assertTrue(escapedEmbed in body.lines())
+        assertTrue(comment in body.lines())
+        val evenTarget = body.lines().single { it.startsWith(evenPrefix) }
+            .removePrefix("$evenPrefix![[").removeSuffix("]]")
+        assertEquals(attachment.canonicalPath, (resolveImageSource(root.path, file(moved.path.relativePath).path, evenTarget) as? ImageSource.Local)?.path)
+        val punctuationTarget = body.lines().single { "other" in it }.removePrefix("![[").removeSuffix("]]")
+        assertEquals(punctuationImage.canonicalPath,
+            (resolveImageSource(root.path, file(moved.path.relativePath).path, punctuationTarget) as? ImageSource.Local)?.path)
+        assertTrue(target.endsWith("|320"))
+        assertEquals(3, moved.linksUpdated)
+        assertEquals(0, moved.linksFailed)
+        assertArrayEquals(byteArrayOf(1, 2, 3), attachment.readBytes())
+    }
+
+    @Test
+    fun `case-fold-equivalent distinct parents use a regular move`() {
+        note("i/N.md", "original")
+        file("\u0130").mkdir()
+        assumeTrue(file("i").canonicalPath != file("\u0130").canonicalPath)
+        failAfter("move")
+        assertThrows(RelocationStalledException::class.java) {
+            relocation.moveNoteToOriginalPath(id("i/N.md"), NotePath("\u0130/N.md"))
+        }
+
+        assertEquals("original", file("\u0130/N.md").takeIf(File::isFile)?.readText())
+        assertNull(VaultRelocation(vault).recoverPending().stalled)
+    }
+
+    @Test
+    fun `abandon archives a legacy case hop across distinct parents`() {
+        val original = note("i/N.md", "original")
+        file("\u0130").mkdir()
+        assumeTrue(file("i").canonicalPath != file("\u0130").canonicalPath)
+        failAfter("intent")
+        val error = assertThrows(RelocationStalledException::class.java) {
+            relocation.moveNoteToOriginalPath(id("i/N.md"), NotePath("\u0130/N.md"))
+        }
+        val journalId = error.stalled.journalId
+        val hop = file("i/.looma-case-$journalId")
+        Files.move(original.toPath(), hop.toPath())
+        val rival = note("\u0130/N.md", "external")
+        val recovery = VaultRelocation(vault)
+        assertEquals(journalId, recovery.recoverPending().stalled?.journalId)
+
+        recovery.abandon(journalId)
+
+        assertEquals("external", rival.readText())
+        assertEquals("original", file(".looma/abandoned-operations/$journalId/recovered/N.md").takeIf(File::isFile)?.readText())
+        assertFalse(hop.exists())
+        assertNull(recovery.recoverPending().stalled)
+    }
 
     private fun seedRecoverableMove() {
         note("old.md", "[[old]] own")

@@ -230,14 +230,14 @@ internal class NoteFileStore(
         try {
             val mirroredNote = File(File(root, CONFLICT_DIRECTORY), path.relativePath)
             val directory = checkNotNull(mirroredNote.parentFile)
-            if (directory.canonicalFile != directory) throw VaultFileException(VaultFileFailure.INVALID_PATH)
+            if (!isSafeConflictDirectory(root, directory)) throw VaultFileException(VaultFileFailure.INVALID_PATH)
             ensureDirectory(directory)
             val timestamp = LocalDateTime.now().format(CONFLICT_TIMESTAMP)
             val file = generateSequence(1) { it + 1 }
                 .map { copy -> File(directory, conflictBackupName(mirroredNote.nameWithoutExtension, timestamp, copy)) }
                 .first { !Files.exists(it.toPath(), NOFOLLOW_LINKS) }
             writeBytesAtomically(file, bytes) {
-                if (directory.canonicalFile != directory || Files.exists(file.toPath(), NOFOLLOW_LINKS)) {
+                if (!isSafeConflictDirectory(root, directory) || Files.exists(file.toPath(), NOFOLLOW_LINKS)) {
                     throw VaultFileException(VaultFileFailure.ALREADY_EXISTS)
                 }
             }
@@ -248,7 +248,11 @@ internal class NoteFileStore(
     }
 
     private fun createConflictFile(folder: File, noteName: String, bytes: ByteArray, avoid: File? = null): File {
-        if (folder.canonicalFile != folder) throw VaultFileException(VaultFileFailure.INVALID_PATH)
+        if (Files.isSymbolicLink(folder.toPath()) ||
+            !folder.canonicalFile.path.equals(folder.absoluteFile.path, ignoreCase = true)
+        ) {
+            throw VaultFileException(VaultFileFailure.INVALID_PATH)
+        }
         ensureDirectory(folder)
         val timestamp = LocalDateTime.now().format(CONFLICT_TIMESTAMP)
         for (copy in generateSequence(1) { it + 1 }) {
@@ -328,6 +332,11 @@ internal class NoteFileStore(
     private fun ensureDirectory(directory: File) {
         if (!directory.isDirectory && !directory.mkdirs()) throw VaultFileException(VaultFileFailure.IO)
     }
+
+    private fun isSafeConflictDirectory(root: File, directory: File): Boolean =
+        !Files.isSymbolicLink(directory.toPath()) &&
+            directory.canonicalFile.path.equals(directory.absoluteFile.path, ignoreCase = true) &&
+            directory.canonicalFile.toPath().startsWith(root.toPath())
 
     private companion object {
         const val UNTITLED_FALLBACK = "Untitled"

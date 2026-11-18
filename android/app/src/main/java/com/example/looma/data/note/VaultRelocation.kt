@@ -1,8 +1,8 @@
 package com.example.looma.data.note
 
 import com.example.looma.data.index.FileFingerprint
-import com.example.looma.data.index.IndexedNote
 import com.example.looma.data.index.fingerprint
+import com.example.looma.domain.markdown.ImageSource
 import com.example.looma.domain.markdown.MarkdownIndex
 import com.example.looma.domain.markdown.WikiLinks
 import com.example.looma.domain.model.FolderPath
@@ -26,6 +26,7 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.Properties
 import java.util.UUID
+import org.intellij.markdown.html.entities.EntityConverter
 
 internal data class RelocationChanges(
     val removedNotes: List<NotePath> = emptyList(),
@@ -49,10 +50,7 @@ internal data class RelocationResult<P>(
     val changes: RelocationChanges,
 )
 
-internal class VaultRelocation(
-    private val vault: Vault,
-    private val indexedNotes: List<IndexedNote> = emptyList(),
-) {
+internal class VaultRelocation(private val vault: Vault) {
     private val ops = VaultFileOps(File(vault.rootPath))
     private val root = ops.rootDir
 
@@ -87,9 +85,72 @@ internal class VaultRelocation(
         createDirectories(abandoned)
         val target = File(abandoned, journalId)
         if (exists(target)) conflict(target)
+        archiveCaseHop(journal)
         Files.move(journal.toPath(), target.toPath(), ATOMIC_MOVE)
         journal.parentFile?.let(::syncDirectory)
         syncDirectory(abandoned)
+    }
+
+    private fun archiveCaseHop(journal: File) {
+        val journalId = journal.name
+        val paths = try {
+            val plan = decode(readBytes(File(journal, "intent.properties"), MAX_MANIFEST_BYTES))
+            val move = plan.moves.singleOrNull()?.takeIf(::isCaseFoldEquivalent) ?: return
+            if (move.members.firstOrNull()?.hash == null) {
+                validateVisiblePath(move.source)
+            } else {
+                validateNotePath(move.source)
+            }
+            val components = move.source.split('/')
+            val destComponents = move.destination.split('/')
+            if (components.size > MAX_DEPTH ||
+                components.any { it.isBlank() || it == "." || it == ".." } ||
+                move.source.any { it == '\\' || it == ':' || it.isISOControl() } ||
+                destComponents.size != components.size
+            ) {
+                return
+            }
+            val destName = destComponents.last()
+            if (destName.isBlank() ||
+                destName == "." ||
+                destName == ".." ||
+                move.destination.any { it == '\\' || it == ':' || it.isISOControl() }
+            ) {
+                return
+            }
+            val parent = safeFile(components.dropLast(1).joinToString("/"), allowRoot = true)
+            val source = File(parent, components.last())
+            val destination = if (sharesParent(move)) File(parent, destName) else null
+            val hop = safeFile(relative(caseHopFile(source, journalId)))
+            val recovered = File(journal, RECOVERED)
+            val original = safeFile(relative(File(recovered, source.name)))
+            CaseHopPaths(parent, source, destination, hop, recovered, original)
+        } catch (_: IOException) {
+            return
+        } catch (_: IllegalArgumentException) {
+            return
+        }
+        if (exactExists(paths.hop)) {
+            val canRestoreSource = paths.destination != null &&
+                !exists(paths.source) &&
+                !exists(paths.destination) &&
+                !Files.isSymbolicLink(paths.source.toPath()) &&
+                !Files.isSymbolicLink(paths.destination.toPath())
+            if (canRestoreSource) {
+                Files.move(paths.hop.toPath(), paths.source.toPath(), ATOMIC_MOVE)
+                paths.parent.takeIf { Files.isDirectory(it.toPath(), NOFOLLOW_LINKS) }?.let(::syncDirectory)
+                afterIo("archive-case-hop")
+            } else {
+                createDirectories(paths.recovered)
+                if (exists(paths.original)) conflict(paths.original)
+                Files.move(paths.hop.toPath(), paths.original.toPath(), ATOMIC_MOVE)
+            }
+        }
+        if (exists(paths.recovered)) {
+            syncDirectory(safeFile(relative(paths.recovered)))
+            paths.parent.takeIf { Files.isDirectory(it.toPath(), NOFOLLOW_LINKS) }?.let(::syncDirectory)
+            afterIo("archive-case-hop")
+        }
     }
 
     fun renameNote(id: NoteId, name: String): RelocationResult<NotePath> {
@@ -148,8 +209,10 @@ internal class VaultRelocation(
 
     private fun recoverJournal(journal: File): RelocationChanges {
         safeFile(relative(journal))
+        val recovered = File(journal, RECOVERED)
+        if (exists(recovered)) conflict(recovered)
         val manifest = readBytes(File(journal, "intent.properties"), MAX_MANIFEST_BYTES)
-        val plan = decode(manifest)
+        val plan = decode(manifest).also(::validate)
         val completed = File(journal, "completed")
         if (exists(completed)) {
             if (!readBytes(completed, 64).contentEquals(hash(manifest).toByteArray())) conflict(completed)
@@ -162,7 +225,7 @@ internal class VaultRelocation(
 
     private fun stalledOf(journal: File): StalledRelocation {
         val namespace = try {
-            decode(readBytes(File(journal, "intent.properties"), MAX_MANIFEST_BYTES)).moves.first()
+            decode(readBytes(File(journal, "intent.properties"), MAX_MANIFEST_BYTES)).also(::validate).moves.first()
         } catch (_: IOException) {
             null
         } catch (_: IllegalArgumentException) {
@@ -211,35 +274,33 @@ internal class VaultRelocation(
         if (from == to) return RelocationResult(pathOf(to), linksUpdated = 0, linksFailed = 0, changes = recovered)
         val scannedNotes = scanNotes()
         val notePaths = scannedNotes.map { it.path }
+        val movesFolder = source.isDirectory
         val paths = notePaths.associateWith { path ->
             when {
                 path == from -> to
-                source.isDirectory && path.startsWith("$from/") -> to + path.removePrefix(from)
+                movesFolder && path.startsWith("$from/") -> to + path.removePrefix(from)
                 else -> path
             }
         }
         val before = graph(notePaths)
         val after = graph(paths.values.toList())
-        val indexedByPath = indexedNotes.associateBy { it.id.path.relativePath }
         val rewrites = mutableListOf<Rewrite>()
         val guards = mutableListOf<Guard>()
         var linksUpdated = 0
         var linksFailed = 0
-        for (scanned in scannedNotes) {
-            val path = scanned.path
+        val changesNoteParent = !movesFolder &&
+            from.substringBeforeLast('/', "") != to.substringBeforeLast('/', "")
+        for (path in notePaths) {
             val newPath = paths.getValue(path)
-            val cached = indexedByPath[path]?.takeIf { it.fingerprint == scanned.fingerprint }
-            if (cached != null && !mayNeedRelink(cached.links, path, newPath, paths, before, after)) {
-                continue
-            }
-            val bytes = readReferrer(path) ?: continue
-            val content = text(bytes)
+            val referrer = readReferrer(path) ?: continue
+            val content = referrer.content
             if ("[[" !in content) continue
-            val relinked = relink(content, path, newPath, paths, before, after)
+            val movedNote = changesNoteParent && path == from
+            val relinked = relink(content, path, newPath, paths, before, after, movedNote)
             linksFailed += relinked.failed
             val rewrittenContent = relinked.content ?: continue
-            rewrites += Rewrite(newPath, bytes, markdownBytes(rewrittenContent))
-            guards += Guard(path, hash(bytes))
+            rewrites += Rewrite(newPath, referrer.bytes, markdownBytes(rewrittenContent))
+            guards += Guard(path, hash(referrer.bytes))
             linksUpdated += relinked.updated
         }
         val moves = mutableListOf(Move(from, to, inventory(source)))
@@ -272,44 +333,53 @@ internal class VaultRelocation(
         paths: Map<String, String>,
         before: WikiGraph,
         after: WikiGraph,
+        movedNote: Boolean,
     ): Relinked {
         val bom = if (content.startsWith('\uFEFF')) "\uFEFF" else ""
         val body = content.removePrefix(bom)
-        val spans = MarkdownIndex.index(body, oldPath).links
+        val wikiLinks = MarkdownIndex.index(body, oldPath).links
+        val images = if (movedNote && "![[" in body) MarkdownIndex.wikiImageLinks(body) else emptyList()
+        val imageOffsets = images.mapTo(hashSetOf()) { it.range.first }
+        var imageIndex = 0
+        val spans = wikiLinks.filter { link ->
+            while (imageIndex < images.size && images[imageIndex].range.last < link.range.first) imageIndex++
+            imageIndex == images.size || images[imageIndex].range.first > link.range.last
+        } + images
         var updated = 0
         var failed = 0
-        val rewritten = WikiLinks.retarget(body, spans) { target ->
-            val original = before.resolve(target, NotePath(oldPath)) ?: return@retarget null
+        val rewritten = WikiLinks.retargetSpans(body, spans) { span ->
+            val target = span.target
+            if (span.range.first in imageOffsets) {
+                val imageTarget = EntityConverter.replaceEntities(target, processEntities = false, processEscapes = true)
+                val originalImage = resolveImageSource(root.path, File(root, oldPath).path, imageTarget) as? ImageSource.Local
+                if (originalImage != null) {
+                    val newNote = File(root, newPath)
+                    val current = resolveImageSource(root.path, newNote.path, imageTarget) as? ImageSource.Local
+                    if (current?.path == originalImage.path) return@retargetSpans null
+                    val parent = (newNote.parentFile ?: root).toPath()
+                    val path = parent.relativize(File(originalImage.path).toPath()).toString().replace(File.separatorChar, '/')
+                    val replacement = encodeWikiImagePath(if (path.startsWith("../")) path else "./$path")
+                    val resolved = resolveImageSource(root.path, newNote.path, replacement) as? ImageSource.Local
+                    if (resolved?.path != originalImage.path) {
+                        failed++
+                        return@retargetSpans null
+                    }
+                    updated++
+                    return@retargetSpans replacement
+                }
+            }
+            val original = before.resolve(target, NotePath(oldPath)) ?: return@retargetSpans null
             val intended = NoteId(vault.id, NotePath(paths.getValue(original.path.relativePath)))
-            if (after.resolve(target, NotePath(newPath)) == intended) return@retarget null
+            if (after.resolve(target, NotePath(newPath)) == intended) return@retargetSpans null
             val full = intended.path.relativePath.removeMarkdownSuffix()
             if (WikiLinks.occurrences("[[$full]]").singleOrNull()?.target != full || after.resolve(full, NotePath(newPath)) != intended) {
                 failed++
-                return@retarget null
+                return@retargetSpans null
             }
             updated++
             full
         }
         return Relinked(rewritten?.let { bom + it }, updated, failed)
-    }
-
-    private fun mayNeedRelink(
-        links: List<MarkdownLink>,
-        oldPath: String,
-        newPath: String,
-        paths: Map<String, String>,
-        before: WikiGraph,
-        after: WikiGraph,
-    ): Boolean {
-        if (links.isEmpty()) return false
-        val fromOld = NotePath(oldPath)
-        val fromNew = NotePath(newPath)
-        for (link in links) {
-            val original = before.resolve(link.target, fromOld) ?: continue
-            val intended = NoteId(vault.id, NotePath(paths.getValue(original.path.relativePath)))
-            if (after.resolve(link.target, fromNew) != intended) return true
-        }
-        return false
     }
 
     private fun scanNotes(): List<ScannedNote> {
@@ -335,12 +405,13 @@ internal class VaultRelocation(
         return notes
     }
 
-    private fun readReferrer(path: String): ByteArray? = try {
+    private fun readReferrer(path: String): LoadedReferrer? = try {
         val file = safeFile(path)
         if (!Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS) || file.length() > MAX_MARKDOWN_BYTES) {
             null
         } else {
-            readBytesBounded(file, MAX_MARKDOWN_BYTES).also { text(it) }
+            val bytes = readBytesBounded(file, MAX_MARKDOWN_BYTES)
+            LoadedReferrer(bytes, text(bytes))
         }
     } catch (_: IOException) {
         null
@@ -370,7 +441,7 @@ internal class VaultRelocation(
         val moved = plan.moves.map { move ->
             val source = safeFile(move.source)
             val destination = safeFile(move.destination)
-            val hop = if (journalId != null && isCaseOnlyMove(move)) caseHopFile(source, journalId) else null
+            val hop = if (journalId != null && isCaseFoldEquivalent(move)) caseHopFile(source, journalId) else null
             val sourceExists = exactExists(source)
             val destinationExists = exactExists(destination)
             val hopExists = hop != null && exactExists(hop)
@@ -418,15 +489,15 @@ internal class VaultRelocation(
             val directory = safeFile(path)
             if (!exists(directory)) {
                 if (!directory.mkdir()) throw IOException("Cannot create relocation directory: $path")
-                syncDirectory(directory.parentFile)
+                directory.parentFile?.let(::syncDirectory)
                 afterIo("mkdir")
             } else if (!directory.isDirectory) conflict(directory)
         }
         for (move in plan.moves) {
             val source = safeFile(move.source)
             val destination = safeFile(move.destination)
-            if (isCaseOnlyMove(move)) {
-                val hop = caseHopFile(source, journal.name)
+            val hop = caseHopFile(source, journal.name)
+            if (isCaseFoldEquivalent(move) && (sharesParent(move) || exactExists(hop))) {
                 if (exactExists(source)) {
                     checkState(plan, journal.name)
                     if (exactExists(destination) || exactExists(hop)) conflict(destination)
@@ -439,6 +510,7 @@ internal class VaultRelocation(
                     if (exactExists(destination)) conflict(destination)
                     Files.move(hop.toPath(), destination.toPath())
                     destination.parentFile?.let(::syncDirectory)
+                    if (!sharesParent(move)) source.parentFile?.let(::syncDirectory)
                     afterIo("move")
                 }
             } else if (exactExists(source)) {
@@ -555,7 +627,7 @@ internal class VaultRelocation(
             directories = List(count("directories")) { value("directory.$it") },
             linksUpdated = linkCount("linksUpdated", fallback = null),
             linksFailed = linkCount("linksFailed", fallback = "0"),
-        ).also(::validate)
+        )
     }
 
     private fun validate(plan: Plan) {
@@ -628,8 +700,11 @@ internal class VaultRelocation(
         return file
     }
 
-    private fun isCaseOnlyMove(move: Move): Boolean =
+    private fun isCaseFoldEquivalent(move: Move): Boolean =
         move.source != move.destination && move.source.equals(move.destination, ignoreCase = true)
+
+    private fun sharesParent(move: Move): Boolean =
+        move.source.substringBeforeLast('/', "") == move.destination.substringBeforeLast('/', "")
 
     private fun caseHopFile(source: File, journalId: String): File =
         File(source.parentFile, ".looma-case-$journalId")
@@ -674,7 +749,7 @@ internal class VaultRelocation(
     }
 
     private fun syncDirectory(directory: File) {
-        if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) return
+        if (System.getProperty("os.name")?.startsWith("Windows", ignoreCase = true) == true) return
         FileChannel.open(directory.toPath(), READ).use { it.force(true) }
     }
 
@@ -717,6 +792,15 @@ internal class VaultRelocation(
     private fun encodeProperties(data: Properties): ByteArray = ByteArrayOutputStream().use { output -> data.store(output, null); output.toByteArray() }
 
     private data class ScannedNote(val path: String, val fingerprint: FileFingerprint)
+    private data class LoadedReferrer(val bytes: ByteArray, val content: String)
+    private data class CaseHopPaths(
+        val parent: File,
+        val source: File,
+        val destination: File?,
+        val hop: File,
+        val recovered: File,
+        val original: File,
+    )
     private data class Relinked(val content: String?, val updated: Int, val failed: Int)
     private data class Guard(val path: String, val hash: String)
     private data class Member(val path: String, val hash: String?)
@@ -742,6 +826,7 @@ internal class VaultRelocation(
     private companion object {
         const val OPERATIONS = ".looma/operations"
         const val ABANDONED_OPERATIONS = ".looma/abandoned-operations"
+        const val RECOVERED = "recovered"
         const val MAX_ENTRIES = 20000
         const val MAX_DEPTH = 64
         const val MAX_MANIFEST_BYTES = 8L * 1024 * 1024
