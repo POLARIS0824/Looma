@@ -78,10 +78,9 @@ internal fun parseFrontmatterTags(frontmatter: CharSequence): Set<String> {
     while (index < lines.size) {
         val rawLine = lines[index]
         if (rawLine.isNotEmpty() && !rawLine[0].isWhitespace()) {
-            val keyMatch = YAML_TAGS_KEY.matchAt(rawLine, 0)
-            if (keyMatch != null) {
-                val afterColon = rawLine.substring(keyMatch.range.last + 1)
-                val cleanInline = stripYamlComment(afterColon).trim()
+            val parsed = parseTopLevelYamlKeyValue(rawLine)
+            if (parsed != null && (parsed.first.equals("tags", ignoreCase = true) || parsed.first.equals("tag", ignoreCase = true))) {
+                val cleanInline = stripYamlComment(parsed.second).trim()
                 when {
                     cleanInline.startsWith("[") -> {
                         val buffer = StringBuilder(cleanInline)
@@ -102,9 +101,10 @@ internal fun parseFrontmatterTags(frontmatter: CharSequence): Set<String> {
                                 index++
                                 continue
                             }
-                            if (!nextLine[0].isWhitespace() && !cleanNext.startsWith("-")) break
                             val trimmed = cleanNext.trimStart()
-                            if (trimmed == "-" || trimmed.startsWith("- ") || trimmed.startsWith("-\t")) {
+                            val isSequenceItem = trimmed == "-" || trimmed.startsWith("- ") || trimmed.startsWith("-\t")
+                            if (!nextLine[0].isWhitespace() && !isSequenceItem) break
+                            if (isSequenceItem) {
                                 val item = if (trimmed.length > 1) trimmed.substring(1).trim() else ""
                                 addParsedTag(item, tags)
                             }
@@ -151,6 +151,15 @@ private fun parseFlowArray(raw: String, out: MutableSet<String>) {
 }
 
 private fun parseInlineScalarTags(raw: String, out: MutableSet<String>) {
+    if (isUnquotedYamlNull(raw)) return
+    val unquoted = tryUnquoteSingleYamlScalar(raw)
+    if (unquoted != null) {
+        for (part in unquoted.split(SCALAR_TAG_SPLIT_REGEX)) {
+            val cleaned = part.trim().removePrefix("#")
+            if (isValidObsidianTag(cleaned)) out += cleaned
+        }
+        return
+    }
     val parts = if (',' in raw) splitUnquoted(raw, ',') else raw.split(WHITESPACE_REGEX)
     for (part in parts) {
         addParsedTag(part, out)
@@ -158,36 +167,119 @@ private fun parseInlineScalarTags(raw: String, out: MutableSet<String>) {
 }
 
 private fun addParsedTag(rawItem: String, out: MutableSet<String>) {
-    val cleaned = unquoteYamlScalar(rawItem.trim()).trim().removePrefix("#")
+    val trimmed = rawItem.trim()
+    if (trimmed.isEmpty() || isUnquotedYamlNull(trimmed)) return
+    val unquoted = tryUnquoteSingleYamlScalar(trimmed) ?: trimmed
+    val cleaned = unquoted.trim().removePrefix("#")
     if (isValidObsidianTag(cleaned)) out += cleaned
 }
 
-private fun unquoteYamlScalar(raw: String): String {
-    if (raw.length >= 2 && raw.startsWith('\'') && raw.endsWith('\'')) {
-        return raw.substring(1, raw.length - 1).replace("''", "'")
+private fun parseTopLevelYamlKeyValue(line: String): Pair<String, String>? {
+    if (line.isEmpty() || line[0] == '#') return null
+    if (line[0] == '\'' || line[0] == '"') {
+        val (key, afterQuote) = parseQuotedYamlScalar(line, 0) ?: return null
+        var pos = afterQuote
+        while (pos < line.length && (line[pos] == ' ' || line[pos] == '\t')) pos++
+        if (pos >= line.length || line[pos] != ':') return null
+        return key to line.substring(pos + 1)
     }
-    if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) {
+    for (i in line.indices) {
+        if (line[i] == ':' && (i + 1 == line.length || line[i + 1] == ' ' || line[i + 1] == '\t')) {
+            val key = line.substring(0, i).trimEnd(' ', '\t')
+            if (key.isEmpty()) return null
+            return key to line.substring(i + 1)
+        }
+    }
+    return null
+}
+
+private fun isUnquotedYamlNull(raw: String): Boolean =
+    raw == "~" || raw.equals("null", ignoreCase = true)
+
+private fun tryUnquoteSingleYamlScalar(raw: String): String? {
+    val trimmed = raw.trim()
+    if (trimmed.length < 2 || (trimmed[0] != '\'' && trimmed[0] != '"')) return null
+    val (value, end) = parseQuotedYamlScalar(trimmed, 0) ?: return null
+    return if (end == trimmed.length) value else null
+}
+
+private fun parseQuotedYamlScalar(text: String, startIndex: Int): Pair<String, Int>? {
+    val quote = text[startIndex]
+    if (quote == '\'') {
         val sb = StringBuilder()
-        var i = 1
-        while (i < raw.length - 1) {
-            val ch = raw[i]
-            if (ch == '\\' && i + 1 < raw.length - 1) {
-                val next = raw[i + 1]
-                when (next) {
-                    'n' -> sb.append('\n')
-                    'r' -> sb.append('\r')
-                    't' -> sb.append('\t')
-                    else -> sb.append(next)
+        var i = startIndex + 1
+        while (i < text.length) {
+            val ch = text[i]
+            if (ch == '\'') {
+                if (i + 1 < text.length && text[i + 1] == '\'') {
+                    sb.append('\'')
+                    i += 2
+                } else {
+                    return sb.toString() to (i + 1)
                 }
-                i += 2
             } else {
                 sb.append(ch)
                 i++
             }
         }
-        return sb.toString()
+        return null
     }
-    return raw
+    if (quote == '"') {
+        val sb = StringBuilder()
+        var i = startIndex + 1
+        while (i < text.length) {
+            val ch = text[i]
+            when (ch) {
+                '"' -> return sb.toString() to (i + 1)
+                '\\' -> {
+                    if (i + 1 >= text.length) return null
+                    when (val next = text[i + 1]) {
+                        '0' -> { sb.append('\u0000'); i += 2 }
+                        'a' -> { sb.append('\u0007'); i += 2 }
+                        'b' -> { sb.append('\b'); i += 2 }
+                        't' -> { sb.append('\t'); i += 2 }
+                        'n' -> { sb.append('\n'); i += 2 }
+                        'v' -> { sb.append('\u000B'); i += 2 }
+                        'f' -> { sb.append('\u000C'); i += 2 }
+                        'r' -> { sb.append('\r'); i += 2 }
+                        'e' -> { sb.append('\u001B'); i += 2 }
+                        ' ' -> { sb.append(' '); i += 2 }
+                        '"', '\\', '/' -> { sb.append(next); i += 2 }
+                        'N' -> { sb.append('\u0085'); i += 2 }
+                        '_' -> { sb.append('\u00A0'); i += 2 }
+                        'L' -> { sb.append('\u2028'); i += 2 }
+                        'P' -> { sb.append('\u2029'); i += 2 }
+                        'x' -> {
+                            if (i + 4 > text.length) return null
+                            val code = text.substring(i + 2, i + 4).toIntOrNull(16) ?: return null
+                            sb.append(code.toChar())
+                            i += 4
+                        }
+                        'u' -> {
+                            if (i + 6 > text.length) return null
+                            val code = text.substring(i + 2, i + 6).toIntOrNull(16) ?: return null
+                            sb.append(code.toChar())
+                            i += 6
+                        }
+                        'U' -> {
+                            if (i + 10 > text.length) return null
+                            val code = text.substring(i + 2, i + 10).toIntOrNull(16) ?: return null
+                            if (!Character.isValidCodePoint(code)) return null
+                            sb.appendCodePoint(code)
+                            i += 10
+                        }
+                        else -> { sb.append(next); i += 2 }
+                    }
+                }
+                else -> {
+                    sb.append(ch)
+                    i++
+                }
+            }
+        }
+        return null
+    }
+    return null
 }
 
 private fun splitUnquoted(text: String, delimiter: Char): List<String> {
@@ -273,8 +365,8 @@ private fun isHorizontalSpaces(line: CharSequence, from: Int): Boolean {
 
 private const val FRONTMATTER_FENCE = "---"
 private const val YAML_DOCUMENT_END = "..."
-private val YAML_TAGS_KEY = Regex("""tags?:""")
 private val WHITESPACE_REGEX = Regex("""\s+""")
+private val SCALAR_TAG_SPLIT_REGEX = Regex("""[\s,]+""")
 private val INLINE_TAG_REGEX = Regex("""#([\p{L}\p{M}\p{N}_/-]+)""")
 
 internal inline fun forEachLineRange(

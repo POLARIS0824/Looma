@@ -604,8 +604,8 @@ internal data class FenceMarker(val char: Char, val length: Int)
 
 internal fun parseFenceOpening(line: CharSequence): FenceMarker? {
     var index = 0
-    while (index < line.length && (line[index] == ' ' || line[index] == '\t')) index++
-    if (index >= line.length) return null
+    while (index < line.length && index < 4 && line[index] == ' ') index++
+    if (index == 4 || index >= line.length) return null
     val marker = line[index]
     if (marker != '`' && marker != '~') return null
     var runEnd = index
@@ -622,8 +622,8 @@ internal fun parseFenceOpening(line: CharSequence): FenceMarker? {
 
 internal fun isFenceClosing(line: CharSequence, open: FenceMarker): Boolean {
     var index = 0
-    while (index < line.length && (line[index] == ' ' || line[index] == '\t')) index++
-    if (index >= line.length || line[index] != open.char) return false
+    while (index < line.length && index < 4 && line[index] == ' ') index++
+    if (index == 4 || index >= line.length || line[index] != open.char) return false
     var runEnd = index
     while (runEnd < line.length && line[runEnd] == open.char) runEnd++
     if (runEnd - index < open.length) return false
@@ -632,23 +632,4 @@ internal fun isFenceClosing(line: CharSequence, open: FenceMarker): Boolean {
         if (ch != ' ' && ch != '\t' && ch != '\r') return false
     }
     return true
-}
-
-internal fun filterOutFencedLines(lines: List<String>): List<String> {
-    var openFence: FenceMarker? = null
-    val result = ArrayList<String>(lines.size)
-    for (line in lines) {
-        val current = openFence
-        if (current == null) {
-            val opened = parseFenceOpening(line)
-            if (opened != null) {
-                openFence = opened
-            } else {
-                result += line
-            }
-        } else if (isFenceClosing(line, current)) {
-            openFence = null
-        }
-    }
-    return result
 }

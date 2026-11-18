@@ -23,14 +23,21 @@ internal fun markdownSnippetOf(
             }
         }
         .joinToString("\n")
-        .trim()
+        .trimBlankLines()
         .withoutInlineTags()
-        .trim()
+        .trimBlankLines()
     if (withoutTitle.length <= maxChars) return withoutTitle
     val clipped = withoutTitle.take(maxChars)
     val lastLineBreak = clipped.lastIndexOf('\n')
     return if (lastLineBreak > maxChars / 2) clipped.substring(0, lastLineBreak).trimEnd() else clipped.trimEnd()
 }
+
+private fun String.trimBlankLines(): String =
+    lines()
+        .dropWhile { it.isBlank() }
+        .dropLastWhile { it.isBlank() }
+        .joinToString("\n")
+        .trimEnd()
 
 private fun String.withoutInlineTags(): String {
     if ('#' !in this) return this

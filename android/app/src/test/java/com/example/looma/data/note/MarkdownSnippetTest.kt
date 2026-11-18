@@ -92,4 +92,12 @@ class MarkdownSnippetTest {
         """.trimIndent()
         assertEquals(expected, markdownSnippetOf(codeAndLinks, "Title"))
     }
+
+    @Test
+    fun `leading four-space indented tilde keeps its indentation and tags on later lines are stripped`() {
+        val source = "    ~~~\n\nSummary #work\n\n- [ ] Task"
+        val expected = "    ~~~\n\nSummary\n\n- [ ] Task"
+
+        assertEquals(expected, markdownSnippetOf(source, "Title"))
+    }
 }

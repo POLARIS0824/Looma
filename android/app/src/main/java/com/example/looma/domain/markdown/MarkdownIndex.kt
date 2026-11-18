@@ -7,6 +7,7 @@ import org.intellij.markdown.ast.getTextInNode
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 import org.intellij.markdown.parser.CancellationToken
+import org.intellij.markdown.parser.LinkMap
 import org.intellij.markdown.parser.MarkdownParser
 
 internal data class MarkdownReadingIndex(
@@ -19,6 +20,7 @@ internal data class MarkdownAstMetadata(
     val bodyStart: Int,
     val tags: Set<String>,
     val imageReferences: List<String>,
+    val blockCodeRanges: List<IntRange>,
 )
 
 object MarkdownIndex {
@@ -49,15 +51,35 @@ object MarkdownIndex {
         return MarkdownReadingIndex(bodyStart, facts.heading?.takeIf { it.isNotBlank() }, facts.checkboxes)
     }
 
+    internal fun wikiImageLinks(source: String): List<MarkdownLinkSpan> {
+        val base = frontmatterEnd(source)
+        val body = source.substring(base)
+        val tree = MarkdownParser(WikiImageFlavour(), cancellationToken = CancellationToken.NonCancellable)
+            .buildMarkdownTreeFromString(body as CharSequence)
+        return buildList {
+            fun visit(node: ASTNode) {
+                if (node.type == MarkdownElementTypes.IMAGE && body.startsWith("![[", node.startOffset)) {
+                    WikiLinks.imageSpan(body, node.startOffset, node.endOffset, base)?.let(::add)
+                    return
+                }
+                node.children.forEach(::visit)
+            }
+            visit(tree)
+        }
+    }
+
     internal fun extractMetadata(source: String): MarkdownAstMetadata {
         val span = frontmatterSpan(source)
         val body = source.substring(span.bodyStart)
         val tree = MarkdownParser(WikiImageFlavour(), cancellationToken = CancellationToken.NonCancellable)
             .buildMarkdownTreeFromString(body as CharSequence)
         val codeRanges = mutableListOf<IntRange>()
+        val blockCodeRanges = mutableListOf<IntRange>()
         val excludedRanges = mutableListOf<IntRange>()
         val imageReferences = mutableListOf<String>()
-        collectBodyFacts(tree, body, codeRanges, excludedRanges, imageReferences)
+        val linkMap = lazy(LazyThreadSafetyMode.NONE) { LinkMap.buildLinkMap(tree, body) }
+        collectBodyFacts(tree, body, codeRanges, blockCodeRanges, excludedRanges, imageReferences, linkMap)
+        blockCodeRanges.sortBy { it.first }
         for (link in WikiLinks.occurrences(body, 0, codeRanges)) {
             excludedRanges += link.range
         }
@@ -73,6 +95,7 @@ object MarkdownIndex {
             bodyStart = span.bodyStart,
             tags = fmTags + inlineTags,
             imageReferences = imageReferences,
+            blockCodeRanges = blockCodeRanges,
         )
     }
 
@@ -81,7 +104,7 @@ object MarkdownIndex {
             .buildMarkdownTreeFromString(body as CharSequence)
         val codeRanges = mutableListOf<IntRange>()
         val excludedRanges = mutableListOf<IntRange>()
-        collectBodyFacts(tree, body, codeRanges, excludedRanges, imageReferences = null)
+        collectBodyFacts(tree, body, codeRanges, blockCodeRanges = null, excludedRanges, imageReferences = null, linkMap = null)
         for (link in WikiLinks.occurrences(body, 0, codeRanges)) {
             excludedRanges += link.range
         }
@@ -96,12 +119,22 @@ object MarkdownIndex {
         node: ASTNode,
         body: String,
         codeRanges: MutableList<IntRange>,
+        blockCodeRanges: MutableList<IntRange>?,
         excludedRanges: MutableList<IntRange>,
         imageReferences: MutableList<String>?,
+        linkMap: Lazy<LinkMap>?,
     ) {
         when (node.type) {
             MarkdownElementTypes.CODE_FENCE,
             MarkdownElementTypes.CODE_BLOCK,
+            -> {
+                val range = node.startOffset until node.endOffset
+                blockCodeRanges?.add(range)
+                codeRanges += range
+                excludedRanges += range
+                return
+            }
+
             MarkdownElementTypes.CODE_SPAN,
             -> {
                 val range = node.startOffset until node.endOffset
@@ -112,8 +145,20 @@ object MarkdownIndex {
 
             MarkdownElementTypes.IMAGE -> {
                 excludedRanges += node.startOffset until node.endOffset
-                if (imageReferences != null) {
-                    firstLinkDestination(node, body)?.takeIf { it.isNotEmpty() }?.let(imageReferences::add)
+                if (imageReferences != null && linkMap != null) {
+                    imageDestination(node, body, linkMap)?.takeIf { it.isNotEmpty() }?.let(imageReferences::add)
+                }
+                for (child in node.children) {
+                    when (child.type) {
+                        MarkdownElementTypes.LINK_TEXT,
+                        MarkdownElementTypes.LINK_LABEL,
+                        -> collectBodyFacts(child, body, codeRanges, blockCodeRanges, excludedRanges, imageReferences, linkMap)
+
+                        MarkdownElementTypes.INLINE_LINK,
+                        MarkdownElementTypes.FULL_REFERENCE_LINK,
+                        MarkdownElementTypes.SHORT_REFERENCE_LINK,
+                        -> collectLinkChildren(child, body, codeRanges, blockCodeRanges, excludedRanges, imageReferences, linkMap)
+                    }
                 }
                 return
             }
@@ -121,6 +166,12 @@ object MarkdownIndex {
             MarkdownElementTypes.INLINE_LINK,
             MarkdownElementTypes.FULL_REFERENCE_LINK,
             MarkdownElementTypes.SHORT_REFERENCE_LINK,
+            -> {
+                excludedRanges += node.startOffset until node.endOffset
+                collectLinkChildren(node, body, codeRanges, blockCodeRanges, excludedRanges, imageReferences, linkMap)
+                return
+            }
+
             MarkdownElementTypes.LINK_DEFINITION,
             MarkdownElementTypes.AUTOLINK,
             GFMTokenTypes.GFM_AUTOLINK,
@@ -131,17 +182,60 @@ object MarkdownIndex {
                 return
             }
         }
-        node.children.forEach { collectBodyFacts(it, body, codeRanges, excludedRanges, imageReferences) }
+        node.children.forEach {
+            collectBodyFacts(it, body, codeRanges, blockCodeRanges, excludedRanges, imageReferences, linkMap)
+        }
     }
 
-    private fun firstLinkDestination(node: ASTNode, body: String): String? {
-        if (node.type == MarkdownElementTypes.LINK_DESTINATION) {
-            return node.getTextInNode(body).toString().trim()
+    private fun collectLinkChildren(
+        linkNode: ASTNode,
+        body: String,
+        codeRanges: MutableList<IntRange>,
+        blockCodeRanges: MutableList<IntRange>?,
+        excludedRanges: MutableList<IntRange>,
+        imageReferences: MutableList<String>?,
+        linkMap: Lazy<LinkMap>?,
+    ) {
+        for (child in linkNode.children) {
+            if (child.type == MarkdownElementTypes.LINK_TEXT || child.type == MarkdownElementTypes.LINK_LABEL) {
+                collectBodyFacts(child, body, codeRanges, blockCodeRanges, excludedRanges, imageReferences, linkMap)
+            }
         }
-        for (child in node.children) {
-            firstLinkDestination(child, body)?.let { return it }
+    }
+
+    private fun imageDestination(imageNode: ASTNode, body: String, linkMap: Lazy<LinkMap>): String? {
+        imageNode.children.firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION }?.let { dest ->
+            return dest.getTextInNode(body).toString().trim()
         }
-        return null
+        imageNode.children.firstOrNull { it.type == MarkdownElementTypes.INLINE_LINK }?.let { inline ->
+            val dest = inline.children.firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION } ?: return null
+            return unescapeMarkdownDestination(dest.getTextInNode(body).toString())
+        }
+        val ref = imageNode.children.firstOrNull {
+            it.type == MarkdownElementTypes.FULL_REFERENCE_LINK || it.type == MarkdownElementTypes.SHORT_REFERENCE_LINK
+        } ?: return null
+        val label = ref.children.firstOrNull { it.type == MarkdownElementTypes.LINK_LABEL } ?: return null
+        val info = linkMap.value.getLinkInfo(label.getTextInNode(body)) ?: return null
+        val dest = info.node.children.firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION } ?: return null
+        return unescapeMarkdownDestination(dest.getTextInNode(body).toString())
+    }
+
+    private fun unescapeMarkdownDestination(raw: String): String {
+        val stripped = raw.trim().removeSurrounding("<", ">")
+        if ('\\' !in stripped) return stripped
+        val sb = StringBuilder(stripped.length)
+        var i = 0
+        while (i < stripped.length) {
+            val ch = stripped[i]
+            if (ch == '\\' && i + 1 < stripped.length && stripped[i + 1] in ASCII_PUNCTUATION) {
+                sb.append(stripped[i + 1])
+                i += 2
+            } else {
+                sb.append(ch)
+                i++
+            }
+        }
+        return sb.toString()
     }
 
     private fun walk(node: ASTNode, text: String, base: Int, facts: Facts) {
@@ -189,4 +283,5 @@ object MarkdownIndex {
     }
 
     private val MARKER = Regex("""^\[[ xX]]\s*$""")
+    private const val ASCII_PUNCTUATION = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
 }

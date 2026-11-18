@@ -255,12 +255,24 @@ class MarkdownEditingTest {
 
     @Test
     fun formatStateCountsIndentedFencesBeforeTheCaretLine() {
-        val text = "inline ``` marker\n \t````kt\n**inside**\n  ````\n**outside**"
+        val text = "inline ``` marker\n   ````kt\n**inside**\n  ````\n**outside**"
         assertEquals(false, state(text, 0).inCodeBlock)
         assertEquals(true, state(text, text.indexOf("inside")).inCodeBlock)
         val afterFence = state(text, text.indexOf("outside"))
         assertEquals(false, afterFence.inCodeBlock)
         assertEquals(setOf(MarkdownInlineStyle.Bold), afterFence.inline)
+    }
+
+    @Test
+    fun fourSpaceAndTabIndentedTildesDoNotOpenOrCloseCodeFences() {
+        val indented = "    ~~~\n\n**outside**"
+        assertEquals(false, state(indented, indented.indexOf("outside")).inCodeBlock)
+
+        val tabbed = "\t~~~\n\n**outside**"
+        assertEquals(false, state(tabbed, tabbed.indexOf("outside")).inCodeBlock)
+
+        val unclosedWithFourSpaceClose = "~~~\n    ~~~\n**still inside**"
+        assertEquals(true, state(unclosedWithFourSpaceClose, unclosedWithFourSpaceClose.indexOf("still inside")).inCodeBlock)
     }
 
     @Test

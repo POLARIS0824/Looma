@@ -67,6 +67,51 @@ class MarkdownParserNoteTest {
     }
 
     @Test
+    fun `tags support quoted yaml keys, quoted multi-tag scalars, and ignore yaml null`() {
+        val quotedDouble = """
+            ---
+            "tags": [work, "#mobile"]
+            ---
+        """.trimIndent()
+        assertEquals(setOf("work", "mobile"), parser.tags(quotedDouble))
+
+        val quotedSingleMulti = """
+            ---
+            'tags': "alpha, beta"
+            ---
+        """.trimIndent()
+        assertEquals(setOf("alpha", "beta"), parser.tags(quotedSingleMulti))
+
+        val quotedTagSpaces = """
+            ---
+            "tag" : 'one two'
+            ---
+        """.trimIndent()
+        assertEquals(setOf("one", "two"), parser.tags(quotedTagSpaces))
+
+        val compactQuotedArray = """
+            ---
+            "tags":["compact"]
+            ---
+        """.trimIndent()
+        assertEquals(setOf("compact"), parser.tags(compactQuotedArray))
+
+        val escapedKeyAndNull = """
+            ---
+            "\u0074ags":
+              - first
+              - null
+            -other: ignored
+            ---
+        """.trimIndent()
+        assertEquals(setOf("first"), parser.tags(escapedKeyAndNull))
+
+        assertEquals(emptySet<String>(), parser.tags("---\ntags: null\n---"))
+        assertEquals(emptySet<String>(), parser.tags("---\ntags: ~\n---"))
+        assertEquals(setOf("null"), parser.tags("---\ntags: \"null\"\n---"))
+    }
+
+    @Test
     fun `excerpt and checklist exclude fenced code blocks`() {
         val text = """
             # Doc
@@ -89,6 +134,36 @@ class MarkdownParserNoteTest {
         val parsed = parser.parse(text, "Doc")
         assertEquals("Real summary line.", parsed.excerpt)
         assertEquals(listOf(MarkdownChecklistItem("real task", checked = false)), parsed.checklist)
+    }
+
+    @Test
+    fun `four-space indented tilde does not swallow subsequent summary, tasks, or heading`() {
+        val text = """
+            ```sh
+            # fake heading inside code
+            ```
+
+                ~~~
+
+            Summary after indented tilde #real-tag
+
+            - [ ] real task
+            - [x] done task
+        """.trimIndent()
+
+        val parsed = parser.parse(text, "Fallback")
+        assertEquals("Fallback", parsed.title)
+        assertEquals("Summary after indented tilde #real-tag", parsed.excerpt)
+        assertEquals(setOf("real-tag"), parsed.tags)
+        assertEquals(
+            listOf(
+                MarkdownChecklistItem("real task", checked = false),
+                MarkdownChecklistItem("done task", checked = true),
+            ),
+            parsed.checklist,
+        )
+        assertEquals("Fallback", parser.parseForIndex(text, "Fallback").title)
+        assertEquals("Fallback", parser.title(text, "Fallback"))
     }
 
     private fun storedNote(content: String): StoredMarkdown {

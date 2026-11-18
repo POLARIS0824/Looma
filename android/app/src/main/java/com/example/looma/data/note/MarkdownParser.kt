@@ -1,8 +1,7 @@
 package com.example.looma.data.note
 
 import com.example.looma.domain.markdown.MarkdownIndex
-import com.example.looma.domain.markdown.filterOutFencedLines
-import com.example.looma.domain.markdown.frontmatterEnd
+import com.example.looma.domain.markdown.forEachLineRange
 
 data class MarkdownChecklistItem(
     val text: String,
@@ -25,16 +24,21 @@ data class MarkdownMetadata(
 )
 
 internal class MarkdownParser {
-    fun title(text: String, fallbackTitle: String): String = extractTitle(bodyLines(text), fallbackTitle)
+    fun title(text: String, fallbackTitle: String): String {
+        val ast = MarkdownIndex.extractMetadata(text)
+        val visibleLines = nonCodeLines(text.substring(ast.bodyStart), ast.blockCodeRanges)
+        return extractTitle(visibleLines.asSequence(), fallbackTitle)
+    }
 
     fun tags(text: String): Set<String> = MarkdownIndex.extractMetadata(text).tags
 
     fun parseForIndex(text: String, fallbackTitle: String): MarkdownMetadata {
         val ast = MarkdownIndex.extractMetadata(text)
+        val visibleLines = nonCodeLines(text.substring(ast.bodyStart), ast.blockCodeRanges)
         val links = MarkdownIndex.index(text, fallbackTitle).links
             .map { MarkdownLink(target = it.target, embedded = it.embedded) }
         return MarkdownMetadata(
-            title = extractTitle(bodyLines(text, ast.bodyStart), fallbackTitle),
+            title = extractTitle(visibleLines.asSequence(), fallbackTitle),
             excerpt = "",
             tags = ast.tags,
             checklist = emptyList(),
@@ -46,9 +50,8 @@ internal class MarkdownParser {
 
     fun parse(text: String, fallbackTitle: String): MarkdownMetadata {
         val ast = MarkdownIndex.extractMetadata(text)
-        val body = bodyLines(text, ast.bodyStart).toList()
-        val nonFencedBody = filterOutFencedLines(body)
-        val excerpt = nonFencedBody.asSequence()
+        val visibleLines = nonCodeLines(text.substring(ast.bodyStart), ast.blockCodeRanges)
+        val excerpt = visibleLines.asSequence()
             .filterNot { it.matches(HEADING) || it.matches(CHECKLIST) }
             .filterNot {
                 it.trim().startsWith("![[") ||
@@ -60,19 +63,24 @@ internal class MarkdownParser {
             .joinToString("\n")
             .take(360)
 
-        val checklist = nonFencedBody.mapNotNull { line ->
-            val match = CHECKLIST.matchEntire(line) ?: return@mapNotNull null
-            MarkdownChecklistItem(
-                text = match.groupValues[2],
-                checked = match.groupValues[1].equals("x", ignoreCase = true),
-            )
+        val doc = MarkdownIndex.index(text, fallbackTitle)
+        val checklist = doc.checkboxes.mapNotNull { box ->
+            val taskStart = box.range.last + 1
+            if (taskStart >= text.length) return@mapNotNull null
+            var taskEnd = taskStart
+            while (taskEnd < text.length && text[taskEnd] != '\n' && text[taskEnd] != '\r') {
+                taskEnd++
+            }
+            val itemText = text.substring(taskStart, taskEnd).trim()
+            if (itemText.isEmpty()) return@mapNotNull null
+            MarkdownChecklistItem(text = itemText, checked = box.checked)
         }
 
-        val links = MarkdownIndex.index(text, fallbackTitle).links
+        val links = doc.links
             .map { MarkdownLink(target = it.target, embedded = it.embedded) }
 
         return MarkdownMetadata(
-            title = extractTitle(body.asSequence(), fallbackTitle),
+            title = extractTitle(visibleLines.asSequence(), fallbackTitle),
             excerpt = excerpt,
             tags = ast.tags,
             checklist = checklist,
@@ -90,8 +98,25 @@ internal class MarkdownParser {
         .replace(EMPHASIS, "")
         .replace(CODE_SPAN, "$1")
 
-    private fun bodyLines(text: String, bodyStart: Int = frontmatterEnd(text)): Sequence<String> =
-        text.substring(bodyStart).lineSequence()
+    private fun nonCodeLines(body: String, blockCodeRanges: List<IntRange>): List<String> {
+        val lines = mutableListOf<String>()
+        var rangeIndex = 0
+        forEachLineRange(body, 0) { start, end, _ ->
+            while (rangeIndex < blockCodeRanges.size && blockCodeRanges[rangeIndex].last < start) {
+                rangeIndex++
+            }
+            val lineEnd = if (end > start) end - 1 else start
+            val insideCode = rangeIndex < blockCodeRanges.size &&
+                blockCodeRanges[rangeIndex].let { range ->
+                    if (start == end) start in range else range.first <= lineEnd && range.last >= start
+                }
+            if (!insideCode) {
+                lines += body.substring(start, end)
+            }
+            true
+        }
+        return lines
+    }
 
     private fun extractTitle(lines: Sequence<String>, fallback: String): String =
         lines.firstOrNull { it.startsWith("# ") }

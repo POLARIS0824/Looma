@@ -49,4 +49,39 @@ class MarkdownParserLinksTest {
 
         assertEquals("cover.png", metadata.firstImageReference)
     }
+
+    @Test
+    fun `extracts link-wrapped images, reference images, and prefers image destination over alt link`() {
+        val text = """
+            [![badge](cover.png)](https://example.com)
+            [![[wiki-cover.png]]](https://example.com)
+            [![ref-badge](ref-cover.png)][jump]
+            ![alt][img-ref]
+            ![collapsed][]
+            ![shortcut]
+            ![photo by [Alice](https://example.com)](local.png)
+
+            [jump]: https://example.com/jump
+            [img-ref]: ref-img.png
+            [collapsed]: collapsed.png
+            [shortcut]: shortcut.png
+        """.trimIndent()
+
+        val expected = listOf(
+            "cover.png",
+            "wiki-cover.png",
+            "ref-cover.png",
+            "ref-img.png",
+            "collapsed.png",
+            "shortcut.png",
+            "local.png",
+        )
+        val parsed = parser.parse(text, "笔记")
+        val forIndex = parser.parseForIndex(text, "笔记")
+
+        assertEquals("cover.png", parsed.firstImageReference)
+        assertEquals(expected, parsed.imageReferences)
+        assertEquals("cover.png", forIndex.firstImageReference)
+        assertEquals(expected, forIndex.imageReferences)
+    }
 }
