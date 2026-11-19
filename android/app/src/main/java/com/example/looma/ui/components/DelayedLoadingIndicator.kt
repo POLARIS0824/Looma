@@ -26,7 +26,7 @@ fun DelayedLoadingIndicator(loading: Boolean, modifier: Modifier = Modifier, siz
     var ready by remember(loading) { mutableStateOf(false) }
     LaunchedEffect(loading) {
         if (loading) {
-            delay(300L)
+            delay(DelayedFeedbackMillis)
             ready = true
         }
     }
