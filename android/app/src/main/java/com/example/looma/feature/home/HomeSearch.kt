@@ -1,12 +1,12 @@
 package com.example.looma.feature.home
 
+import com.example.looma.data.search.SemanticWorkState
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.search.NoteSearchMatch
 import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.search.SearchMatch
 import com.example.looma.domain.search.SearchableNote
 import com.example.looma.domain.search.searchNote
-import java.util.Locale
 
 data class HomeSearchResult(
     val note: HomeNoteItem,
@@ -64,19 +64,14 @@ internal fun searchNotes(
     }
     .toList()
 
-internal fun List<HomeSearchResult>.orderedBy(sort: HomeSort): List<HomeSearchResult> {
-    if (size <= 1) return toList()
-    return when (sort) {
-        HomeSort.LAST_MODIFIED -> sortedWith(
-            compareByDescending<HomeSearchResult> { it.note.summary.modifiedAt }.thenBy { it.listKey },
-        )
+internal fun List<HomeSearchResult>.orderedBy(sort: HomeSort): List<HomeSearchResult> =
+    orderedByNote(sort) { it.note }
 
-        HomeSort.TITLE -> map { it to it.note.summary.title.lowercase(Locale.ROOT) }
-            .sortedWith(compareBy<Pair<HomeSearchResult, String>> { it.second }.thenBy { it.first.listKey })
-            .map { it.first }
-
-        HomeSort.TITLE_DESCENDING -> map { it to it.note.summary.title.lowercase(Locale.ROOT) }
-            .sortedWith(compareByDescending<Pair<HomeSearchResult, String>> { it.second }.thenBy { it.first.listKey })
-            .map { it.first }
-    }
+internal fun semanticAvailability(
+    model: SemanticWorkState,
+    hasIndex: Boolean,
+): HomeSemanticSearch = when {
+    model != SemanticWorkState.Ready -> HomeSemanticSearch.NeedsModel
+    !hasIndex -> HomeSemanticSearch.NeedsIndex
+    else -> HomeSemanticSearch.Ready
 }

@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,12 +16,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 @Composable
-fun DelayedLoadingIndicator(loading: Boolean, modifier: Modifier = Modifier, size: Dp = 20.dp) {
+fun DelayedLoadingIndicator(
+    loading: Boolean,
+    modifier: Modifier = Modifier,
+    size: Dp = 44.dp,
+    color: Color = MaterialTheme.colorScheme.primary,
+) {
     var ready by remember(loading) { mutableStateOf(false) }
     LaunchedEffect(loading) {
         if (loading) {
@@ -37,10 +42,7 @@ fun DelayedLoadingIndicator(loading: Boolean, modifier: Modifier = Modifier, siz
             enter = fadeIn(motion.defaultEffectsSpec()),
             exit = fadeOut(motion.fastEffectsSpec()),
         ) {
-            LoadingIndicator(
-                modifier = Modifier.size(size),
-                color = MaterialTheme.colorScheme.primary,
-            )
+            LoomaLoadingIndicator(size = size, color = color)
         }
     }
 }

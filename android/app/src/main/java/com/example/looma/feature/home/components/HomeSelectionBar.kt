@@ -10,20 +10,31 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import com.example.looma.R
+import com.example.looma.feature.home.HomeSelection
+import com.example.looma.feature.home.HomeSelectionActions
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
 internal fun HomeSelectionBar(
-    title: String,
-    showRename: Boolean,
-    showInfo: Boolean,
-    onCloseClick: () -> Unit,
-    onRenameClick: () -> Unit,
-    onMoveClick: () -> Unit,
-    onInfoClick: () -> Unit,
-    onDeleteClick: () -> Unit,
+    selection: HomeSelection,
+    selectedNoteCount: Int,
+    actions: HomeSelectionActions,
 ) {
+    val title = when (selection) {
+        is HomeSelection.Folder -> selection.item.name
+        is HomeSelection.Notes -> stringResource(R.string.home_selection_count, selectedNoteCount)
+        HomeSelection.None -> ""
+    }
+    val showRename = when (selection) {
+        is HomeSelection.Folder -> true
+        is HomeSelection.Notes -> selectedNoteCount == 1
+        HomeSelection.None -> false
+    }
+    val showInfo = selection is HomeSelection.Notes && selectedNoteCount == 1
+    val onRenameClick = if (selection is HomeSelection.Folder) actions.onRenameFolderClick else actions.onRenameClick
+    val onDeleteClick = if (selection is HomeSelection.Folder) actions.onDeleteFolderClick else actions.onDeleteClick
+
     TopAppBar(
         title = {
             Text(
@@ -35,7 +46,7 @@ internal fun HomeSelectionBar(
             )
         },
         navigationIcon = {
-            IconButton(onClick = onCloseClick) {
+            IconButton(onClick = actions.onClearSelection) {
                 LoomaIcon(
                     iconRes = R.drawable.ic_close,
                     contentDescription = stringResource(R.string.home_selection_close),
@@ -49,14 +60,14 @@ internal fun HomeSelectionBar(
                     contentDescription = stringResource(R.string.home_selection_rename),
                 )
             }
-            IconButton(onClick = onMoveClick) {
+            IconButton(onClick = actions.onMoveClick) {
                 LoomaIcon(
                     iconRes = R.drawable.ic_move,
                     contentDescription = stringResource(R.string.home_selection_move),
                 )
             }
             if (showInfo) {
-                IconButton(onClick = onInfoClick) {
+                IconButton(onClick = actions.onInfoClick) {
                     LoomaIcon(
                         iconRes = R.drawable.ic_info,
                         contentDescription = stringResource(R.string.home_selection_info),

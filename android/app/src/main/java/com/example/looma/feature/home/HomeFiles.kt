@@ -47,7 +47,7 @@ internal class HomeVaultIndex private constructor(
         return HomeFilesState(
             path = target,
             crumbs = crumbs(target),
-            recents = recents(),
+            recents = if (target == FolderPath.Root) recents() else emptyList(),
             folders = foldersByParent[target].orEmpty()
                 .sortedBy { it.name.lowercase() }
                 .map { HomeFolderItem(path = it.path, name = it.name) },
@@ -112,12 +112,3 @@ internal fun FolderPath.parentFolder(): FolderPath {
 }
 
 internal const val RECENT_LIMIT = 10
-
-internal enum class FolderMotion { Forward, Backward, Replace }
-
-internal fun folderMotion(from: FolderPath, to: FolderPath): FolderMotion = when {
-    from == to -> FolderMotion.Replace
-    from == FolderPath.Root || to.relativePath.startsWith(from.relativePath + "/") -> FolderMotion.Forward
-    to == FolderPath.Root || from.relativePath.startsWith(to.relativePath + "/") -> FolderMotion.Backward
-    else -> FolderMotion.Replace
-}

@@ -10,3 +10,5 @@ android/.idea/
 .windows/
 
 .agents/tasks/*
+
+*.html

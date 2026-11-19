@@ -30,13 +30,14 @@ private fun previewState(
 ): HomeUiState = HomeUiState(
     vaultName = "Looma",
     notes = notes.orderedBy(HomeSort.LAST_MODIFIED),
-    searchResults = searchNotes(notes.orderedBy(HomeSort.LAST_MODIFIED), emptyMap(), query),
-    query = query,
+    search = HomeSearchUiState(
+        query = query,
+        results = searchNotes(notes.orderedBy(HomeSort.LAST_MODIFIED), emptyMap(), query),
+    ),
     isGridMode = isGridMode,
     isLoading = false,
     files = previewIndex(notes).files(path, HomeSort.LAST_MODIFIED),
     selection = selection,
-    selectedNotes = notes.selected(selection, HomeSort.LAST_MODIFIED),
 )
 
 private fun previewIndex(notes: List<HomeNoteItem>): HomeVaultIndex {

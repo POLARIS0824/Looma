@@ -3,8 +3,9 @@
 ## 开发约定
 
 - 除非明确说明，否则不要写文档和注释
-- 如果遇到决策问题，都优先和 Obsidian 对齐
 - 不用迁移数据库，还在个人开发阶段
+- 如果 /verify 没有更新，就不要使用 /verify 验证和 avd 验证
+- 只有在单独说明要写 test 和 androidTest 的时候才能写测试
 - 每次用完 AVD 都要关闭模拟器进程。用 verify skill 时执行 `v cleanup`，再确认 `adb devices` 里没有 `emulator-*`。
 
 ## 技术选型

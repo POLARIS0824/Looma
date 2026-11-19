@@ -1,10 +1,8 @@
 package com.example.looma.feature.home.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,18 +10,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -32,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.feature.home.HomeNoteItem
 import com.example.looma.feature.home.HomeRecentItem
-import com.example.looma.ui.markdown.MarkdownPreview
 import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
@@ -96,25 +90,13 @@ private fun HomeRecentCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(6.dp))
-            Box(Modifier.fillMaxWidth().height(RecentPreviewHeight).clipToBounds()) {
-                if (item.markdown.isBlank()) {
-                    Text(
-                        text = stringResource(R.string.home_empty_note),
-                        style = LoomaTokens.type.cardBody,
-                        color = colors.body,
-                    )
-                } else {
-                    MarkdownPreview(markdown = item.markdown, textColor = colors.body)
-                }
-                Box(
-                    Modifier.matchParentSize().background(
-                        Brush.verticalGradient(
-                            0.72f to Color.Transparent,
-                            1f to colors.container,
-                        ),
-                    ),
-                )
-            }
+            HomeFadedMarkdownPreview(
+                markdown = item.markdown,
+                bodyColor = colors.body,
+                containerColor = colors.container,
+                emptyTextStyle = LoomaTokens.type.cardBody,
+                modifier = Modifier.fillMaxWidth().height(RecentPreviewHeight),
+            )
         }
     }
 }

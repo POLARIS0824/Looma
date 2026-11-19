@@ -28,15 +28,17 @@ class HomePropertiesTest {
         val request = HomeFileDialog.LoadingProperties(id)
 
         assertNull(selected.finishProperties(request, properties).dialog)
-        val cleared = selected.copy(dialog = request, selectedNotes = emptyList())
+        val cleared = selected.copy(dialog = request, selection = HomeSelection.None)
         assertNull(cleared.finishProperties(request, properties).dialog)
         assertNull(cleared.finishProperties(request, null).message)
     }
 
     private val id = NoteId(VaultId("vault"), NotePath("A.md"))
     private val properties = NoteProperties(id.path, 10, Instant.EPOCH, 2, 8, 0, 0)
+    private val note = HomeNoteItem(NoteSummary(id, "A", Instant.EPOCH))
     private val selected = HomeUiState(
         vaultId = id.vaultId,
-        selectedNotes = listOf(HomeNoteItem(NoteSummary(id, "A", Instant.EPOCH))),
+        notes = listOf(note),
+        selection = HomeSelection.Notes.of(setOf(note.listKey)),
     )
 }

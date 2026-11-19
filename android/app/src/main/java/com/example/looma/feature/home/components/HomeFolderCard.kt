@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -61,7 +60,7 @@ internal fun HomeFolderCard(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FolderIcon(tint = folderIconTint(isSelected))
+            FolderIcon(tint = colors.icon)
             Spacer(Modifier.width(12.dp))
             FolderName(
                 name = item.name,
@@ -71,7 +70,7 @@ internal fun HomeFolderCard(
             )
             if (isSelected) {
                 Spacer(Modifier.width(8.dp))
-                SelectedCheck()
+                SelectedCheck(tint = colors.selectedCheck)
             }
         }
     }
@@ -95,7 +94,6 @@ internal fun HomeFolderGroup(
         folders.forEachIndexed { index, folder ->
             val isSelected = folder.path == selected
             val colors = homeCardColors(isSelected)
-            val iconTint = folderIconTint(isSelected)
             SegmentedListItem(
                 onClick = { onFolderClick(folder) },
                 onLongClick = { onFolderLongClick(folder) },
@@ -104,13 +102,13 @@ internal fun HomeFolderGroup(
                 colors = ListItemDefaults.segmentedColors(
                     containerColor = colors.container,
                     contentColor = colors.title,
-                    leadingContentColor = iconTint,
+                    leadingContentColor = colors.icon,
                     trailingContentColor = colors.title,
                 ),
                 modifier = Modifier.semantics { this.selected = isSelected },
-                leadingContent = { FolderIcon(tint = iconTint) },
+                leadingContent = { FolderIcon(tint = colors.icon) },
                 trailingContent = if (isSelected) {
-                    { SelectedCheck() }
+                    { SelectedCheck(tint = colors.selectedCheck) }
                 } else {
                     null
                 },
@@ -122,10 +120,6 @@ internal fun HomeFolderGroup(
 }
 
 @Composable
-private fun folderIconTint(isSelected: Boolean): Color =
-    if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else LoomaTokens.colors.muted
-
-@Composable
 private fun FolderIcon(tint: Color) {
     LoomaIcon(
         iconRes = R.drawable.ic_folder,
@@ -135,11 +129,11 @@ private fun FolderIcon(tint: Color) {
 }
 
 @Composable
-private fun SelectedCheck() {
+private fun SelectedCheck(tint: Color) {
     LoomaIcon(
         iconRes = R.drawable.ic_check,
         contentDescription = null,
-        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+        tint = tint,
     )
 }
 

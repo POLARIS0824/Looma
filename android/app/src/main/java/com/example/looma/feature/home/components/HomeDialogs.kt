@@ -13,8 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,12 +22,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -41,10 +42,84 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.looma.R
 import com.example.looma.domain.model.NoteProperties
 import com.example.looma.domain.model.StalledRelocation
+import com.example.looma.feature.home.HomeDialogActions
+import com.example.looma.feature.home.HomeFileDialog
 import com.example.looma.feature.home.HomeFileError
 import com.example.looma.ui.format.formatDateTime
 import com.example.looma.ui.format.formatFileSize
 import com.example.looma.ui.theme.LoomaTokens
+
+@Composable
+internal fun HomeFileDialogs(
+    dialog: HomeFileDialog?,
+    isActionRunning: Boolean,
+    actions: HomeDialogActions,
+) {
+    when (dialog) {
+        null, is HomeFileDialog.LoadingProperties -> Unit
+
+        is HomeFileDialog.Rename -> key(dialog.id) {
+            HomeTextInputDialog(
+                title = stringResource(R.string.home_rename_title),
+                hint = stringResource(R.string.home_rename_hint),
+                initialValue = dialog.initialName,
+                confirmLabel = stringResource(R.string.dialog_save),
+                error = dialog.error,
+                busy = isActionRunning,
+                onConfirm = { name -> actions.onConfirmRename(dialog, name) },
+                onDismiss = actions.onDialogDismiss,
+            )
+        }
+
+        is HomeFileDialog.Properties -> HomePropertiesDialog(
+            properties = dialog.properties,
+            onDismiss = actions.onDialogDismiss,
+        )
+
+        is HomeFileDialog.NewFolder -> key(dialog.id) {
+            HomeTextInputDialog(
+                title = stringResource(R.string.home_new_folder_title),
+                hint = stringResource(R.string.home_new_folder_hint),
+                initialValue = "",
+                confirmLabel = stringResource(R.string.dialog_create),
+                error = dialog.error,
+                busy = isActionRunning,
+                onConfirm = actions.onConfirmNewFolder,
+                onDismiss = actions.onDialogDismiss,
+            )
+        }
+
+        is HomeFileDialog.RenameFolder -> key(dialog.id) {
+            HomeTextInputDialog(
+                title = stringResource(R.string.home_folder_rename_title),
+                hint = stringResource(R.string.home_folder_rename_hint),
+                initialValue = dialog.initialName,
+                confirmLabel = stringResource(R.string.dialog_save),
+                error = dialog.error,
+                busy = isActionRunning,
+                onConfirm = actions.onConfirmRenameFolder,
+                onDismiss = actions.onDialogDismiss,
+            )
+        }
+
+        is HomeFileDialog.DeleteFolder -> HomeDeleteFolderDialog(
+            folderName = dialog.folderName,
+            noteCount = dialog.noteCount,
+            error = dialog.error,
+            busy = isActionRunning,
+            onConfirm = actions.onConfirmDeleteFolder,
+            onDismiss = actions.onDialogDismiss,
+        )
+
+        is HomeFileDialog.AbandonStalledRelocation -> HomeAbandonStalledRelocationDialog(
+            stalled = dialog.stalled,
+            error = dialog.error,
+            busy = isActionRunning,
+            onConfirm = actions.onConfirmAbandonStalledRelocation,
+            onDismiss = actions.onDialogDismiss,
+        )
+    }
+}
 
 @Composable
 internal fun HomeTextInputDialog(
@@ -99,7 +174,7 @@ internal fun HomeTextInputDialog(
                         isError = error != null,
                         supportingText = supporting,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { onConfirm(value) }),
+                        keyboardActions = KeyboardActions(onDone = { if (!busy) onConfirm(value) }),
                         modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                     )
                     Row(

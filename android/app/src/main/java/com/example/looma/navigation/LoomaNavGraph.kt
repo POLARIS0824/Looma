@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +71,7 @@ import com.example.looma.feature.vault.VaultSetupRoute
 import com.example.looma.feature.vault.VaultSetupViewModel
 import com.example.looma.feature.vault.VaultState
 import com.example.looma.ui.components.DelayedLoadingIndicator
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private val LocalSceneBackState = compositionLocalOf<NavigationEventState<SceneInfo<NavKey>>> {
@@ -121,6 +123,7 @@ fun LoomaNavGraph(
     if (reset == LoomaRoute.VaultSetup) return
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    var homeDrawerGestureEnabled by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
     val current = backStack.lastOrNull()
     LaunchedEffect(status, current) {
@@ -139,7 +142,7 @@ fun LoomaNavGraph(
         drawerState = drawerState,
         current = destination,
         vaultName = vault?.name.orEmpty(),
-        gesturesEnabled = destination != null,
+        gesturesEnabled = destination != null && (destination != LoomaDestination.Notes || homeDrawerGestureEnabled),
         onSelect = { target ->
             scope.launch { drawerState.close() }
             selectDrawerDestination(backStack, target)
@@ -171,13 +174,14 @@ fun LoomaNavGraph(
                             semanticSearchRepository = semanticSearchRepository,
                         ),
                     )
-                    val homeState by homeViewModel.uiState.collectAsStateWithLifecycle()
-                    LaunchedEffect(homeState.isLoading) {
-                        if (!homeState.isLoading) launchGate.release()
+                    LaunchedEffect(homeViewModel) {
+                        homeViewModel.uiState.first { !it.isLoading }
+                        launchGate.release()
                     }
                     HomeRoute(
                         viewModel = homeViewModel,
                         loadingFeedbackEnabled = launchGate.isReleased,
+                        onDrawerGestureEnabledChange = { homeDrawerGestureEnabled = it },
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
                         onOpenSearchResult = { result ->
                             backStack.add(LoomaRoute.Note.from(result.id, passage = result.passage))

@@ -72,7 +72,7 @@ internal fun HomeFilesGrid(
                 }
             }
             if (files.folders.isNotEmpty()) {
-                item(span = StaggeredGridItemSpan.FullLine) {
+                item(key = "folders-header", span = StaggeredGridItemSpan.FullLine) {
                     HomeSectionHeader(
                         title = stringResource(R.string.home_section_folders),
                         topPadding = 12.dp,
@@ -81,7 +81,7 @@ internal fun HomeFilesGrid(
                 folderSection(files.folders, isGridMode, selectedFolder, onFolderClick, onFolderLongClick)
             }
             if (files.notes.isNotEmpty()) {
-                item(span = StaggeredGridItemSpan.FullLine) {
+                item(key = "notes-header", span = StaggeredGridItemSpan.FullLine) {
                     HomeSectionHeader(
                         title = stringResource(R.string.home_section_notes),
                         topPadding = 12.dp,
@@ -90,7 +90,7 @@ internal fun HomeFilesGrid(
             }
         } else {
             if (files.isEmpty) {
-                item(span = StaggeredGridItemSpan.FullLine) {
+                item(key = "empty-folder", span = StaggeredGridItemSpan.FullLine) {
                     Text(
                         text = stringResource(R.string.home_empty_folder),
                         style = LoomaTokens.type.supporting,
@@ -137,7 +137,7 @@ private fun LazyStaggeredGridScope.folderSection(
             )
         }
     } else {
-        item(span = StaggeredGridItemSpan.FullLine) {
+        item(key = "folders-group", span = StaggeredGridItemSpan.FullLine) {
             HomeFolderGroup(
                 folders = folders,
                 selected = selectedFolder,

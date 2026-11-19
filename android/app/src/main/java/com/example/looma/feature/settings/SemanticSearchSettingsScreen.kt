@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,15 +48,79 @@ import com.example.looma.data.search.SemanticWorkState
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
 
+@Immutable
+internal data class SemanticOperationUiState(
+    val status: SemanticWorkState?,
+    val action: SemanticSettingsAction,
+)
+
+@Immutable
+internal data class SemanticSearchSettingsUiState(
+    val supported: Boolean,
+    val vaultName: String,
+    val model: SemanticOperationUiState,
+    val index: SemanticOperationUiState,
+)
+
 @Composable
 internal fun SemanticSearchSettingsRoute(
     viewModel: SemanticSearchSettingsViewModel,
     vaultName: String,
     onNavigateUp: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val modelStatus by viewModel.model.status.collectAsStateWithLifecycle()
+    val modelAction by viewModel.model.action.collectAsStateWithLifecycle()
+    val indexStatus by viewModel.index.status.collectAsStateWithLifecycle()
+    val indexAction by viewModel.index.action.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    var askedForNotifications by rememberSaveable { mutableStateOf(false) }
+    val requestNotifications = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !askedForNotifications &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            askedForNotifications = true
+            permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    SemanticSearchSettingsScreen(
+        state = SemanticSearchSettingsUiState(
+            supported = viewModel.supported,
+            vaultName = vaultName,
+            model = SemanticOperationUiState(status = modelStatus, action = modelAction),
+            index = SemanticOperationUiState(status = indexStatus, action = indexAction),
+        ),
+        onStartModel = {
+            viewModel.model.enqueue()
+            requestNotifications()
+        },
+        onCancelModel = viewModel.model::cancel,
+        onStartIndex = {
+            viewModel.index.enqueue()
+            requestNotifications()
+        },
+        onCancelIndex = viewModel.index::cancel,
+        onNavigateUp = onNavigateUp,
+        modifier = modifier,
+    )
+}
+
+@Composable
+internal fun SemanticSearchSettingsScreen(
+    state: SemanticSearchSettingsUiState,
+    onStartModel: () -> Unit,
+    onCancelModel: () -> Unit,
+    onStartIndex: () -> Unit,
+    onCancelIndex: () -> Unit,
+    onNavigateUp: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = LoomaTokens.colors.page,
         topBar = {
             TopAppBar(
@@ -115,8 +180,16 @@ internal fun SemanticSearchSettingsRoute(
                         textAlign = TextAlign.Center,
                     )
                 }
-                if (viewModel.supported) {
-                    SemanticSearchOperations(viewModel, vaultName)
+                if (state.supported) {
+                    SemanticSearchOperations(
+                        vaultName = state.vaultName,
+                        model = state.model,
+                        index = state.index,
+                        onStartModel = onStartModel,
+                        onCancelModel = onCancelModel,
+                        onStartIndex = onStartIndex,
+                        onCancelIndex = onCancelIndex,
+                    )
                     Text(
                         text = stringResource(R.string.settings_semantic_background_work),
                         style = LoomaTokens.type.supporting,
@@ -136,20 +209,15 @@ internal fun SemanticSearchSettingsRoute(
 }
 
 @Composable
-private fun SemanticSearchOperations(viewModel: SemanticSearchSettingsViewModel, vaultName: String) {
-    val modelStatus by viewModel.model.status.collectAsStateWithLifecycle()
-    val indexStatus by viewModel.index.status.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-    var askedForNotifications by rememberSaveable { mutableStateOf(false) }
-    val requestNotifications = {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !askedForNotifications &&
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            askedForNotifications = true
-            permission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
+private fun SemanticSearchOperations(
+    vaultName: String,
+    model: SemanticOperationUiState,
+    index: SemanticOperationUiState,
+    onStartModel: () -> Unit,
+    onCancelModel: () -> Unit,
+    onStartIndex: () -> Unit,
+    onCancelIndex: () -> Unit,
+) {
     var modelDetailsExpanded by rememberSaveable { mutableStateOf(false) }
 
     SettingsGroup(stringResource(R.string.settings_semantic_model_section)) {
@@ -188,7 +256,7 @@ private fun SemanticSearchOperations(viewModel: SemanticSearchSettingsViewModel,
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         SemanticOperationStatus(
-                            description = when (val state = modelStatus) {
+                            description = when (val state = model.status) {
                                 null -> stringResource(R.string.settings_semantic_checking)
                                 SemanticWorkState.Unavailable -> stringResource(R.string.settings_semantic_unsupported)
                                 SemanticWorkState.Idle -> stringResource(R.string.settings_semantic_model_size)
@@ -201,12 +269,12 @@ private fun SemanticSearchOperations(viewModel: SemanticSearchSettingsViewModel,
                                 SemanticWorkState.Cancelled -> stringResource(R.string.settings_semantic_download_cancelled)
                                 SemanticWorkState.Failed -> stringResource(R.string.settings_semantic_download_failed)
                             },
-                            operation = viewModel.model,
-                            status = modelStatus,
+                            operation = model,
                             startLabel = stringResource(R.string.settings_semantic_download),
-                            canStart = modelStatus != SemanticWorkState.Ready,
+                            canStart = model.status != SemanticWorkState.Ready,
                             filledAction = true,
-                            requestNotifications = requestNotifications,
+                            onStart = onStartModel,
+                            onCancel = onCancelModel,
                         )
                     }
                 }
@@ -231,11 +299,11 @@ private fun SemanticSearchOperations(viewModel: SemanticSearchSettingsViewModel,
                     )
                 }
                 SemanticOperationStatus(
-                    description = when (val state = indexStatus) {
+                    description = when (val state = index.status) {
                         null -> stringResource(R.string.settings_semantic_index_checking)
                         SemanticWorkState.Unavailable -> stringResource(R.string.settings_semantic_index_unavailable)
                         SemanticWorkState.Idle -> stringResource(
-                            if (modelStatus == SemanticWorkState.Ready) {
+                            if (model.status == SemanticWorkState.Ready) {
                                 R.string.settings_semantic_index_idle
                             } else {
                                 R.string.settings_semantic_index_requires_model
@@ -251,18 +319,18 @@ private fun SemanticSearchOperations(viewModel: SemanticSearchSettingsViewModel,
                         SemanticWorkState.Cancelled -> stringResource(R.string.settings_semantic_index_cancelled)
                         SemanticWorkState.Failed -> stringResource(R.string.settings_semantic_index_failed)
                     },
-                    operation = viewModel.index,
-                    status = indexStatus,
+                    operation = index,
                     startLabel = stringResource(
-                        if (indexStatus == SemanticWorkState.Ready) {
+                        if (index.status == SemanticWorkState.Ready) {
                             R.string.settings_semantic_update_index
                         } else {
                             R.string.settings_semantic_build_index
                         },
                     ),
-                    canStart = modelStatus == SemanticWorkState.Ready,
+                    canStart = model.status == SemanticWorkState.Ready,
                     filledAction = false,
-                    requestNotifications = requestNotifications,
+                    onStart = onStartIndex,
+                    onCancel = onCancelIndex,
                 )
             }
         }
@@ -272,14 +340,15 @@ private fun SemanticSearchOperations(viewModel: SemanticSearchSettingsViewModel,
 @Composable
 private fun SemanticOperationStatus(
     description: String,
-    operation: SemanticSettingsOperation,
-    status: SemanticWorkState?,
+    operation: SemanticOperationUiState,
     startLabel: String,
     canStart: Boolean,
     filledAction: Boolean,
-    requestNotifications: () -> Unit,
+    onStart: () -> Unit,
+    onCancel: () -> Unit,
 ) {
-    val action by operation.action.collectAsStateWithLifecycle()
+    val status = operation.status
+    val action = operation.action
     val active = status == SemanticWorkState.Queued || status is SemanticWorkState.Running
     val showStart = canStart && status != null && status != SemanticWorkState.Unavailable
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -298,16 +367,12 @@ private fun SemanticOperationStatus(
         }
         if (active) {
             TextButton(
-                onClick = operation::cancel,
+                onClick = onCancel,
                 enabled = action != SemanticSettingsAction.Submitting,
             ) { Text(stringResource(R.string.dialog_cancel)) }
         } else if (showStart) {
             val retry = status == SemanticWorkState.Cancelled || status == SemanticWorkState.Failed
             val label = if (retry) stringResource(R.string.settings_semantic_retry) else startLabel
-            val onStart = {
-                operation.enqueue()
-                requestNotifications()
-            }
             if (filledAction) {
                 Button(onClick = onStart, enabled = action != SemanticSettingsAction.Submitting) {
                     Text(label)

@@ -16,6 +16,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.exclude
@@ -844,9 +845,10 @@ private const val LARGE_NOTE_READ_THRESHOLD = 256 * 1024
 private const val READ_PREVIEW_IDLE_MILLIS = 1_500L
 
 @Composable
-private fun NoteLoadingScreen(
+private fun NoteStatusScaffold(
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
+    content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -858,7 +860,16 @@ private fun NoteLoadingScreen(
                 onToggleMode = null,
             )
         },
-    ) { innerPadding ->
+        content = content,
+    )
+}
+
+@Composable
+private fun NoteLoadingScreen(
+    onNavigateUp: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    NoteStatusScaffold(onNavigateUp = onNavigateUp, modifier = modifier) { innerPadding ->
         Box(
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentAlignment = Alignment.Center,
@@ -874,17 +885,7 @@ private fun NoteLoadErrorScreen(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = LoomaTokens.colors.noteCanvas,
-        topBar = {
-            NoteTopBar(
-                mode = NoteMode.Read,
-                onNavigateUp = onNavigateUp,
-                onToggleMode = null,
-            )
-        },
-    ) { innerPadding ->
+    NoteStatusScaffold(onNavigateUp = onNavigateUp, modifier = modifier) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

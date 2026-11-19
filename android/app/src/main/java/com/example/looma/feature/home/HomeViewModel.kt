@@ -45,6 +45,8 @@ class HomeViewModel(
     private var searchJob: Job? = null
     private var semanticAvailabilityJob: Job? = null
     private var revealGeneration = 0L
+    private var messageGeneration = 0L
+    private var dialogGeneration = 0L
     private var index: HomeVaultIndex = HomeVaultIndex.Empty
 
     fun refresh(): Job {
@@ -52,29 +54,50 @@ class HomeViewModel(
         clearSearch()
         refreshJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
+            val previousState = _uiState.value
+            val previousVaultId = previousState.vaultId
+            val previousSort = previousState.sort
+            val previousNotes = previousState.notes
             try {
                 val result = noteRepository.listNotes()
                 val vault = result.vault
                 val notes = result.items.map { it.toHomeItem() }
                 index = HomeVaultIndex.build(result.folders, notes)
+                var preserveSearch = false
                 _uiState.update { current ->
                     val path = current.files.path
                         .takeIf(index::contains)
                         ?: FolderPath.Root
                     val alive = notes.mapTo(mutableSetOf()) { it.listKey }
                     val selection = current.selection.normalized(alive)
+                    val orderedNotes = notes.orderedBy(current.sort)
+                    val newFiles = index.files(path, current.sort)
+                    val recentItems = when {
+                        current.recentReveal == null -> emptyList()
+                        newFiles.isAtRoot -> newFiles.recents
+                        else -> index.recents()
+                    }
+                    preserveSearch = previousVaultId == vault.id &&
+                        previousSort == current.sort &&
+                        previousNotes == orderedNotes &&
+                        !current.search.isSearching &&
+                        current.search.query.isNotBlank() &&
+                        current.search.results.isNotEmpty()
                     current.copy(
                         vaultId = vault.id,
                         vaultName = vault.name,
                         vaultRootPath = vault.rootPath,
-                        notes = notes.orderedBy(current.sort),
-                        searchResults = emptyList(),
-                        files = index.files(path, current.sort),
+                        notes = orderedNotes,
+                        search = if (preserveSearch) {
+                            current.search
+                        } else {
+                            current.search.copy(results = emptyList())
+                        },
+                        files = newFiles,
                         recentReveal = current.recentReveal?.takeIf { request ->
-                            request.presentIn(index.recents())
+                            request.presentIn(recentItems)
                         },
                         selection = selection,
-                        selectedNotes = notes.selected(selection, current.sort),
                         stalledRelocation = result.stalledRelocation,
                         isLoading = false,
                         isRefreshing = false,
@@ -85,7 +108,9 @@ class HomeViewModel(
                         },
                     )
                 }
-                scheduleSearch(_uiState.value.query, debounce = false)
+                if (!preserveSearch) {
+                    scheduleSearch(_uiState.value.search.query, debounce = false, retryFailedSemantic = false)
+                }
                 loadRecentSearches()
             } catch (e: CancellationException) {
                 throw e
@@ -95,11 +120,9 @@ class HomeViewModel(
                     it.copy(
                         vaultId = null,
                         notes = emptyList(),
-                        searchResults = emptyList(),
-                        isSearching = false,
+                        search = it.search.copy(results = emptyList(), isSearching = false),
                         files = HomeFilesState(),
                         selection = HomeSelection.None,
-                        selectedNotes = emptyList(),
                         isLoading = false,
                         isRefreshing = false,
                         error = HomeError.LoadFailed,
@@ -111,22 +134,24 @@ class HomeViewModel(
     }
 
     fun startAbandonStalledRelocation() {
-        val stalled = _uiState.value.stalledRelocation ?: return
+        val current = _uiState.value
+        if (current.isBusy) return
+        val stalled = current.stalledRelocation ?: return
         _uiState.update {
-            it.copy(dialog = HomeFileDialog.AbandonStalledRelocation(stalled), dialogError = null)
+            it.copy(dialog = HomeFileDialog.AbandonStalledRelocation(stalled, id = nextDialogId()))
         }
     }
 
     fun confirmAbandonStalledRelocation() {
         val dialog = _uiState.value.dialog as? HomeFileDialog.AbandonStalledRelocation ?: return
-        runDialogAction {
+        runDialogAction(dialog.id) {
             noteRepository.abandonStalledRelocation(dialog.stalled.journalId)
-            HomeMessage(HomeNotice.StalledRelocationAbandoned)
+            homeMessage(HomeNotice.StalledRelocationAbandoned)
         }
     }
 
     fun refreshFromUser() {
-        if (_uiState.value.isCreating || _uiState.value.isActionRunning) return
+        if (_uiState.value.isBusy) return
         _uiState.update { it.copy(isRefreshing = true) }
         refresh()
     }
@@ -137,9 +162,7 @@ class HomeViewModel(
             it.copy(
                 files = index.files(path, it.sort),
                 selection = HomeSelection.None,
-                selectedNotes = emptyList(),
                 dialog = null,
-                dialogError = null,
             )
         }
     }
@@ -151,20 +174,26 @@ class HomeViewModel(
     }
 
     fun setQuery(value: String) {
-        if (_uiState.value.query == value) return
+        if (_uiState.value.search.query == value) return
         _uiState.update {
             it.copy(
-                query = value,
-                searchResults = emptyList(),
-                isSearching = false,
-                semanticSearch = if (it.semanticSearch == HomeSemanticSearch.SearchFailed) {
-                    HomeSemanticSearch.Ready
-                } else {
-                    it.semanticSearch
-                },
+                search = it.search.copy(
+                    query = value,
+                    results = emptyList(),
+                    isSearching = false,
+                    semanticSearch = if (it.search.semanticSearch == HomeSemanticSearch.SearchFailed) {
+                        HomeSemanticSearch.Ready
+                    } else {
+                        it.search.semanticSearch
+                    },
+                ),
             )
         }
-        if (!_uiState.value.isLoading) scheduleSearch(value) else clearSearch()
+        if (!_uiState.value.isLoading) {
+            scheduleSearch(value)
+        } else {
+            clearSearch()
+        }
     }
 
     private fun clearSearch() {
@@ -174,50 +203,81 @@ class HomeViewModel(
     fun setSemanticSearch(enabled: Boolean) {
         semanticAvailabilityJob?.cancel()
         if (!enabled) {
-            selectSearchMode(HomeSemanticSearch.Off)
+            selectSearchMode(HomeSemanticSearch.Off, debounce = false)
             unloadSemanticModel()
         } else if (!semanticSearchRepository.supported) {
-            selectSearchMode(HomeSemanticSearch.Unsupported)
+            selectSearchMode(HomeSemanticSearch.Unsupported, debounce = false)
         } else {
-            selectSearchMode(HomeSemanticSearch.Checking)
-            semanticAvailabilityJob = viewModelScope.launch {
-                var previousAvailability: HomeSemanticSearch? = null
-                var wasIndexReady = false
-                combine(
-                    semanticSearchRepository.modelState,
-                    semanticSearchRepository.hasIndex,
-                    semanticSearchRepository.indexState,
-                ) { model, hasIndex, indexState ->
-                    val availability = when {
-                        model != SemanticWorkState.Ready -> HomeSemanticSearch.NeedsModel
-                        !hasIndex -> HomeSemanticSearch.NeedsIndex
-                        else -> HomeSemanticSearch.Ready
-                    }
-                    availability to (indexState == SemanticWorkState.Ready)
-                }.distinctUntilChanged().collect { (availability, isIndexReady) ->
-                    val finishedIndexing = availability == HomeSemanticSearch.Ready && isIndexReady && !wasIndexReady
-                    if (availability != previousAvailability || finishedIndexing) {
-                        selectSearchMode(availability)
-                    }
-                    previousAvailability = availability
-                    wasIndexReady = isIndexReady
+            startSemanticAvailabilityObserver()
+        }
+    }
+
+    private fun startSemanticAvailabilityObserver() {
+        semanticAvailabilityJob?.cancel()
+        _uiState.update {
+            it.copy(
+                search = it.search.copy(
+                    semanticSearch = HomeSemanticSearch.Checking,
+                    results = emptyList(),
+                    isSearching = false,
+                ),
+            )
+        }
+        semanticAvailabilityJob = viewModelScope.launch {
+            var previousAvailability: HomeSemanticSearch? = null
+            var wasIndexReady = false
+            combine(
+                semanticSearchRepository.modelState,
+                semanticSearchRepository.hasIndex,
+                semanticSearchRepository.indexState,
+            ) { model, hasIndex, indexState ->
+                semanticAvailability(model, hasIndex) to (indexState == SemanticWorkState.Ready)
+            }.distinctUntilChanged().collect { (availability, isIndexReady) ->
+                val finishedIndexing = availability == HomeSemanticSearch.Ready && isIndexReady && !wasIndexReady
+                if (availability != previousAvailability || finishedIndexing) {
+                    selectSearchMode(availability, debounce = false)
                 }
+                previousAvailability = availability
+                wasIndexReady = isIndexReady
             }
         }
     }
 
-    private fun selectSearchMode(status: HomeSemanticSearch) {
-        _uiState.update { it.copy(semanticSearch = status, searchResults = emptyList(), isSearching = false) }
-        if (!_uiState.value.isLoading) scheduleSearch(_uiState.value.query) else clearSearch()
+    private fun selectSearchMode(status: HomeSemanticSearch, debounce: Boolean = true) {
+        _uiState.update {
+            it.copy(
+                search = it.search.copy(
+                    semanticSearch = status,
+                    results = emptyList(),
+                    isSearching = false,
+                ),
+            )
+        }
+        if (!_uiState.value.isLoading) {
+            scheduleSearch(_uiState.value.search.query, debounce = debounce, retryFailedSemantic = false)
+        } else {
+            clearSearch()
+        }
     }
 
     fun retrySemanticSearch() {
-        if (_uiState.value.semanticSearch == HomeSemanticSearch.SearchFailed) {
-            scheduleSearch(_uiState.value.query, debounce = false)
+        if (_uiState.value.search.semanticSearch == HomeSemanticSearch.SearchFailed) {
+            scheduleSearch(_uiState.value.search.query, debounce = false, retryFailedSemantic = true)
+        }
+    }
+
+    fun onSearchOpened() {
+        val semantic = _uiState.value.search.semanticSearch
+        if (semantic != HomeSemanticSearch.Off &&
+            semantic != HomeSemanticSearch.Unsupported &&
+            semanticAvailabilityJob?.isActive != true
+        ) {
+            startSemanticAvailabilityObserver()
         }
     }
 
     fun onSearchClosed() {
+        semanticAvailabilityJob?.cancel()
         setQuery("")
         unloadSemanticModel()
     }
@@ -226,16 +286,22 @@ class HomeViewModel(
         viewModelScope.launch { semanticSearchRepository.releaseModel() }
     }
 
-    private fun scheduleSearch(value: String, debounce: Boolean = true) {
+    private fun scheduleSearch(
+        value: String,
+        debounce: Boolean = true,
+        retryFailedSemantic: Boolean = false,
+    ) {
         searchJob?.cancel()
         val keyword = value.trim()
         if (keyword.isEmpty()) return
-        val semantic = _uiState.value.semanticSearch
+        val semantic = _uiState.value.search.semanticSearch
         if (semantic != HomeSemanticSearch.Off) {
-            if (semantic.canSearch) scheduleSemanticSearch(value, keyword, debounce)
+            val canSearch = semantic == HomeSemanticSearch.Ready ||
+                (retryFailedSemantic && semantic == HomeSemanticSearch.SearchFailed)
+            if (canSearch) scheduleSemanticSearch(value, keyword, debounce)
             return
         }
-        _uiState.update { it.copy(isSearching = true) }
+        _uiState.update { it.copy(search = it.search.copy(isSearching = true)) }
         searchJob = viewModelScope.launch {
             if (debounce) delay(SEARCH_DEBOUNCE_MS)
             val snapshotState = _uiState.value
@@ -260,12 +326,15 @@ class HomeViewModel(
                 }
             }
             _uiState.update { current ->
-                if (current.query != value) {
+                if (current.search.query != value) {
                     current
                 } else {
+                    val sortedResults = if (sort == current.sort) results else results.orderedBy(current.sort)
                     current.copy(
-                        searchResults = if (sort == current.sort) results else results.orderedBy(current.sort),
-                        isSearching = false,
+                        search = current.search.copy(
+                            results = sortedResults,
+                            isSearching = false,
+                        ),
                     )
                 }
             }
@@ -273,7 +342,14 @@ class HomeViewModel(
     }
 
     private fun scheduleSemanticSearch(value: String, keyword: String, debounce: Boolean) {
-        _uiState.update { it.copy(semanticSearch = HomeSemanticSearch.Ready, isSearching = true) }
+        _uiState.update {
+            it.copy(
+                search = it.search.copy(
+                    semanticSearch = HomeSemanticSearch.Ready,
+                    isSearching = true,
+                ),
+            )
+        }
         searchJob = viewModelScope.launch {
             if (debounce) delay(SEARCH_DEBOUNCE_MS)
             val notes = _uiState.value.notes.associateBy { it.id }
@@ -301,8 +377,14 @@ class HomeViewModel(
                 emptyList<HomeSearchResult>() to HomeSemanticSearch.Unsupported
             }
             _uiState.update {
-                if (it.query == value && it.semanticSearch.canSearch) {
-                    it.copy(searchResults = results, semanticSearch = status, isSearching = false)
+                if (it.search.query == value && it.search.semanticSearch.canSearch) {
+                    it.copy(
+                        search = it.search.copy(
+                            results = results,
+                            semanticSearch = status,
+                            isSearching = false,
+                        ),
+                    )
                 } else {
                     it
                 }
@@ -311,7 +393,7 @@ class HomeViewModel(
     }
 
     fun recordSearch() {
-        val query = _uiState.value.query
+        val query = _uiState.value.search.query
         if (query.isBlank()) return
         viewModelScope.launch {
             try {
@@ -330,75 +412,85 @@ class HomeViewModel(
         it.copy(
             sort = sort,
             notes = it.notes.orderedBy(sort),
-            searchResults = if (it.semanticSearch == HomeSemanticSearch.Off) it.searchResults.orderedBy(sort) else it.searchResults,
+            search = if (it.search.semanticSearch == HomeSemanticSearch.Off) {
+                it.search.copy(results = it.search.results.orderedBy(sort))
+            } else {
+                it.search
+            },
             files = index.files(it.files.path, sort),
-            selectedNotes = it.selectedNotes.orderedBy(sort),
         )
     }
 
     fun createNote(title: String) {
-        if (_uiState.value.isCreating) return
+        if (_uiState.value.isBusy) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isCreating = true, error = null) }
+            _uiState.update { it.copy(busy = HomeBusy.CreatingNote, error = null) }
             try {
                 val folder = _uiState.value.files.path
                 val note = noteRepository.createNote(title = title, folder = folder)
                 val request = RecentReveal(++revealGeneration, note.id)
-                _uiState.update { it.copy(createdNote = note.id, recentReveal = request) }
+                _uiState.update {
+                    it.copy(
+                        pendingOpen = HomePendingOpen(note.id, isNew = true),
+                        recentReveal = request,
+                    )
+                }
                 refresh().join()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = HomeError.CreateFailed) }
             } finally {
-                _uiState.update { it.copy(isCreating = false) }
+                _uiState.update { current ->
+                    if (current.busy == HomeBusy.CreatingNote) current.copy(busy = HomeBusy.Idle) else current
+                }
             }
         }
     }
 
-    fun onCreatedNoteOpened() = _uiState.update { it.copy(createdNote = null) }
-
-    fun onNoteOpened() = _uiState.update { it.copy(noteToOpen = null) }
+    fun onPendingOpenHandled() = _uiState.update { it.copy(pendingOpen = null) }
 
     fun onRecentRevealed(request: RecentReveal) = _uiState.update { it.acknowledgeReveal(request) }
 
     fun onSelectionEvent(event: HomeSelectionEvent) {
         val current = _uiState.value
-        if (current.isActionRunning) return
+        if (current.isBusy) return
         when (val outcome = reduceHomeSelection(current.selection, event)) {
             is HomeSelectionOutcome.Changed -> _uiState.update {
                 it.copy(
                     selection = outcome.selection,
-                    selectedNotes = it.notes.selected(outcome.selection, it.sort),
                     dialog = null,
-                    dialogError = null,
                 )
             }
             is HomeSelectionOutcome.OpenFolder -> openFolder(outcome.path)
-            is HomeSelectionOutcome.OpenNote -> _uiState.update { it.copy(noteToOpen = outcome.id) }
+            is HomeSelectionOutcome.OpenNote -> _uiState.update {
+                it.copy(pendingOpen = HomePendingOpen(outcome.id, isNew = false))
+            }
         }
     }
 
     fun clearSelection() = _uiState.update {
         it.copy(
             selection = HomeSelection.None,
-            selectedNotes = emptyList(),
             dialog = null,
-            dialogError = null,
         )
     }
 
     fun startRename() {
-        val item = _uiState.value.singleNote() ?: return
+        val current = _uiState.value
+        if (current.isBusy) return
+        val item = current.singleNote() ?: return
         _uiState.update {
-            it.copy(dialog = HomeFileDialog.Rename(item.id, item.fileName), dialogError = null)
+            it.copy(dialog = HomeFileDialog.Rename(item.id, item.fileName, id = nextDialogId()))
         }
     }
 
     fun startProperties() {
-        val item = _uiState.value.singleNote() ?: return
+        val current = _uiState.value
+        if (current.isBusy) return
+        val item = current.singleNote() ?: return
         val request = HomeFileDialog.LoadingProperties(item.id)
-        _uiState.update { it.copy(dialog = request, dialogError = null) }
+        _uiState.update { it.copy(dialog = request) }
         viewModelScope.launch {
             val properties = try {
                 noteRepository.properties(request.noteId)
@@ -407,41 +499,39 @@ class HomeViewModel(
             } catch (_: Exception) {
                 null
             }
-            _uiState.update { it.finishProperties(request, properties) }
+            val failureGeneration = if (properties == null) ++messageGeneration else 0L
+            _uiState.update { it.finishProperties(request, properties, failureGeneration) }
         }
     }
 
-    fun startNewFolder() = _uiState.update {
-        it.copy(dialog = HomeFileDialog.NewFolder, dialogError = null)
+    fun startNewFolder() {
+        if (_uiState.value.isBusy) return
+        _uiState.update {
+            it.copy(dialog = HomeFileDialog.NewFolder(id = nextDialogId()))
+        }
     }
 
-    fun dismissDialog() = _uiState.update { it.copy(dialog = null, dialogError = null) }
+    fun dismissDialog() = _uiState.update { it.copy(dialog = null) }
 
     fun confirmRename(dialog: HomeFileDialog.Rename, name: String) {
-        if (_uiState.value.dialog !== dialog) return
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) {
-            _uiState.update { it.copy(dialogError = HomeFileError.EMPTY_NAME) }
-            return
-        }
-        runDialogAction {
-            val outcome = noteRepository.renameNote(dialog.noteId, trimmed)
-            HomeMessage(
+        val active = _uiState.value.dialog as? HomeFileDialog.Rename ?: return
+        if (active.id != dialog.id) return
+        val trimmed = trimmedNameOrError(active, name) ?: return
+        runDialogAction(active.id) {
+            val outcome = noteRepository.renameNote(active.noteId, trimmed)
+            homeMessage(
                 notice = HomeNotice.Renamed(outcome.linksUpdated, outcome.linksFailed),
-                undo = HomeUndo.RenameNote(outcome.note.id, dialog.initialName),
+                undo = HomeUndo.RenameNote(outcome.note.id, active.initialName),
             )
         }
     }
 
     fun confirmNewFolder(name: String) {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) {
-            _uiState.update { it.copy(dialogError = HomeFileError.EMPTY_NAME) }
-            return
-        }
-        runDialogAction {
+        val dialog = _uiState.value.dialog as? HomeFileDialog.NewFolder ?: return
+        val trimmed = trimmedNameOrError(dialog, name) ?: return
+        runDialogAction(dialog.id) {
             val folder = folderRepository.createFolder(_uiState.value.files.path, trimmed)
-            HomeMessage(
+            homeMessage(
                 notice = HomeNotice.FolderCreated,
                 undo = HomeUndo.DeleteFolder(folder.path, folder.vaultId),
             )
@@ -449,40 +539,39 @@ class HomeViewModel(
     }
 
     fun startFolderRename() {
-        val folder = _uiState.value.selectedFolder ?: return
+        val current = _uiState.value
+        if (current.isBusy) return
+        val folder = current.selectedFolder ?: return
         _uiState.update {
             it.copy(
-                dialog = HomeFileDialog.RenameFolder(folder.path, folder.name),
-                dialogError = null,
+                dialog = HomeFileDialog.RenameFolder(folder.path, folder.name, id = nextDialogId()),
             )
         }
     }
 
     fun startFolderDelete() {
-        val folder = _uiState.value.selectedFolder ?: return
+        val current = _uiState.value
+        if (current.isBusy) return
+        val folder = current.selectedFolder ?: return
         _uiState.update {
             it.copy(
                 dialog = HomeFileDialog.DeleteFolder(
                     path = folder.path,
                     folderName = folder.name,
                     noteCount = index.noteCountUnder(folder.path),
+                    id = nextDialogId(),
                 ),
-                dialogError = null,
             )
         }
     }
 
     fun confirmRenameFolder(name: String) {
         val dialog = _uiState.value.dialog as? HomeFileDialog.RenameFolder ?: return
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) {
-            _uiState.update { it.copy(dialogError = HomeFileError.EMPTY_NAME) }
-            return
-        }
+        val trimmed = trimmedNameOrError(dialog, name) ?: return
         val previousName = dialog.path.relativePath.substringAfterLast('/')
-        runDialogAction {
+        runDialogAction(dialog.id) {
             val renamed = folderRepository.renameFolder(dialog.path, trimmed)
-            HomeMessage(
+            homeMessage(
                 notice = HomeNotice.FolderRenamed,
                 undo = HomeUndo.RenameFolder(renamed.path, previousName),
             )
@@ -492,9 +581,9 @@ class HomeViewModel(
     fun confirmDeleteFolder() {
         val dialog = _uiState.value.dialog as? HomeFileDialog.DeleteFolder ?: return
         val vaultId = _uiState.value.vaultId ?: return
-        runDialogAction {
+        runDialogAction(dialog.id) {
             val result = folderRepository.deleteFolderWithOutcome(dialog.path, vaultId)
-            HomeMessage(
+            homeMessage(
                 notice = if (result.directoryRemoved) {
                     HomeNotice.FolderDeleted(result.trashIds.size)
                 } else {
@@ -507,11 +596,11 @@ class HomeViewModel(
 
     fun moveSelectionTo(target: FolderPath?) {
         if (target == null) {
-            _uiState.update { it.copy(message = HomeMessage(HomeNotice.InvalidMoveTarget)) }
+            _uiState.update { it.copy(message = homeMessage(HomeNotice.InvalidMoveTarget)) }
             return
         }
         val state = _uiState.value
-        if (state.isActionRunning) return
+        if (state.isBusy) return
         when (val selection = state.selection) {
             HomeSelection.None -> Unit
             is HomeSelection.Folder -> moveFolderTo(selection.item, target)
@@ -521,29 +610,28 @@ class HomeViewModel(
 
     private fun moveNotesTo(notes: List<HomeNoteItem>, target: FolderPath) {
         if (notes.isEmpty()) return
-        runNoteBatch {
+        runBusyAction {
             val result = processNotes(notes) { note ->
                 MovedNote(noteRepository.relocateNote(note.id, target), note.id.path)
             }
             val count = result.completed.size
             val notice = when {
-                count == 0 -> (result.failure as? VaultFileException)?.toMessage()?.notice ?: HomeNotice.ActionFailed
+                count == 0 -> (result.failure as? VaultFileException)?.toNotice() ?: HomeNotice.ActionFailed
                 result.failed > 0 -> HomeNotice.MovePartial(count, result.failed)
                 else -> HomeNotice.Moved(count)
             }
             val moved = result.completed.filter { it.id.path != it.originalPath }
             val undo = moved.takeIf { it.isNotEmpty() }?.let { HomeUndo.MoveNotes(it) }
-            finishNoteBatch(result, HomeMessage(notice, undo))
+            finishNoteBatch(result, homeMessage(notice, undo))
         }
     }
 
     private fun moveFolderTo(folder: HomeFolderItem, target: FolderPath) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isActionRunning = true) }
+        runBusyAction {
             try {
                 val moved = folderRepository.moveFolder(folder.path, target)
                 finishAction(
-                    HomeMessage(
+                    homeMessage(
                         notice = HomeNotice.FolderMoved,
                         undo = HomeUndo.MoveFolder(moved.path, folder.path.parentFolder()),
                     ),
@@ -553,13 +641,11 @@ class HomeViewModel(
             } catch (e: RelocationStalledException) {
                 reportStalledRelocation(e.stalled)
             } catch (e: VaultFileException) {
-                _uiState.update { it.copy(isActionRunning = false, message = e.toMessage()) }
-                refresh()
+                _uiState.update { it.copy(message = homeMessage(e.toNotice())) }
+                refresh().join()
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(isActionRunning = false, message = HomeMessage(HomeNotice.ActionFailed))
-                }
-                refresh()
+                _uiState.update { it.copy(message = homeMessage(HomeNotice.ActionFailed)) }
+                refresh().join()
             }
         }
     }
@@ -568,7 +654,7 @@ class HomeViewModel(
         val state = _uiState.value
         val vaultId = state.vaultId ?: return
         if (state.selectedNotes.isEmpty()) return
-        runNoteBatch {
+        runBusyAction {
             val result = processNotes(state.selectedNotes) { note -> noteRepository.deleteNote(note.id).trashId }
             val count = result.completed.size
             val notice = when {
@@ -577,32 +663,36 @@ class HomeViewModel(
                 else -> HomeNotice.Deleted(count)
             }
             val undo = result.completed.takeIf { it.isNotEmpty() }?.let { HomeUndo.RestoreNotes(it, vaultId) }
-            finishNoteBatch(result, HomeMessage(notice, undo))
+            finishNoteBatch(result, homeMessage(notice, undo))
         }
     }
 
     fun undo(action: HomeUndo) {
-        runNoteBatch {
+        runBusyAction {
             try {
-                finishAction(HomeMessage(applyUndo(action)))
+                finishAction(homeMessage(applyUndo(action)))
             } catch (e: RelocationStalledException) {
                 reportStalledRelocation(e.stalled)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                finishAction(HomeMessage(HomeNotice.UndoFailed))
+                finishAction(homeMessage(HomeNotice.UndoFailed))
             }
         }
     }
 
-    private fun runNoteBatch(action: suspend () -> Unit) {
-        if (_uiState.value.isActionRunning) return
+    private fun runBusyAction(action: suspend () -> Unit) {
+        if (_uiState.value.isBusy) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isActionRunning = true, dialogError = null) }
+            _uiState.update {
+                it.copy(busy = HomeBusy.RunningAction, dialog = it.dialog?.withError(null))
+            }
             try {
                 action()
             } finally {
-                _uiState.update { it.copy(isActionRunning = false) }
+                _uiState.update { current ->
+                    if (current.busy == HomeBusy.RunningAction) current.copy(busy = HomeBusy.Idle) else current
+                }
             }
         }
     }
@@ -696,13 +786,27 @@ class HomeViewModel(
         } catch (e: Exception) {
             emptyList()
         }
-        _uiState.update { it.copy(recentSearches = recent) }
+        _uiState.update { it.copy(search = it.search.copy(recentSearches = recent)) }
     }
 
-    private fun runDialogAction(message: suspend () -> HomeMessage) {
+    private fun trimmedNameOrError(dialog: HomeFileDialog, name: String): String? {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) {
+            val id = dialog.instanceId
+            if (id != null) {
+                _uiState.update { it.applyDialogError(id, HomeFileError.EMPTY_NAME) }
+            }
+            return null
+        }
+        return trimmed
+    }
+
+    private fun runDialogAction(dialogId: Long, message: suspend () -> HomeMessage) {
         val state = _uiState.value
-        if (state.isActionRunning) return
-        _uiState.update { it.copy(isActionRunning = true, dialogError = null) }
+        if (state.isBusy) return
+        _uiState.update {
+            it.copy(busy = HomeBusy.RunningAction, dialog = it.dialog?.withError(null))
+        }
         viewModelScope.launch {
             try {
                 finishAction(message())
@@ -712,11 +816,10 @@ class HomeViewModel(
                 reportStalledRelocation(e.stalled)
             } catch (e: Exception) {
                 val error = (e as? VaultFileException)?.failure?.toHomeFileError() ?: HomeFileError.GENERIC
+                _uiState.update { current -> current.applyDialogError(dialogId, error) }
+            } finally {
                 _uiState.update { current ->
-                    current.copy(
-                        isActionRunning = false,
-                        dialogError = error.takeIf { current.dialog === state.dialog },
-                    )
+                    if (current.busy == HomeBusy.RunningAction) current.copy(busy = HomeBusy.Idle) else current
                 }
             }
         }
@@ -724,7 +827,7 @@ class HomeViewModel(
 
     private suspend fun reportStalledRelocation(stalled: StalledRelocation) {
         _uiState.update {
-            it.copy(dialog = null, dialogError = null, stalledRelocation = stalled)
+            it.copy(dialog = null, stalledRelocation = stalled)
         }
         refresh().join()
         _uiState.update {
@@ -733,19 +836,17 @@ class HomeViewModel(
             } else {
                 HomeNotice.StalledRelocationUnfinished
             }
-            it.copy(isActionRunning = false, message = HomeMessage(notice))
+            it.copy(busy = HomeBusy.Idle, message = homeMessage(notice))
         }
     }
 
     private suspend fun finishAction(message: HomeMessage) {
-        refresh()
+        refresh().join()
         _uiState.update {
             it.copy(
-                isActionRunning = false,
+                busy = HomeBusy.Idle,
                 dialog = null,
-                dialogError = null,
                 selection = HomeSelection.None,
-                selectedNotes = emptyList(),
                 message = message,
             )
         }
@@ -758,6 +859,11 @@ class HomeViewModel(
     }
 
     private fun HomeUiState.singleNote(): HomeNoteItem? = selectedNotes.singleOrNull()
+
+    private fun homeMessage(notice: HomeNotice, undo: HomeUndo? = null): HomeMessage =
+        HomeMessage(notice, undo, ++messageGeneration)
+
+    private fun nextDialogId(): Long = ++dialogGeneration
 
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 180L
@@ -787,13 +893,11 @@ private fun VaultFileFailure.toHomeFileError(): HomeFileError = when (this) {
     else -> HomeFileError.GENERIC
 }
 
-private fun VaultFileException.toMessage(): HomeMessage = HomeMessage(
-    when (failure) {
-        VaultFileFailure.INVALID_PATH -> HomeNotice.InvalidMoveTarget
-        VaultFileFailure.NAME_TAKEN, VaultFileFailure.ALREADY_EXISTS -> HomeNotice.NameTaken
-        else -> HomeNotice.ActionFailed
-    },
-)
+private fun VaultFileException.toNotice(): HomeNotice = when (failure) {
+    VaultFileFailure.INVALID_PATH -> HomeNotice.InvalidMoveTarget
+    VaultFileFailure.NAME_TAKEN, VaultFileFailure.ALREADY_EXISTS -> HomeNotice.NameTaken
+    else -> HomeNotice.ActionFailed
+}
 
 private fun NoteListEntry.toHomeItem() = HomeNoteItem(
     summary = summary,

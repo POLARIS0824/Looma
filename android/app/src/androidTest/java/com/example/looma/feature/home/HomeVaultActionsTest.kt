@@ -236,10 +236,10 @@ class HomeVaultActionsTest {
         val expectedPaths = listOf("Long.md")
         val result = withTimeout(10_000) {
             home.uiState.first { state ->
-                state.searchResults.map { it.id.path.relativePath } == expectedPaths
+                state.search.results.map { it.id.path.relativePath } == expectedPaths
             }
         }
-        assertEquals("尾", result.query)
+        assertEquals("尾", result.search.query)
     }
 
     @Test
@@ -256,8 +256,8 @@ class HomeVaultActionsTest {
     private suspend fun searchPaths(query: String): List<String> {
         withContext(Dispatchers.Main) { home.setQuery(query) }
         return withTimeout(10_000) {
-            home.uiState.first { it.query == query && !it.isSearching }
-                .searchResults.map { it.id.path.relativePath }
+            home.uiState.first { it.search.query == query && !it.search.isSearching }
+                .search.results.map { it.id.path.relativePath }
         }
     }
 

@@ -142,15 +142,6 @@ class HomeVaultIndexTest {
         assertTrue(request.presentIn(listOf(HomeRecentItem(target, ""))))
     }
 
-    @Test
-    fun `folder direction follows ancestry rather than depth or prefix`() {
-        assertEquals(FolderMotion.Forward, folderMotion(FolderPath.Root, FolderPath("a/b")))
-        assertEquals(FolderMotion.Backward, folderMotion(FolderPath("a/b"), FolderPath.Root))
-        assertEquals(FolderMotion.Forward, folderMotion(FolderPath("a"), FolderPath("a/b/c")))
-        assertEquals(FolderMotion.Replace, folderMotion(FolderPath("a/b"), FolderPath("x")))
-        assertEquals(FolderMotion.Replace, folderMotion(FolderPath("a"), FolderPath("ab/c")))
-    }
-
     private fun indexOf(notes: List<HomeNoteItem>, folders: List<VaultFolder>): HomeVaultIndex =
         HomeVaultIndex.build(folders, notes)
 

@@ -10,6 +10,20 @@ import com.example.looma.domain.model.VaultId
 import com.example.looma.domain.model.removeMarkdownSuffix
 import java.util.Locale
 
+enum class HomeTopBarMode { Root, Folder, Selection }
+
+enum class HomeBusy { Idle, CreatingNote, RunningAction }
+
+data class HomePendingOpen(val noteId: NoteId, val isNew: Boolean)
+
+data class HomeSearchUiState(
+    val query: String = "",
+    val results: List<HomeSearchResult> = emptyList(),
+    val isSearching: Boolean = false,
+    val semanticSearch: HomeSemanticSearch = HomeSemanticSearch.Off,
+    val recentSearches: List<String> = emptyList(),
+)
+
 sealed interface HomeError {
     data class UnreadableNotes(val count: Int) : HomeError
     data object LoadFailed : HomeError
@@ -58,6 +72,7 @@ data class MovedNote(val id: NoteId, val originalPath: NotePath)
 data class HomeMessage(
     val notice: HomeNotice,
     val undo: HomeUndo? = null,
+    val generation: Long = 0L,
 )
 
 sealed interface HomeNotice {
@@ -86,19 +101,65 @@ sealed interface HomeNotice {
 }
 
 sealed interface HomeFileDialog {
-    class Rename(val noteId: NoteId, val initialName: String) : HomeFileDialog
-    class LoadingProperties(val noteId: NoteId) : HomeFileDialog
-    data class Properties(val properties: NoteProperties) : HomeFileDialog
-    data object NewFolder : HomeFileDialog
+    data class Rename(
+        val noteId: NoteId,
+        val initialName: String,
+        val error: HomeFileError? = null,
+        val id: Long = 0L,
+    ) : HomeFileDialog
 
-    data class RenameFolder(val path: FolderPath, val initialName: String) : HomeFileDialog
+    class LoadingProperties(val noteId: NoteId) : HomeFileDialog
+
+    data class Properties(val properties: NoteProperties) : HomeFileDialog
+
+    data class NewFolder(
+        val error: HomeFileError? = null,
+        val id: Long = 0L,
+    ) : HomeFileDialog
+
+    data class RenameFolder(
+        val path: FolderPath,
+        val initialName: String,
+        val error: HomeFileError? = null,
+        val id: Long = 0L,
+    ) : HomeFileDialog
+
     data class DeleteFolder(
         val path: FolderPath,
         val folderName: String,
         val noteCount: Int,
+        val error: HomeFileError? = null,
+        val id: Long = 0L,
     ) : HomeFileDialog
 
-    data class AbandonStalledRelocation(val stalled: StalledRelocation) : HomeFileDialog
+    data class AbandonStalledRelocation(
+        val stalled: StalledRelocation,
+        val error: HomeFileError? = null,
+        val id: Long = 0L,
+    ) : HomeFileDialog
+}
+
+internal val HomeFileDialog.instanceId: Long?
+    get() = when (this) {
+        is HomeFileDialog.Rename -> id
+        is HomeFileDialog.NewFolder -> id
+        is HomeFileDialog.RenameFolder -> id
+        is HomeFileDialog.DeleteFolder -> id
+        is HomeFileDialog.AbandonStalledRelocation -> id
+        is HomeFileDialog.LoadingProperties,
+        is HomeFileDialog.Properties,
+        -> null
+    }
+
+internal fun HomeFileDialog.withError(error: HomeFileError?): HomeFileDialog = when (this) {
+    is HomeFileDialog.Rename -> copy(error = error)
+    is HomeFileDialog.NewFolder -> copy(error = error)
+    is HomeFileDialog.RenameFolder -> copy(error = error)
+    is HomeFileDialog.DeleteFolder -> copy(error = error)
+    is HomeFileDialog.AbandonStalledRelocation -> copy(error = error)
+    is HomeFileDialog.LoadingProperties,
+    is HomeFileDialog.Properties,
+    -> this
 }
 
 data class HomeNoteItem(
@@ -143,37 +204,46 @@ data class HomeUiState(
     val vaultName: String = "Looma",
     val vaultRootPath: String? = null,
     val notes: List<HomeNoteItem> = emptyList(),
-    val searchResults: List<HomeSearchResult> = emptyList(),
-    val query: String = "",
-    val isSearching: Boolean = false,
-    val semanticSearch: HomeSemanticSearch = HomeSemanticSearch.Off,
-    val recentSearches: List<String> = emptyList(),
+    val search: HomeSearchUiState = HomeSearchUiState(),
     val isGridMode: Boolean = true,
     val sort: HomeSort = HomeSort.LAST_MODIFIED,
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
-    val isCreating: Boolean = false,
+    val busy: HomeBusy = HomeBusy.Idle,
     val error: HomeError? = null,
-    val createdNote: NoteId? = null,
-    val noteToOpen: NoteId? = null,
+    val pendingOpen: HomePendingOpen? = null,
     val recentReveal: RecentReveal? = null,
     val files: HomeFilesState = HomeFilesState(),
     val selection: HomeSelection = HomeSelection.None,
-    val selectedNotes: List<HomeNoteItem> = emptyList(),
     val dialog: HomeFileDialog? = null,
-    val dialogError: HomeFileError? = null,
-    val isActionRunning: Boolean = false,
     val message: HomeMessage? = null,
     val stalledRelocation: StalledRelocation? = null,
 ) {
+    val topBarMode: HomeTopBarMode
+        get() = when {
+            selection != HomeSelection.None -> HomeTopBarMode.Selection
+            files.isAtRoot -> HomeTopBarMode.Root
+            else -> HomeTopBarMode.Folder
+        }
+
     val isBrowsing: Boolean get() = !files.isAtRoot
     val isSelecting: Boolean get() = selection != HomeSelection.None
+    val isBusy: Boolean get() = busy != HomeBusy.Idle
+    val isCreating: Boolean get() = busy == HomeBusy.CreatingNote
+    val isActionRunning: Boolean get() = busy == HomeBusy.RunningAction
     val selectedFolder: HomeFolderItem? get() = selection.folder
     val selectedKeys: Set<String> get() = selection.noteKeys
+    val selectedNotes: List<HomeNoteItem>
+        get() = if (selection is HomeSelection.Notes) {
+            notes.filter { it.listKey in selection.keys }.orderedBy(sort)
+        } else {
+            emptyList()
+        }
 
     internal fun finishProperties(
         request: HomeFileDialog.LoadingProperties,
         properties: NoteProperties?,
+        messageGeneration: Long = 0L,
     ): HomeUiState {
         if (dialog !== request) return this
         if (vaultId != request.noteId.vaultId || selectedNotes.singleOrNull()?.id != request.noteId) {
@@ -182,27 +252,34 @@ data class HomeUiState(
         return if (properties != null) {
             copy(dialog = HomeFileDialog.Properties(properties))
         } else {
-            copy(dialog = null, message = HomeMessage(HomeNotice.ActionFailed))
+            copy(dialog = null, message = HomeMessage(HomeNotice.ActionFailed, generation = messageGeneration))
         }
+    }
+
+    internal fun applyDialogError(dialogId: Long, error: HomeFileError): HomeUiState {
+        val current = dialog ?: return this
+        if (current.instanceId != dialogId) return this
+        return copy(dialog = current.withError(error))
     }
 }
 
-internal fun List<HomeNoteItem>.orderedBy(sort: HomeSort): List<HomeNoteItem> {
+internal fun <T> List<T>.orderedByNote(
+    sort: HomeSort,
+    noteOf: (T) -> HomeNoteItem,
+): List<T> {
     if (size <= 1) return toList()
     return when (sort) {
         HomeSort.LAST_MODIFIED -> sortedWith(
-            compareByDescending<HomeNoteItem> { it.summary.modifiedAt }.thenBy { it.listKey },
+            compareByDescending<T> { noteOf(it).summary.modifiedAt }.thenBy { noteOf(it).listKey },
         )
-        HomeSort.TITLE -> map { it to it.summary.title.lowercase(Locale.ROOT) }
-            .sortedWith(compareBy<Pair<HomeNoteItem, String>> { it.second }.thenBy { it.first.listKey })
+        HomeSort.TITLE -> map { it to noteOf(it).summary.title.lowercase(Locale.ROOT) }
+            .sortedWith(compareBy<Pair<T, String>> { it.second }.thenBy { noteOf(it.first).listKey })
             .map { it.first }
-        HomeSort.TITLE_DESCENDING -> map { it to it.summary.title.lowercase(Locale.ROOT) }
-            .sortedWith(compareByDescending<Pair<HomeNoteItem, String>> { it.second }.thenBy { it.first.listKey })
+        HomeSort.TITLE_DESCENDING -> map { it to noteOf(it).summary.title.lowercase(Locale.ROOT) }
+            .sortedWith(compareByDescending<Pair<T, String>> { it.second }.thenBy { noteOf(it.first).listKey })
             .map { it.first }
     }
 }
 
-internal fun List<HomeNoteItem>.selected(
-    selection: HomeSelection,
-    sort: HomeSort,
-): List<HomeNoteItem> = filter { it.listKey in selection.noteKeys }.orderedBy(sort)
+internal fun List<HomeNoteItem>.orderedBy(sort: HomeSort): List<HomeNoteItem> =
+    orderedByNote(sort) { it }

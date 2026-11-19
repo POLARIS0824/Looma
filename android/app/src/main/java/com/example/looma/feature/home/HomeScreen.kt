@@ -1,26 +1,16 @@
 package com.example.looma.feature.home
 
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterExitState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -59,11 +49,14 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,39 +69,46 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import com.example.looma.R
 import com.example.looma.data.vault.VaultStorageAccess
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.StalledRelocation
-import com.example.looma.feature.home.components.HomeAbandonStalledRelocationDialog
-import com.example.looma.feature.home.components.HomeDeleteFolderDialog
+import com.example.looma.feature.home.components.HomeFileDialogs
 import com.example.looma.feature.home.components.HomeFilesGrid
-import com.example.looma.feature.home.components.HomePropertiesDialog
-import com.example.looma.feature.home.components.HomeSearchBar
-import com.example.looma.feature.home.components.HomeSelectionBar
-import com.example.looma.feature.home.components.HomeTextInputDialog
+import com.example.looma.feature.home.components.HomeListControls
+import com.example.looma.feature.home.components.HomeSearchField
+import com.example.looma.feature.home.components.HomeSearchOverlay
+import com.example.looma.feature.home.components.HomeTopBarHost
+import com.example.looma.feature.home.components.rememberHomeSearchState
+import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.LoomaLoadingIndicator
-import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.theme.LoomaTokens
 
 @Immutable
-data class HomeActions(
+data class HomeSearchActions(
     val onQueryChange: (String) -> Unit = {},
     val onSearchSubmit: () -> Unit = {},
     val onSearchResultClick: (HomeSearchResult) -> Unit = {},
     val onSemanticSearchToggle: (Boolean) -> Unit = {},
     val onManageSemanticSearch: () -> Unit = {},
     val onRetrySemanticSearch: () -> Unit = {},
+    val onSearchOpened: () -> Unit = {},
     val onSearchClosed: () -> Unit = {},
+)
+
+@Immutable
+data class HomeBrowseActions(
     val onToggleLayout: () -> Unit = {},
     val onSortSelect: (HomeSort) -> Unit = {},
     val onNoteClick: (HomeNoteItem) -> Unit = {},
@@ -119,27 +119,43 @@ data class HomeActions(
     val onNavigateUp: () -> Unit = {},
     val onCreateNoteClick: () -> Unit = {},
     val onCreateFolderClick: () -> Unit = {},
-    val onRenameFolderClick: () -> Unit = {},
-    val onMoveClick: () -> Unit = {},
-    val onDeleteFolderClick: () -> Unit = {},
-    val onConfirmRenameFolder: (String) -> Unit = {},
-    val onConfirmDeleteFolder: () -> Unit = {},
-    val onClearSelection: () -> Unit = {},
-    val onRenameClick: () -> Unit = {},
-    val onInfoClick: () -> Unit = {},
-    val onDeleteClick: () -> Unit = {},
-    val onConfirmRename: (HomeFileDialog.Rename, String) -> Unit = { _, _ -> },
-    val onConfirmNewFolder: (String) -> Unit = {},
-    val onDialogDismiss: () -> Unit = {},
-    val onUndo: (HomeUndo) -> Unit = {},
-    val onMessageShown: () -> Unit = {},
     val onRefresh: () -> Unit = {},
     val onRecentRevealed: (RecentReveal) -> Unit = {},
     val onMenuClick: () -> Unit = {},
     val onSettingsClick: () -> Unit = {},
     val onRetryClick: () -> Unit = {},
     val onAbandonStalledRelocationClick: () -> Unit = {},
+    val onUndo: (HomeUndo) -> Unit = {},
+    val onMessageShown: () -> Unit = {},
+)
+
+@Immutable
+data class HomeSelectionActions(
+    val onClearSelection: () -> Unit = {},
+    val onRenameClick: () -> Unit = {},
+    val onRenameFolderClick: () -> Unit = {},
+    val onMoveClick: () -> Unit = {},
+    val onInfoClick: () -> Unit = {},
+    val onDeleteClick: () -> Unit = {},
+    val onDeleteFolderClick: () -> Unit = {},
+)
+
+@Immutable
+data class HomeDialogActions(
+    val onConfirmRename: (HomeFileDialog.Rename, String) -> Unit = { _, _ -> },
+    val onConfirmNewFolder: (String) -> Unit = {},
+    val onConfirmRenameFolder: (String) -> Unit = {},
+    val onConfirmDeleteFolder: () -> Unit = {},
     val onConfirmAbandonStalledRelocation: () -> Unit = {},
+    val onDialogDismiss: () -> Unit = {},
+)
+
+@Immutable
+data class HomeActions(
+    val search: HomeSearchActions = HomeSearchActions(),
+    val browse: HomeBrowseActions = HomeBrowseActions(),
+    val selection: HomeSelectionActions = HomeSelectionActions(),
+    val dialog: HomeDialogActions = HomeDialogActions(),
 )
 
 @Composable
@@ -153,6 +169,7 @@ fun HomeRoute(
     onManageSemanticSearch: () -> Unit,
     modifier: Modifier = Modifier,
     loadingFeedbackEnabled: Boolean = true,
+    onDrawerGestureEnabledChange: (Boolean) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val untitledTitle = stringResource(R.string.home_untitled_note)
@@ -163,73 +180,87 @@ fun HomeRoute(
         onRejected = { viewModel.moveSelectionTo(null) },
     )
 
+    val updateDrawerGestureEnabled by rememberUpdatedState(onDrawerGestureEnabledChange)
+    LaunchedEffect(state.topBarMode) {
+        updateDrawerGestureEnabled(state.topBarMode == HomeTopBarMode.Root)
+    }
+    DisposableEffect(Unit) {
+        onDispose { updateDrawerGestureEnabled(true) }
+    }
+
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.unloadSemanticModel() }
 
-    LaunchedEffect(state.createdNote) {
-        state.createdNote?.let { noteId ->
-            onCreatedNote(noteId)
-            viewModel.onCreatedNoteOpened()
-        }
+    LaunchedEffect(state.pendingOpen) {
+        val pending = state.pendingOpen ?: return@LaunchedEffect
+        if (pending.isNew) onCreatedNote(pending.noteId) else onOpenNote(pending.noteId)
+        viewModel.onPendingOpenHandled()
     }
 
-    LaunchedEffect(state.noteToOpen) {
-        state.noteToOpen?.let { noteId ->
-            onOpenNote(noteId)
-            viewModel.onNoteOpened()
-        }
-    }
-
-    BackHandler(enabled = state.isSelecting || state.isBrowsing) {
-        if (state.isSelecting) viewModel.clearSelection() else viewModel.navigateUp()
-    }
+    val backState = rememberNavigationEventState(NavigationEventInfo.None)
+    NavigationBackHandler(
+        state = backState,
+        isBackEnabled = state.topBarMode != HomeTopBarMode.Root,
+        onBackCompleted = {
+            if (state.isSelecting) viewModel.clearSelection() else viewModel.navigateUp()
+        },
+    )
 
     HomeScreen(
         state = state,
         loadingFeedbackEnabled = loadingFeedbackEnabled,
         homeVisible = LocalNavAnimatedContentScope.current.transition.targetState == EnterExitState.Visible,
         actions = HomeActions(
-            onQueryChange = viewModel::setQuery,
-            onSearchSubmit = viewModel::recordSearch,
-            onSearchResultClick = { result ->
-                viewModel.recordSearch()
-                onOpenSearchResult(result)
-            },
-            onSemanticSearchToggle = viewModel::setSemanticSearch,
-            onManageSemanticSearch = onManageSemanticSearch,
-            onRetrySemanticSearch = viewModel::retrySemanticSearch,
-            onSearchClosed = viewModel::onSearchClosed,
-            onToggleLayout = viewModel::toggleLayout,
-            onSortSelect = viewModel::setSort,
-            onNoteClick = { viewModel.onSelectionEvent(HomeSelectionEvent.NoteTapped(it)) },
-            onNoteLongClick = { viewModel.onSelectionEvent(HomeSelectionEvent.NoteLongPressed(it)) },
-            onFolderClick = { viewModel.onSelectionEvent(HomeSelectionEvent.FolderTapped(it)) },
-            onFolderLongClick = { viewModel.onSelectionEvent(HomeSelectionEvent.FolderLongPressed(it)) },
-            onBackgroundClick = { viewModel.onSelectionEvent(HomeSelectionEvent.BackgroundTapped) },
-            onNavigateUp = viewModel::navigateUp,
-            onCreateNoteClick = { viewModel.createNote(untitledTitle) },
-            onCreateFolderClick = viewModel::startNewFolder,
-            onRenameFolderClick = viewModel::startFolderRename,
-            onMoveClick = { moveTargetPicker.launch(null) },
-            onDeleteFolderClick = viewModel::startFolderDelete,
-            onConfirmRenameFolder = viewModel::confirmRenameFolder,
-            onConfirmDeleteFolder = viewModel::confirmDeleteFolder,
-            onClearSelection = viewModel::clearSelection,
-            onRenameClick = viewModel::startRename,
-            onInfoClick = viewModel::startProperties,
-            onDeleteClick = viewModel::deleteSelected,
-            onConfirmRename = viewModel::confirmRename,
-            onConfirmNewFolder = viewModel::confirmNewFolder,
-            onDialogDismiss = viewModel::dismissDialog,
-            onUndo = viewModel::undo,
-            onMessageShown = viewModel::onMessageShown,
-            onRefresh = viewModel::refreshFromUser,
-            onRecentRevealed = viewModel::onRecentRevealed,
-            onMenuClick = onMenuClick,
-            onSettingsClick = onSettingsClick,
-            onRetryClick = viewModel::refresh,
-            onAbandonStalledRelocationClick = viewModel::startAbandonStalledRelocation,
-            onConfirmAbandonStalledRelocation = viewModel::confirmAbandonStalledRelocation,
+            search = HomeSearchActions(
+                onQueryChange = viewModel::setQuery,
+                onSearchSubmit = viewModel::recordSearch,
+                onSearchResultClick = { result ->
+                    viewModel.recordSearch()
+                    onOpenSearchResult(result)
+                },
+                onSemanticSearchToggle = viewModel::setSemanticSearch,
+                onManageSemanticSearch = onManageSemanticSearch,
+                onRetrySemanticSearch = viewModel::retrySemanticSearch,
+                onSearchOpened = viewModel::onSearchOpened,
+                onSearchClosed = viewModel::onSearchClosed,
+            ),
+            browse = HomeBrowseActions(
+                onToggleLayout = viewModel::toggleLayout,
+                onSortSelect = viewModel::setSort,
+                onNoteClick = { viewModel.onSelectionEvent(HomeSelectionEvent.NoteTapped(it)) },
+                onNoteLongClick = { viewModel.onSelectionEvent(HomeSelectionEvent.NoteLongPressed(it)) },
+                onFolderClick = { viewModel.onSelectionEvent(HomeSelectionEvent.FolderTapped(it)) },
+                onFolderLongClick = { viewModel.onSelectionEvent(HomeSelectionEvent.FolderLongPressed(it)) },
+                onBackgroundClick = { viewModel.onSelectionEvent(HomeSelectionEvent.BackgroundTapped) },
+                onNavigateUp = viewModel::navigateUp,
+                onCreateNoteClick = { viewModel.createNote(untitledTitle) },
+                onCreateFolderClick = viewModel::startNewFolder,
+                onRefresh = viewModel::refreshFromUser,
+                onRecentRevealed = viewModel::onRecentRevealed,
+                onMenuClick = onMenuClick,
+                onSettingsClick = onSettingsClick,
+                onRetryClick = viewModel::refresh,
+                onAbandonStalledRelocationClick = viewModel::startAbandonStalledRelocation,
+                onUndo = viewModel::undo,
+                onMessageShown = viewModel::onMessageShown,
+            ),
+            selection = HomeSelectionActions(
+                onClearSelection = viewModel::clearSelection,
+                onRenameClick = viewModel::startRename,
+                onRenameFolderClick = viewModel::startFolderRename,
+                onMoveClick = { moveTargetPicker.launch(null) },
+                onInfoClick = viewModel::startProperties,
+                onDeleteClick = viewModel::deleteSelected,
+                onDeleteFolderClick = viewModel::startFolderDelete,
+            ),
+            dialog = HomeDialogActions(
+                onConfirmRename = viewModel::confirmRename,
+                onConfirmNewFolder = viewModel::confirmNewFolder,
+                onConfirmRenameFolder = viewModel::confirmRenameFolder,
+                onConfirmDeleteFolder = viewModel::confirmDeleteFolder,
+                onConfirmAbandonStalledRelocation = viewModel::confirmAbandonStalledRelocation,
+                onDialogDismiss = viewModel::dismissDialog,
+            ),
         ),
         modifier = modifier,
     )
@@ -259,16 +290,47 @@ fun HomeScreen(
     loadingFeedbackEnabled: Boolean = true,
     homeVisible: Boolean = true,
 ) {
-    val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
-    val folderScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val topBarMode = state.topBarMode
+    val search = rememberHomeSearchState(initialQuery = state.search.query)
+    val rootScrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
+    val folderScrollBehavior = key(state.files.path) {
+        TopAppBarDefaults.enterAlwaysScrollBehavior()
+    }
     LaunchedEffect(state.files.path) {
-        folderScrollBehavior.state.heightOffset = 0f
-        folderScrollBehavior.state.contentOffset = 0f
+        if (state.files.isAtRoot) {
+            rootScrollBehavior.scrollState.scrollOffset = 0f
+            rootScrollBehavior.scrollState.contentOffset = 0f
+        }
+    }
+    LaunchedEffect(topBarMode) {
+        when (topBarMode) {
+            HomeTopBarMode.Root -> rootScrollBehavior.scrollState.scrollOffset = 0f
+            HomeTopBarMode.Folder -> folderScrollBehavior.state.heightOffset = 0f
+            HomeTopBarMode.Selection -> Unit
+        }
+    }
+    val scrollConnection = when (topBarMode) {
+        HomeTopBarMode.Selection -> null
+        HomeTopBarMode.Root -> rootScrollBehavior.nestedScrollConnection
+        HomeTopBarMode.Folder -> folderScrollBehavior.nestedScrollConnection
     }
     var sortSheetVisible by rememberSaveable { mutableStateOf(false) }
+    val inputField: @Composable () -> Unit = {
+        HomeSearchField(
+            vaultName = state.vaultName,
+            search = search,
+            onSearchSubmit = actions.search.onSearchSubmit,
+            showCollapsedActions = topBarMode == HomeTopBarMode.Root,
+        ) {
+            HomeListControls(
+                isGridMode = state.isGridMode,
+                onToggleLayout = actions.browse.onToggleLayout,
+                onSortClick = { sortSheetVisible = true },
+            )
+        }
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val pullToRefreshState = rememberPullToRefreshState()
-    val topBarMotion = MaterialTheme.motionScheme
     val undoLabel = stringResource(R.string.action_undo)
     val messageText = state.message?.let { homeNoticeText(it.notice) }
     LaunchedEffect(state.message) {
@@ -281,79 +343,48 @@ fun HomeScreen(
             duration = if (undo != null) SnackbarDuration.Long else SnackbarDuration.Short,
         )
         if (result == SnackbarResult.ActionPerformed && undo != null) {
-            actions.onUndo(undo)
+            actions.browse.onUndo(undo)
         }
-        actions.onMessageShown()
+        actions.browse.onMessageShown()
+    }
+    val onRecentRevealed = remember(rootScrollBehavior, actions.browse.onRecentRevealed) {
+        { request: RecentReveal ->
+            rootScrollBehavior.scrollState.scrollOffset = 0f
+            rootScrollBehavior.scrollState.contentOffset = 0f
+            actions.browse.onRecentRevealed(request)
+        }
     }
 
     Box(modifier.fillMaxSize()) {
         Scaffold(
-            modifier = Modifier.fillMaxSize().nestedScroll(
-                if (state.isBrowsing) folderScrollBehavior.nestedScrollConnection else scrollBehavior.nestedScrollConnection,
-            ),
+            modifier = Modifier.fillMaxSize().then(scrollConnection?.let { Modifier.nestedScroll(it) } ?: Modifier),
             containerColor = LoomaTokens.colors.page,
             topBar = {
-                AnimatedContent(
-                    targetState = state.isSelecting,
-                    transitionSpec = {
-                        val spatial = topBarMotion.defaultSpatialSpec<IntOffset>()
-                        val effects = topBarMotion.defaultEffectsSpec<Float>()
-                        (fadeIn(effects) + slideInVertically(spatial) { -it / 4 })
-                            .togetherWith(fadeOut(effects) + slideOutVertically(spatial) { it / 4 })
-                    },
-                    label = "home-top-bar",
-                ) { selecting ->
-                    val folder = state.selectedFolder
-                    if (selecting && folder != null) {
-                        HomeSelectionBar(
-                            title = folder.name,
-                            showRename = true,
-                            showInfo = false,
-                            onCloseClick = actions.onClearSelection,
-                            onRenameClick = actions.onRenameFolderClick,
-                            onMoveClick = actions.onMoveClick,
-                            onInfoClick = {},
-                            onDeleteClick = actions.onDeleteFolderClick,
-                        )
-                    } else if (selecting) {
-                        HomeSelectionBar(
-                            title = stringResource(R.string.home_selection_count, state.selectedNotes.size),
-                            showRename = state.selectedNotes.size == 1,
-                            showInfo = state.selectedNotes.size == 1,
-                            onCloseClick = actions.onClearSelection,
-                            onRenameClick = actions.onRenameClick,
-                            onMoveClick = actions.onMoveClick,
-                            onInfoClick = actions.onInfoClick,
-                            onDeleteClick = actions.onDeleteClick,
-                        )
-                    } else {
-                        HomeSearchBar(
-                            state = state,
-                            homeVisible = homeVisible,
-                            scrollBehavior = scrollBehavior,
-                            folderScrollBehavior = folderScrollBehavior,
-                            onNavigateUp = actions.onNavigateUp,
-                            onQueryChange = actions.onQueryChange,
-                            onToggleLayout = actions.onToggleLayout,
-                            onSortClick = { sortSheetVisible = true },
-                            onSearchSubmit = actions.onSearchSubmit,
-                            onSearchResultClick = actions.onSearchResultClick,
-                            onSemanticSearchToggle = actions.onSemanticSearchToggle,
-                            onManageSemanticSearch = actions.onManageSemanticSearch,
-                            onRetrySemanticSearch = actions.onRetrySemanticSearch,
-                            onSearchClosed = actions.onSearchClosed,
-                            onMenuClick = actions.onMenuClick,
-                            onAvatarClick = actions.onSettingsClick,
-                        )
-                    }
-                }
+                HomeTopBarHost(
+                    mode = topBarMode,
+                    selection = state.selection,
+                    selectedNoteCount = state.selectedNotes.size,
+                    crumbs = state.files.crumbs,
+                    vaultName = state.vaultName,
+                    isGridMode = state.isGridMode,
+                    searchBarState = search.bar,
+                    inputField = inputField,
+                    rootScrollBehavior = rootScrollBehavior,
+                    folderScrollBehavior = folderScrollBehavior,
+                    onMenuClick = actions.browse.onMenuClick,
+                    onAvatarClick = actions.browse.onSettingsClick,
+                    onNavigateUp = actions.browse.onNavigateUp,
+                    onToggleLayout = actions.browse.onToggleLayout,
+                    onSortClick = { sortSheetVisible = true },
+                    selectionActions = actions.selection,
+                )
             },
             floatingActionButton = {
-                if (!state.isSelecting) {
+                if (topBarMode != HomeTopBarMode.Selection) {
                     HomeActionMenu(
                         isCreating = state.isCreating,
-                        onCreateFolderClick = actions.onCreateFolderClick,
-                        onCreateNoteClick = actions.onCreateNoteClick,
+                        onCreateFolderClick = actions.browse.onCreateFolderClick,
+                        onCreateNoteClick = actions.browse.onCreateNoteClick,
                     )
                 }
             },
@@ -361,7 +392,7 @@ fun HomeScreen(
         ) { innerPadding ->
             PullToRefreshBox(
                 isRefreshing = state.isRefreshing,
-                onRefresh = actions.onRefresh,
+                onRefresh = actions.browse.onRefresh,
                 state = pullToRefreshState,
                 indicator = {
                     PullToRefreshDefaults.LoadingIndicator(
@@ -375,17 +406,13 @@ fun HomeScreen(
                 HomeContent(
                     loadingFeedbackEnabled = loadingFeedbackEnabled,
                     state = state,
-                    contentPadding = PaddingValues(),
-                    actions = actions.copy(onRecentRevealed = { request ->
-                        scrollBehavior.scrollState.scrollOffset = 0f
-                        scrollBehavior.scrollState.contentOffset = 0f
-                        actions.onRecentRevealed(request)
-                    }),
+                    actions = actions.browse,
+                    onRecentRevealed = onRecentRevealed,
                 )
             }
         }
 
-        if (!state.isBrowsing) {
+        if (topBarMode == HomeTopBarMode.Root) {
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -395,6 +422,15 @@ fun HomeScreen(
         }
     }
 
+    HomeSearchOverlay(
+        searchState = state.search,
+        isGridMode = state.isGridMode,
+        actions = actions.search,
+        search = search,
+        inputField = inputField,
+        homeVisible = homeVisible,
+    )
+
     if (sortSheetVisible) {
         ModalBottomSheet(
             onDismissRequest = { sortSheetVisible = false },
@@ -403,76 +439,18 @@ fun HomeScreen(
             HomeSortSheet(
                 current = state.sort,
                 onSelect = { sort ->
-                    actions.onSortSelect(sort)
+                    actions.browse.onSortSelect(sort)
                     sortSheetVisible = false
                 },
             )
         }
     }
 
-    HomeFileDialogs(state = state, actions = actions)
-}
-
-@Composable
-private fun HomeFileDialogs(state: HomeUiState, actions: HomeActions) {
-    when (val dialog = state.dialog) {
-        null, is HomeFileDialog.LoadingProperties -> Unit
-
-        is HomeFileDialog.Rename -> HomeTextInputDialog(
-            title = stringResource(R.string.home_rename_title),
-            hint = stringResource(R.string.home_rename_hint),
-            initialValue = dialog.initialName,
-            confirmLabel = stringResource(R.string.dialog_save),
-            error = state.dialogError,
-            busy = state.isActionRunning,
-            onConfirm = { name -> actions.onConfirmRename(dialog, name) },
-            onDismiss = actions.onDialogDismiss,
-        )
-
-        is HomeFileDialog.Properties -> HomePropertiesDialog(
-            properties = dialog.properties,
-            onDismiss = actions.onDialogDismiss,
-        )
-
-        HomeFileDialog.NewFolder -> HomeTextInputDialog(
-            title = stringResource(R.string.home_new_folder_title),
-            hint = stringResource(R.string.home_new_folder_hint),
-            initialValue = "",
-            confirmLabel = stringResource(R.string.dialog_create),
-            error = state.dialogError,
-            busy = state.isActionRunning,
-            onConfirm = actions.onConfirmNewFolder,
-            onDismiss = actions.onDialogDismiss,
-        )
-
-        is HomeFileDialog.RenameFolder -> HomeTextInputDialog(
-            title = stringResource(R.string.home_folder_rename_title),
-            hint = stringResource(R.string.home_folder_rename_hint),
-            initialValue = dialog.initialName,
-            confirmLabel = stringResource(R.string.dialog_save),
-            error = state.dialogError,
-            busy = state.isActionRunning,
-            onConfirm = actions.onConfirmRenameFolder,
-            onDismiss = actions.onDialogDismiss,
-        )
-
-        is HomeFileDialog.DeleteFolder -> HomeDeleteFolderDialog(
-            folderName = dialog.folderName,
-            noteCount = dialog.noteCount,
-            error = state.dialogError,
-            busy = state.isActionRunning,
-            onConfirm = actions.onConfirmDeleteFolder,
-            onDismiss = actions.onDialogDismiss,
-        )
-
-        is HomeFileDialog.AbandonStalledRelocation -> HomeAbandonStalledRelocationDialog(
-            stalled = dialog.stalled,
-            error = state.dialogError,
-            busy = state.isActionRunning,
-            onConfirm = actions.onConfirmAbandonStalledRelocation,
-            onDismiss = actions.onDialogDismiss,
-        )
-    }
+    HomeFileDialogs(
+        dialog = state.dialog,
+        isActionRunning = state.isActionRunning,
+        actions = actions.dialog,
+    )
 }
 
 @Composable
@@ -572,16 +550,14 @@ private fun HomeSortOption(label: String, selected: Boolean, onClick: () -> Unit
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HomeContent(
     state: HomeUiState,
-    contentPadding: PaddingValues,
-    actions: HomeActions,
+    actions: HomeBrowseActions,
+    onRecentRevealed: (RecentReveal) -> Unit,
     loadingFeedbackEnabled: Boolean,
 ) {
-    val motion = MaterialTheme.motionScheme
-    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+    Column(Modifier.fillMaxSize()) {
         state.stalledRelocation?.let { stalled ->
             StalledRelocationBanner(
                 stalled = stalled,
@@ -594,7 +570,7 @@ private fun HomeContent(
         }
         when {
             state.isLoading && state.notes.isEmpty() -> HomeCentered {
-                DelayedLoadingIndicator(loading = loadingFeedbackEnabled, size = 44.dp)
+                DelayedLoadingIndicator(loading = loadingFeedbackEnabled)
             }
 
             state.files.isAtRoot && state.files.isEmpty -> HomeCentered {
@@ -605,51 +581,33 @@ private fun HomeContent(
                 )
             }
 
-            else -> AnimatedContent(
-                targetState = state,
-                contentKey = { it.files.path },
-                transitionSpec = {
-                    val direction = when (folderMotion(initialState.files.path, targetState.files.path)) {
-                        FolderMotion.Forward -> 1
-                        FolderMotion.Backward -> -1
-                        FolderMotion.Replace -> 0
-                    }
-                    val spatial = motion.defaultSpatialSpec<IntOffset>()
-                    val effects = motion.defaultEffectsSpec<Float>()
-                    (fadeIn(effects) + slideInHorizontally(spatial) { direction * it / 8 })
-                        .togetherWith(fadeOut(effects) + slideOutHorizontally(spatial) { -direction * it / 8 })
-                        .using(null)
-                },
-                label = "home-folder",
-            ) { snapshot ->
-                Column(Modifier.fillMaxSize()) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .then(
-                                if (snapshot.isSelecting) {
-                                    Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                        onClick = actions.onBackgroundClick,
-                                    )
-                                } else {
-                                    Modifier
-                                },
-                            ),
-                    ) {
-                        HomeFilesGrid(
-                            files = snapshot.files,
-                            isGridMode = snapshot.isGridMode,
-                            selection = snapshot.selection,
-                            recentReveal = snapshot.recentReveal,
-                            onRecentRevealed = actions.onRecentRevealed,
-                            onFolderClick = actions.onFolderClick,
-                            onFolderLongClick = actions.onFolderLongClick,
-                            onNoteClick = actions.onNoteClick,
-                            onNoteLongClick = actions.onNoteLongClick,
-                        )
-                    }
+            else -> key(state.files.path) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (state.isSelecting) {
+                                Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = actions.onBackgroundClick,
+                                )
+                            } else {
+                                Modifier
+                            },
+                        ),
+                ) {
+                    HomeFilesGrid(
+                        files = state.files,
+                        isGridMode = state.isGridMode,
+                        selection = state.selection,
+                        recentReveal = state.recentReveal,
+                        onRecentRevealed = onRecentRevealed,
+                        onFolderClick = actions.onFolderClick,
+                        onFolderLongClick = actions.onFolderLongClick,
+                        onNoteClick = actions.onNoteClick,
+                        onNoteLongClick = actions.onNoteLongClick,
+                    )
                 }
             }
         }
@@ -724,6 +682,7 @@ private fun HomeErrorContainer(
         }
     }
 }
+
 @Composable
 private fun HomeCentered(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }

@@ -216,7 +216,7 @@ fun TrashScreen(
                 state.isLoading && state.items.isEmpty() -> Box(
                     Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
-                ) { DelayedLoadingIndicator(loading = true, size = 48.dp) }
+                ) { DelayedLoadingIndicator(loading = true) }
 
                 state.loadFailed -> Column(
                     Modifier.fillMaxSize().padding(24.dp),

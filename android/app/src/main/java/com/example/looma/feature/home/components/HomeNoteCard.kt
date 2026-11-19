@@ -22,19 +22,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
+import com.example.looma.domain.markdown.ImageSource
 import com.example.looma.domain.search.SearchMatch
 import com.example.looma.feature.home.HomeNoteItem
 import com.example.looma.feature.home.HomeSearchResult
+import com.example.looma.ui.image.LoomaAsyncImage
 import com.example.looma.ui.markdown.MarkdownPreview
+import com.example.looma.ui.theme.LoomaPreviewTypography
 import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
@@ -70,8 +75,10 @@ internal fun HomeNoteCard(
     ) {
         Column {
             note.coverPath?.let { path ->
-                NoteCoverImage(
-                    path = path,
+                LoomaAsyncImage(
+                    source = ImageSource.Local(path),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(150.dp),
                 )
             }
@@ -84,70 +91,63 @@ internal fun HomeNoteCard(
                     text = title?.highlighted(highlight) ?: AnnotatedString(note.summary.title),
                     style = LoomaTokens.type.homeNoteTitle,
                     color = colors.title,
-                    maxLines = if (title == null) 2 else Int.MAX_VALUE,
+                    maxLines = if (title == null) 2 else 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                when {
-                    search != null -> {
+                if (search != null) {
+                    Text(
+                        text = search.id.path.relativePath,
+                        style = LoomaTokens.type.cardMeta,
+                        color = LoomaTokens.colors.muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.MiddleEllipsis,
+                    )
+                    if (search.section.isNotBlank()) {
                         Text(
-                            text = search.id.path.relativePath,
+                            text = search.section,
                             style = LoomaTokens.type.cardMeta,
                             color = LoomaTokens.colors.muted,
-                            maxLines = 1,
-                            overflow = TextOverflow.MiddleEllipsis,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                        if (search.section.isNotBlank()) {
-                            Text(
-                                text = search.section,
-                                style = LoomaTokens.type.cardMeta,
-                                color = LoomaTokens.colors.muted,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        if (search.matches.isNotEmpty()) {
+                    }
+                    if (search.matches.isNotEmpty()) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 180.dp)
+                                .clipToBounds(),
+                        ) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                search.matches.forEach { match ->
+                                search.matches.take(3).forEach { match ->
                                     Text(
                                         text = match.highlighted(highlight),
                                         style = LoomaTokens.type.homeNotePreview.body,
                                         color = colors.body,
+                                        maxLines = 4,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                             }
-                        }
-                    }
-
-                    note.markdownSnippet.isBlank() -> {
-                        Text(
-                            text = stringResource(R.string.home_empty_note),
-                            style = LoomaTokens.type.homeNotePreview.body,
-                            color = colors.body,
-                        )
-                    }
-
-                    else -> {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 160.dp)
-                                .clipToBounds(),
-                        ) {
-                            MarkdownPreview(
-                                markdown = note.markdownSnippet,
-                                typography = LoomaTokens.type.homeNotePreview,
-                                textColor = colors.body,
-                            )
                             Box(
                                 Modifier.matchParentSize().background(
                                     Brush.verticalGradient(
-                                        0.72f to Color.Transparent,
+                                        0.78f to Color.Transparent,
                                         1f to colors.container,
                                     ),
                                 ),
                             )
                         }
                     }
+                } else {
+                    HomeFadedMarkdownPreview(
+                        markdown = note.markdownSnippet,
+                        bodyColor = colors.body,
+                        containerColor = colors.container,
+                        emptyTextStyle = LoomaTokens.type.homeNotePreview.body,
+                        previewTypography = LoomaTokens.type.homeNotePreview,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp),
+                    )
                 }
                 val tags = if (search == null) {
                     note.summary.tags.take(2).map { AnnotatedString("#$it") }
@@ -160,11 +160,54 @@ internal fun HomeNoteCard(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         tags.forEach { tag ->
-                            HomeChip(tag, isSelected, maxLines = if (search == null) 1 else Int.MAX_VALUE)
+                            HomeChip(tag, isSelected, maxLines = if (search == null) 1 else 2)
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun HomeFadedMarkdownPreview(
+    markdown: String,
+    bodyColor: Color,
+    containerColor: Color,
+    emptyTextStyle: TextStyle,
+    modifier: Modifier = Modifier,
+    previewTypography: LoomaPreviewTypography? = null,
+) {
+    if (markdown.isBlank()) {
+        Box(modifier) {
+            Text(
+                text = stringResource(R.string.home_empty_note),
+                style = emptyTextStyle,
+                color = bodyColor,
+            )
+        }
+    } else {
+        Box(modifier.clipToBounds()) {
+            if (previewTypography != null) {
+                MarkdownPreview(
+                    markdown = markdown,
+                    typography = previewTypography,
+                    textColor = bodyColor,
+                )
+            } else {
+                MarkdownPreview(
+                    markdown = markdown,
+                    textColor = bodyColor,
+                )
+            }
+            Box(
+                Modifier.matchParentSize().background(
+                    Brush.verticalGradient(
+                        0.72f to Color.Transparent,
+                        1f to containerColor,
+                    ),
+                ),
+            )
         }
     }
 }
@@ -198,6 +241,8 @@ internal data class HomeCardColors(
     val container: Color,
     val title: Color,
     val body: Color,
+    val icon: Color,
+    val selectedCheck: Color,
 )
 
 @Composable
@@ -205,8 +250,20 @@ internal fun homeCardColors(isSelected: Boolean): HomeCardColors {
     val scheme = MaterialTheme.colorScheme
     val colors = LoomaTokens.colors
     return if (isSelected) {
-        HomeCardColors(scheme.secondaryContainer, scheme.onSecondaryContainer, scheme.onSecondaryContainer)
+        HomeCardColors(
+            container = scheme.secondaryContainer,
+            title = scheme.onSecondaryContainer,
+            body = scheme.onSecondaryContainer,
+            icon = scheme.onSecondaryContainer,
+            selectedCheck = scheme.onSecondaryContainer,
+        )
     } else {
-        HomeCardColors(colors.card, colors.title, colors.body)
+        HomeCardColors(
+            container = colors.card,
+            title = colors.title,
+            body = colors.body,
+            icon = colors.muted,
+            selectedCheck = colors.muted,
+        )
     }
 }
