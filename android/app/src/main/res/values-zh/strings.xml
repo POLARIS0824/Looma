@@ -138,8 +138,13 @@
     <string name="settings_section_search">搜索</string>
     <string name="settings_semantic_desc">下载模型并管理当前笔记库的索引</string>
     <string name="settings_semantic_title">语义搜索</string>
-    <string name="settings_semantic_section">模型与索引</string>
-    <string name="settings_semantic_on_device">语义搜索在本机运行。下载模型或建立索引时，可以离开此页面。</string>
+    <string name="settings_semantic_intro_title">按含义查找笔记</string>
+    <string name="settings_semantic_intro">描述一个想法，找到相关笔记。搜索在设备本地运行。</string>
+    <string name="settings_semantic_model_section">本地模型</string>
+    <string name="settings_semantic_show_details">模型详情</string>
+    <string name="settings_semantic_hide_details">收起模型详情</string>
+    <string name="settings_semantic_model_details">EmbeddingGemma 2 会提取文字的语义。即使用词不同，Looma 也能找到意思相近的笔记。</string>
+    <string name="settings_semantic_background_work">下载模型或建立索引时，可以离开此页面。</string>
     <string name="settings_semantic_model">EmbeddingGemma 2 模型</string>
     <string name="settings_semantic_model_size">一次性下载 · 157 MiB</string>
     <string name="settings_semantic_download">下载模型</string>

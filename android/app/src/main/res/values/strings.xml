@@ -141,8 +141,13 @@
     <string name="settings_section_search">Search</string>
     <string name="settings_semantic_desc">Download the model and manage the index for this vault</string>
     <string name="settings_semantic_title">Semantic search</string>
-    <string name="settings_semantic_section">Model and index</string>
-    <string name="settings_semantic_on_device">Semantic search runs on your device. You can leave this screen while the model downloads or the index builds.</string>
+    <string name="settings_semantic_intro_title">Find notes by meaning</string>
+    <string name="settings_semantic_intro">Describe an idea to find related notes. Search runs locally on your device.</string>
+    <string name="settings_semantic_model_section">On-device model</string>
+    <string name="settings_semantic_show_details">Model details</string>
+    <string name="settings_semantic_hide_details">Hide model details</string>
+    <string name="settings_semantic_model_details">EmbeddingGemma 2 turns text into representations of its meaning so Looma can match your search with related notes, even when the words differ.</string>
+    <string name="settings_semantic_background_work">You can leave this screen while the model downloads or the index builds.</string>
     <string name="settings_semantic_model">EmbeddingGemma 2 model</string>
     <string name="settings_semantic_model_size">One-time download · 157 MiB</string>
     <string name="settings_semantic_download">Download model</string>

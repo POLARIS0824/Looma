@@ -12,14 +12,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,6 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.looma.R
@@ -44,12 +53,12 @@ internal fun SemanticSearchSettingsRoute(
     vaultName: String,
     onNavigateUp: () -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = LoomaTokens.colors.page,
         topBar = {
-            LargeFlexibleTopAppBar(
+            TopAppBar(
                 title = { Text(stringResource(R.string.settings_semantic_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
@@ -76,23 +85,50 @@ internal fun SemanticSearchSettingsRoute(
                 modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                SettingsGroup(stringResource(R.string.settings_semantic_section)) {
-                    if (viewModel.supported) {
-                        SemanticSearchOperations(viewModel, vaultName)
-                        Text(
-                            text = stringResource(R.string.settings_semantic_on_device),
-                            style = LoomaTokens.type.supporting,
-                            color = LoomaTokens.colors.muted,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                    } else {
-                        SettingsRow(
-                            index = 0,
-                            count = 1,
-                            title = stringResource(R.string.settings_semantic_title),
-                            description = stringResource(R.string.settings_semantic_unsupported),
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Surface(
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = LoomaTokens.colors.accentContainer,
+                    ) {
+                        LoomaIcon(
+                            iconRes = R.drawable.ic_sparkle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(16.dp).size(32.dp),
                         )
                     }
+                    Text(
+                        text = stringResource(R.string.settings_semantic_intro_title),
+                        style = LoomaTokens.type.pageTitle,
+                        color = LoomaTokens.colors.title,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_semantic_intro),
+                        style = LoomaTokens.type.supporting,
+                        color = LoomaTokens.colors.muted,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                if (viewModel.supported) {
+                    SemanticSearchOperations(viewModel, vaultName)
+                    Text(
+                        text = stringResource(R.string.settings_semantic_background_work),
+                        style = LoomaTokens.type.supporting,
+                        color = LoomaTokens.colors.muted,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                } else {
+                    SettingsRow(
+                        index = 0,
+                        count = 1,
+                        title = stringResource(R.string.settings_semantic_unsupported),
+                    )
                 }
             }
         }
@@ -114,124 +150,180 @@ private fun SemanticSearchOperations(viewModel: SemanticSearchSettingsViewModel,
             permission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+    var modelDetailsExpanded by rememberSaveable { mutableStateOf(false) }
 
-    SemanticOperationRow(
-        index = 0,
-        count = 2,
-        title = stringResource(R.string.settings_semantic_model),
-        description = when (val state = modelStatus) {
-            null -> stringResource(R.string.settings_semantic_checking)
-            SemanticWorkState.Unavailable -> stringResource(R.string.settings_semantic_unsupported)
-            SemanticWorkState.Idle -> stringResource(R.string.settings_semantic_model_size)
-            SemanticWorkState.Queued -> stringResource(R.string.settings_semantic_download_queued)
-            is SemanticWorkState.Running -> stringResource(R.string.settings_semantic_downloading, state.completed)
-            SemanticWorkState.Ready -> stringResource(R.string.settings_semantic_model_ready)
-            SemanticWorkState.Cancelled -> stringResource(R.string.settings_semantic_download_cancelled)
-            SemanticWorkState.Failed -> stringResource(R.string.settings_semantic_download_failed)
-        },
-        operation = viewModel.model,
-        status = modelStatus,
-        startLabel = stringResource(R.string.settings_semantic_download),
-        canStart = modelStatus != SemanticWorkState.Ready,
-        requestNotifications = requestNotifications,
-    )
-    SemanticOperationRow(
-        index = 1,
-        count = 2,
-        title = stringResource(R.string.settings_semantic_index),
-        description = when (val state = indexStatus) {
-            null -> stringResource(R.string.settings_semantic_index_checking)
-            SemanticWorkState.Unavailable -> stringResource(R.string.settings_semantic_index_unavailable)
-            SemanticWorkState.Idle -> stringResource(
-                if (modelStatus == SemanticWorkState.Ready) {
-                    R.string.settings_semantic_index_idle
-                } else {
-                    R.string.settings_semantic_index_requires_model
-                },
-            )
-            SemanticWorkState.Queued -> stringResource(R.string.settings_semantic_index_queued)
-            is SemanticWorkState.Running -> if (state.total > 0) {
-                stringResource(R.string.settings_semantic_indexing, state.completed, state.total)
-            } else {
-                stringResource(R.string.settings_semantic_index_preparing)
+    SettingsGroup(stringResource(R.string.settings_semantic_model_section)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = LoomaTokens.colors.card,
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_semantic_model),
+                    style = LoomaTokens.type.cardTitle,
+                    color = LoomaTokens.colors.title,
+                )
+                TextButton(onClick = { modelDetailsExpanded = !modelDetailsExpanded }) {
+                    Text(
+                        stringResource(
+                            if (modelDetailsExpanded) R.string.settings_semantic_hide_details
+                            else R.string.settings_semantic_show_details,
+                        ),
+                    )
+                }
+                if (modelDetailsExpanded) {
+                    Text(
+                        text = stringResource(R.string.settings_semantic_model_details),
+                        style = LoomaTokens.type.supporting,
+                        color = LoomaTokens.colors.body,
+                    )
+                }
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = LoomaTokens.colors.cardInset,
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        SemanticOperationStatus(
+                            description = when (val state = modelStatus) {
+                                null -> stringResource(R.string.settings_semantic_checking)
+                                SemanticWorkState.Unavailable -> stringResource(R.string.settings_semantic_unsupported)
+                                SemanticWorkState.Idle -> stringResource(R.string.settings_semantic_model_size)
+                                SemanticWorkState.Queued -> stringResource(R.string.settings_semantic_download_queued)
+                                is SemanticWorkState.Running -> stringResource(
+                                    R.string.settings_semantic_downloading,
+                                    state.completed,
+                                )
+                                SemanticWorkState.Ready -> stringResource(R.string.settings_semantic_model_ready)
+                                SemanticWorkState.Cancelled -> stringResource(R.string.settings_semantic_download_cancelled)
+                                SemanticWorkState.Failed -> stringResource(R.string.settings_semantic_download_failed)
+                            },
+                            operation = viewModel.model,
+                            status = modelStatus,
+                            startLabel = stringResource(R.string.settings_semantic_download),
+                            canStart = modelStatus != SemanticWorkState.Ready,
+                            filledAction = true,
+                            requestNotifications = requestNotifications,
+                        )
+                    }
+                }
             }
-            SemanticWorkState.Ready -> stringResource(R.string.settings_semantic_index_ready)
-            SemanticWorkState.Cancelled -> stringResource(R.string.settings_semantic_index_cancelled)
-            SemanticWorkState.Failed -> stringResource(R.string.settings_semantic_index_failed)
-        },
-        hint = if (vaultName.isBlank()) {
-            null
-        } else {
-            stringResource(R.string.settings_semantic_vault, vaultName)
-        },
-        operation = viewModel.index,
-        status = indexStatus,
-        startLabel = stringResource(
-            if (indexStatus == SemanticWorkState.Ready) {
-                R.string.settings_semantic_update_index
-            } else {
-                R.string.settings_semantic_build_index
-            },
-        ),
-        canStart = modelStatus == SemanticWorkState.Ready,
-        requestNotifications = requestNotifications,
-    )
+        }
+    }
+    SettingsGroup(stringResource(R.string.settings_semantic_index)) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = LoomaTokens.colors.card,
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (vaultName.isNotBlank()) {
+                    Text(
+                        text = stringResource(R.string.settings_semantic_vault, vaultName),
+                        style = LoomaTokens.type.cardTitle,
+                        color = LoomaTokens.colors.title,
+                    )
+                }
+                SemanticOperationStatus(
+                    description = when (val state = indexStatus) {
+                        null -> stringResource(R.string.settings_semantic_index_checking)
+                        SemanticWorkState.Unavailable -> stringResource(R.string.settings_semantic_index_unavailable)
+                        SemanticWorkState.Idle -> stringResource(
+                            if (modelStatus == SemanticWorkState.Ready) {
+                                R.string.settings_semantic_index_idle
+                            } else {
+                                R.string.settings_semantic_index_requires_model
+                            },
+                        )
+                        SemanticWorkState.Queued -> stringResource(R.string.settings_semantic_index_queued)
+                        is SemanticWorkState.Running -> if (state.total > 0) {
+                            stringResource(R.string.settings_semantic_indexing, state.completed, state.total)
+                        } else {
+                            stringResource(R.string.settings_semantic_index_preparing)
+                        }
+                        SemanticWorkState.Ready -> stringResource(R.string.settings_semantic_index_ready)
+                        SemanticWorkState.Cancelled -> stringResource(R.string.settings_semantic_index_cancelled)
+                        SemanticWorkState.Failed -> stringResource(R.string.settings_semantic_index_failed)
+                    },
+                    operation = viewModel.index,
+                    status = indexStatus,
+                    startLabel = stringResource(
+                        if (indexStatus == SemanticWorkState.Ready) {
+                            R.string.settings_semantic_update_index
+                        } else {
+                            R.string.settings_semantic_build_index
+                        },
+                    ),
+                    canStart = modelStatus == SemanticWorkState.Ready,
+                    filledAction = false,
+                    requestNotifications = requestNotifications,
+                )
+            }
+        }
+    }
 }
 
 @Composable
-private fun SemanticOperationRow(
-    index: Int,
-    count: Int,
-    title: String,
+private fun SemanticOperationStatus(
     description: String,
-    hint: String? = null,
     operation: SemanticSettingsOperation,
     status: SemanticWorkState?,
     startLabel: String,
     canStart: Boolean,
+    filledAction: Boolean,
     requestNotifications: () -> Unit,
 ) {
     val action by operation.action.collectAsStateWithLifecycle()
     val active = status == SemanticWorkState.Queued || status is SemanticWorkState.Running
     val showStart = canStart && status != null && status != SemanticWorkState.Unavailable
-    SettingsRow(
-        index = index,
-        count = count,
-        title = title,
-        description = description,
-        hint = hint,
-        trailing = when {
-            active -> {
-                {
-                    TextButton(
-                        onClick = operation::cancel,
-                        enabled = action != SemanticSettingsAction.Submitting,
-                    ) { Text(stringResource(R.string.dialog_cancel)) }
-                }
-            }
-            showStart -> {
-                {
-                    TextButton(
-                        onClick = {
-                            operation.enqueue()
-                            requestNotifications()
-                        },
-                        enabled = action != SemanticSettingsAction.Submitting,
-                    ) {
-                        val retry = status == SemanticWorkState.Cancelled || status == SemanticWorkState.Failed
-                        Text(if (retry) stringResource(R.string.settings_semantic_retry) else startLabel)
-                    }
-                }
-            }
-            else -> null
-        },
-    )
-    if (action == SemanticSettingsAction.Failed) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            text = stringResource(R.string.settings_semantic_action_failed),
+            text = description,
             style = LoomaTokens.type.supporting,
-            color = LoomaTokens.colors.error,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            color = LoomaTokens.colors.body,
         )
+        when {
+            status is SemanticWorkState.Running && status.total > 0 -> LinearProgressIndicator(
+                progress = { (status.completed.toFloat() / status.total).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            status is SemanticWorkState.Running -> LinearProgressIndicator(Modifier.fillMaxWidth())
+            else -> Unit
+        }
+        if (active) {
+            TextButton(
+                onClick = operation::cancel,
+                enabled = action != SemanticSettingsAction.Submitting,
+            ) { Text(stringResource(R.string.dialog_cancel)) }
+        } else if (showStart) {
+            val retry = status == SemanticWorkState.Cancelled || status == SemanticWorkState.Failed
+            val label = if (retry) stringResource(R.string.settings_semantic_retry) else startLabel
+            val onStart = {
+                operation.enqueue()
+                requestNotifications()
+            }
+            if (filledAction) {
+                Button(onClick = onStart, enabled = action != SemanticSettingsAction.Submitting) {
+                    Text(label)
+                }
+            } else {
+                FilledTonalButton(onClick = onStart, enabled = action != SemanticSettingsAction.Submitting) {
+                    Text(label)
+                }
+            }
+        }
+        if (action == SemanticSettingsAction.Failed) {
+            Text(
+                text = stringResource(R.string.settings_semantic_action_failed),
+                style = LoomaTokens.type.supporting,
+                color = LoomaTokens.colors.error,
+            )
+        }
     }
 }
