@@ -82,6 +82,7 @@ import com.example.looma.R
 import com.example.looma.feature.home.HomeSearchResult
 import com.example.looma.feature.home.HomeSemanticSearch
 import com.example.looma.feature.home.HomeUiState
+import com.example.looma.ui.components.DelayedContent
 import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
@@ -404,16 +405,20 @@ private fun SemanticSearchControls(
         HomeSemanticSearch.NeedsIndex -> stringResource(R.string.home_semantic_index_required)
         HomeSemanticSearch.SearchFailed -> stringResource(R.string.home_semantic_search_failed)
     }
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(message, style = LoomaTokens.type.supporting, color = LoomaTokens.colors.muted)
-        when (state) {
-            HomeSemanticSearch.NeedsModel, HomeSemanticSearch.NeedsIndex -> TextButton(onClick = onManage) {
-                Text(stringResource(R.string.home_semantic_manage))
+    DelayedContent {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(message, style = LoomaTokens.type.supporting, color = LoomaTokens.colors.muted)
+            when (state) {
+                HomeSemanticSearch.NeedsModel, HomeSemanticSearch.NeedsIndex -> TextButton(onClick = onManage) {
+                    Text(stringResource(R.string.home_semantic_manage))
+                }
+
+                HomeSemanticSearch.SearchFailed -> TextButton(onClick = onRetry) {
+                    Text(stringResource(R.string.home_semantic_retry))
+                }
+
+                else -> Unit
             }
-            HomeSemanticSearch.SearchFailed -> TextButton(onClick = onRetry) {
-                Text(stringResource(R.string.home_semantic_retry))
-            }
-            else -> Unit
         }
     }
 }
@@ -548,7 +553,9 @@ internal fun HomeSearchResults(
         isSearching -> Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
             DelayedLoadingIndicator(loading = true)
         }
-        results.isEmpty() -> HomeSearchHint(stringResource(R.string.home_search_no_match))
+        results.isEmpty() -> DelayedContent {
+            HomeSearchHint(stringResource(R.string.home_search_no_match))
+        }
         else -> HomeNoteGrid(
             isGridMode = isGridMode,
             contentPadding = PaddingValues(
