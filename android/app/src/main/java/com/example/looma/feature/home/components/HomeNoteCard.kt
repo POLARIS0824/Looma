@@ -96,6 +96,15 @@ internal fun HomeNoteCard(
                             maxLines = 1,
                             overflow = TextOverflow.MiddleEllipsis,
                         )
+                        if (search.section.isNotBlank()) {
+                            Text(
+                                text = search.section,
+                                style = LoomaTokens.type.cardMeta,
+                                color = LoomaTokens.colors.muted,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         if (search.matches.isNotEmpty()) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 search.matches.forEach { match ->

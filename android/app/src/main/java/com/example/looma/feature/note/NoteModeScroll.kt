@@ -64,9 +64,18 @@ internal class NoteModeScroll(
             read.scrollToItem(0)
             return
         }
-        val itemIndex = index + header
         val block = blocks[index].shift(bodyStart)
-        val fraction = position.fractionIn(block)
+        scrollReadBlock(index + header, position.fractionIn(block))
+    }
+
+    suspend fun openPassage(sourceOffset: Int, blocks: List<ReadingBlock>, bodyStart: Int, hasHeader: Boolean) {
+        val index = ReadingBlocks.indexAt(blocks, sourceOffset, bodyStart) ?: return
+        val block = blocks[index].shift(bodyStart)
+        val fraction = blockFraction(sourceOffset.toFloat(), block.start.toFloat(), (block.end - block.start).toFloat())
+        scrollReadBlock(index + if (hasHeader) 1 else 0, fraction)
+    }
+
+    private suspend fun scrollReadBlock(itemIndex: Int, fraction: Float) {
         val beforePadding = read.layoutInfo.beforeContentPadding
         read.scrollToItem(itemIndex, beforePadding)
         if (fraction > 0f) {

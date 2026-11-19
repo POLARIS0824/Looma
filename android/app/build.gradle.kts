@@ -16,7 +16,7 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -44,6 +44,8 @@ ksp {
 }
 
 dependencies {
+    implementation(project(":embedding"))
+    implementation(project(":markdown-core"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.appcompat)
@@ -66,12 +68,15 @@ dependencies {
     implementation(libs.androidx.navigationevent.compose)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.kotlinx.serialization.core)
     implementation(libs.markdown.renderer.m3)
     implementation(libs.ratex.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.coil.gif)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.cio)
 
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)

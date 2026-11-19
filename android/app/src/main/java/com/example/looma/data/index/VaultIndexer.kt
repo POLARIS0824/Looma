@@ -7,7 +7,6 @@ import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultFolder
-import com.example.looma.domain.search.SearchSignature
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -30,6 +29,7 @@ internal data class IndexScan(
     val folders: List<VaultFolder>,
     val unreadableCount: Int,
     val report: ScanReport,
+    val complete: Boolean,
 )
 
 internal class VaultIndexer(
@@ -149,6 +149,7 @@ internal class VaultIndexer(
                 filesKept = if (applied) plan.kept.size else notes.count { onDisk[it.id.path] == it.fingerprint },
                 filesRemoved = if (applied) plan.removed.size else 0,
             ),
+            complete = complete && applied,
         )
     }
 

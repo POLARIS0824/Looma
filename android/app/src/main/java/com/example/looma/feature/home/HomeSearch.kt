@@ -2,6 +2,7 @@ package com.example.looma.feature.home
 
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.search.NoteSearchMatch
+import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.search.SearchMatch
 import com.example.looma.domain.search.SearchableNote
 import com.example.looma.domain.search.searchNote
@@ -12,6 +13,8 @@ data class HomeSearchResult(
     val titleMatch: SearchMatch?,
     val tagMatches: List<SearchMatch>,
     val matches: List<SearchMatch>,
+    val passage: PassageAnchor? = null,
+    val section: String = "",
 ) {
     val id: NoteId get() = note.id
 

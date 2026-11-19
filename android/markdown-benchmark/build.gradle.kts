@@ -1,30 +1,13 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
-    kotlin("kapt")
 }
 
 kotlin {
     jvmToolchain(25)
-    sourceSets.named("main") {
-        kotlin.srcDir(rootProject.layout.projectDirectory.dir("app/src/main/java"))
-        kotlin.include(
-            "com/example/looma/benchmark/**",
-            "com/example/looma/domain/markdown/Frontmatter.kt",
-            "com/example/looma/domain/markdown/MarkdownDocument.kt",
-            "com/example/looma/domain/markdown/MarkdownIndex.kt",
-            "com/example/looma/domain/markdown/MarkdownMath.kt",
-            "com/example/looma/domain/markdown/PermissiveMathParser.kt",
-            "com/example/looma/domain/markdown/ReadingBlocks.kt",
-            "com/example/looma/domain/markdown/WikiImageFlavour.kt",
-            "com/example/looma/domain/markdown/WikiLinks.kt",
-            "com/example/looma/ui/markdown/PreparedMarkdown.kt",
-        )
-    }
 }
 
 dependencies {
-    implementation(libs.markdown.renderer.core)
-    implementation(libs.kotlinx.coroutines.core)
+    implementation(project(":markdown-core"))
     implementation(libs.jmh.core)
     annotationProcessor(libs.jmh.generator)
     testImplementation(kotlin("test"))

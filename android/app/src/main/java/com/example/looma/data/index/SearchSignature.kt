@@ -1,7 +1,10 @@
-package com.example.looma.domain.search
+package com.example.looma.data.index
 
 import com.example.looma.domain.markdown.forEachLineRange
 import com.example.looma.domain.markdown.frontmatterEnd
+import com.example.looma.domain.search.MAX_MARKDOWN_CONTEXT_CHARS
+import com.example.looma.domain.search.hasInlineSyntax
+import com.example.looma.domain.search.plainText
 
 internal object SearchSignature {
     private const val BIT_COUNT = 4096

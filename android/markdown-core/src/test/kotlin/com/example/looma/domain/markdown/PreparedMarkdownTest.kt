@@ -1,6 +1,5 @@
-package com.example.looma.ui.markdown
+package com.example.looma.domain.markdown
 
-import com.example.looma.domain.markdown.MarkdownIndex
 import org.intellij.markdown.parser.CancellationToken
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

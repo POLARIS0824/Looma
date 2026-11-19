@@ -85,9 +85,13 @@ import com.example.looma.data.note.resolveImageSource
 import com.example.looma.domain.markdown.CHECKED
 import com.example.looma.domain.markdown.MARKER_LENGTH
 import com.example.looma.domain.markdown.MarkdownEditing
+import com.example.looma.domain.markdown.PreparedMarkdown
 import com.example.looma.domain.markdown.TextSelection
 import com.example.looma.domain.markdown.UNCHECKED
+import com.example.looma.domain.markdown.prepareMarkdown
+import com.example.looma.domain.markdown.prepareMarkdownOpening
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.domain.wiki.WikiNote
 import com.example.looma.feature.note.components.BacklinksSection
@@ -107,9 +111,6 @@ import com.example.looma.ui.components.LoomaLoadingIndicator
 import com.example.looma.ui.markdown.LocalImageSourceResolver
 import com.example.looma.ui.markdown.LocalImageSourceRetryResolver
 import com.example.looma.ui.markdown.MarkdownBody
-import com.example.looma.ui.markdown.PreparedMarkdown
-import com.example.looma.ui.markdown.prepareMarkdown
-import com.example.looma.ui.markdown.prepareMarkdownOpening
 import com.example.looma.ui.theme.LoomaTheme
 import com.example.looma.ui.theme.LoomaTokens
 import kotlinx.coroutines.flow.collectLatest
@@ -129,6 +130,7 @@ fun NoteRoute(
     onOpenNote: (NoteId) -> Unit,
     onRenameNavigate: (NoteId, NoteId) -> Unit,
     modifier: Modifier = Modifier,
+    passage: PassageAnchor? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val navigateUp by rememberUpdatedState(onNavigateUp)
@@ -211,6 +213,8 @@ fun NoteRoute(
                     onImageInserted = viewModel::onImageInserted,
                     onImageErrorShown = viewModel::onImageErrorShown,
                     editorActive = editorActive,
+                    passage = passage,
+                    matchesPassage = viewModel::matchesPassage,
                     modifier = modifier,
                 )
             }
@@ -250,6 +254,8 @@ private fun NoteWorkspace(
     onTitleFocusChange: (Boolean) -> Unit = {},
     editorActive: Boolean = true,
     modifier: Modifier = Modifier,
+    passage: PassageAnchor? = null,
+    matchesPassage: (PassageAnchor) -> Boolean = { false },
 ) {
     val formatState by remember(contentBuffer) {
         derivedStateOf {
@@ -261,8 +267,11 @@ private fun NoteWorkspace(
         }
     }
     var mode by rememberSaveable {
-        mutableStateOf(if (contentBuffer.text.length >= LARGE_NOTE_READ_THRESHOLD) NoteMode.Read else NoteMode.Edit)
+        mutableStateOf(
+            if (passage != null || contentBuffer.text.length >= LARGE_NOTE_READ_THRESHOLD) NoteMode.Read else NoteMode.Edit,
+        )
     }
+    var passageOpened by rememberSaveable(passage) { mutableStateOf(false) }
     var linkPanelOpen by rememberSaveable { mutableStateOf(false) }
     var initialTitleFocusTaken by rememberSaveable { mutableStateOf(false) }
     val readScroll = rememberLazyListState()
@@ -340,6 +349,21 @@ private fun NoteWorkspace(
             focusManager.clearFocus()
             keyboard?.hide()
         }
+    }
+
+    LaunchedEffect(passageOpened, preview, mode, state.showInlineTitle, editorActive) {
+        if (passage == null || passageOpened || !editorActive) return@LaunchedEffect
+        if (!matchesPassage(passage)) {
+            passageOpened = true
+            scope.launch { snackbarHostState.showSnackbar(resources.getString(R.string.note_passage_changed)) }
+            return@LaunchedEffect
+        }
+        val reading = (preview as? PreparedMarkdown.Ready)?.takeIf { it.source == contentBuffer.text.toString() }
+            ?: return@LaunchedEffect
+        if (mode == NoteMode.Read) {
+            modeScroll.openPassage(passage.start, reading.blocks, reading.index.bodyStart, state.showInlineTitle)
+        }
+        passageOpened = true
     }
 
     val request = pendingModeScroll
@@ -525,7 +549,7 @@ private fun NoteWorkspace(
                         val previewIsCurrent = renderedPreview != null && renderedPreview.source == contentBuffer.text.toString()
                         val canShowPreview = when {
                             renderedPreview is PreparedMarkdown.Opening ->
-                                previewIsCurrent && when (request) {
+                                previewIsCurrent && (passage == null || passageOpened) && when (request) {
                                     is ModeScrollRequest.Read -> request.position.atTop
                                     is ModeScrollRequest.ReadOffset -> request.itemIndex == 0
                                     else -> readScroll.firstVisibleItemIndex == 0

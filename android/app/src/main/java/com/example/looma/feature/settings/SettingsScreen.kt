@@ -34,10 +34,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +88,7 @@ fun SettingsRoute(
     vaultViewModel: VaultSetupViewModel,
     settingsViewModel: SettingsViewModel,
     onChangeVaultClick: () -> Unit,
+    onSemanticSearchClick: () -> Unit,
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -116,6 +119,7 @@ fun SettingsRoute(
         settings = settings,
         language = AppLocale.current(),
         onChangeVaultClick = onChangeVaultClick,
+        onSemanticSearchClick = onSemanticSearchClick,
         onStorageAccessClick = picker.chooseFolder,
         onDynamicColorChange = settingsViewModel::setDynamicColor,
         onThemePresetSelect = settingsViewModel::setThemePreset,
@@ -150,14 +154,11 @@ fun SettingsScreen(
     onToolbarOrderChange: (List<ToolbarItem>) -> Unit,
     onImageUploadTargetChange: (ImageUploadTarget) -> Unit,
     onImageBedChange: suspend (S3ImageBedConfig) -> Unit,
+    onSemanticSearchClick: () -> Unit,
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var themeDialogVisible by remember { mutableStateOf(false) }
-    var languageDialogVisible by remember { mutableStateOf(false) }
-    var toolbarSheetVisible by remember { mutableStateOf(false) }
-    var imageTargetDialogVisible by remember { mutableStateOf(false) }
-    var imageBedSheetVisible by remember { mutableStateOf(false) }
+    var overlay by remember { mutableStateOf<SettingsOverlay?>(null) }
     val dynamicColorSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val dynamicColorActive = settings.dynamicColor && dynamicColorSupported
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -253,7 +254,7 @@ fun SettingsScreen(
                                 useWallpaper = dynamicColorActive,
                             )
                         },
-                        onClick = { themeDialogVisible = true },
+                        onClick = { overlay = SettingsOverlay.Theme },
                     )
                 }
 
@@ -263,7 +264,7 @@ fun SettingsScreen(
                         count = 1,
                         title = stringResource(R.string.settings_language),
                         description = languageName(language),
-                        onClick = { languageDialogVisible = true },
+                        onClick = { overlay = SettingsOverlay.Language },
                     )
                 }
 
@@ -273,7 +274,7 @@ fun SettingsScreen(
                         count = 3,
                         title = stringResource(R.string.settings_toolbar_order),
                         description = stringResource(R.string.settings_toolbar_order_desc),
-                        onClick = { toolbarSheetVisible = true },
+                        onClick = { overlay = SettingsOverlay.ToolbarOrder },
                     )
                     SettingsSwitchRow(
                         index = 1,
@@ -295,13 +296,23 @@ fun SettingsScreen(
                     )
                 }
 
+                SettingsGroup(stringResource(R.string.settings_section_search)) {
+                    SettingsRow(
+                        index = 0,
+                        count = 1,
+                        title = stringResource(R.string.settings_semantic_title),
+                        description = stringResource(R.string.settings_semantic_desc),
+                        onClick = onSemanticSearchClick,
+                    )
+                }
+
                 SettingsGroup(stringResource(R.string.settings_section_images)) {
                     SettingsRow(
                         index = 0,
                         count = 2,
                         title = stringResource(R.string.settings_image_destination),
                         description = imageTargetName(settings.imageUploadTarget),
-                        onClick = { imageTargetDialogVisible = true },
+                        onClick = { overlay = SettingsOverlay.ImageTarget },
                     )
                     SettingsRow(
                         index = 1,
@@ -318,7 +329,7 @@ fun SettingsScreen(
                         } else {
                             stringResource(R.string.settings_image_bed_not_configured)
                         },
-                        onClick = { imageBedSheetVisible = true },
+                        onClick = { overlay = SettingsOverlay.ImageBed },
                     )
                 }
 
@@ -357,60 +368,68 @@ fun SettingsScreen(
         }
     }
 
-    if (themeDialogVisible) {
-        ThemePresetDialog(
+    when (overlay) {
+        SettingsOverlay.Theme -> ThemePresetDialog(
             current = settings.themePreset,
             onSelect = {
                 onThemePresetSelect(it)
-                themeDialogVisible = false
+                overlay = null
             },
-            onDismiss = { themeDialogVisible = false },
+            onDismiss = { overlay = null },
         )
-    }
-
-    if (languageDialogVisible) {
-        LanguageDialog(
+        SettingsOverlay.Language -> LanguageDialog(
             current = language,
             onSelect = {
                 onLanguageSelect(it)
-                languageDialogVisible = false
+                overlay = null
             },
-            onDismiss = { languageDialogVisible = false },
+            onDismiss = { overlay = null },
         )
-    }
-    if (toolbarSheetVisible) {
-        ToolbarOrderSheet(
+        SettingsOverlay.ToolbarOrder -> ToolbarOrderSheet(
             current = settings.toolbarOrder,
-            onSave = { onToolbarOrderChange(it); toolbarSheetVisible = false },
-            onDismiss = { toolbarSheetVisible = false },
+            onSave = { onToolbarOrderChange(it); overlay = null },
+            onDismiss = { overlay = null },
         )
-    }
-    if (imageTargetDialogVisible) {
-        ImageTargetDialog(
+        SettingsOverlay.ImageTarget -> ImageTargetDialog(
             current = settings.imageUploadTarget,
+            imageBedConfigured = settings.imageBed.isConfigured,
             onSelect = {
                 onImageUploadTargetChange(it)
-                imageTargetDialogVisible = false
+                overlay = null
             },
-            onDismiss = { imageTargetDialogVisible = false },
+            onDismiss = { overlay = null },
         )
-    }
-    if (imageBedSheetVisible) {
-        ImageBedSheet(
+        SettingsOverlay.ImageBed -> ImageBedSheet(
             config = settings.imageBed,
             onSave = {
                 onImageBedChange(it)
-                imageBedSheetVisible = false
+                overlay = null
             },
             credentialsUnavailable = settings.s3CredentialsUnavailable,
-            onDismiss = { imageBedSheetVisible = false },
+            onDismiss = { overlay = null },
         )
+        null -> Unit
     }
 }
+
+private sealed interface SettingsOverlay {
+    data object Theme : SettingsOverlay
+    data object Language : SettingsOverlay
+    data object ToolbarOrder : SettingsOverlay
+    data object ImageTarget : SettingsOverlay
+    data object ImageBed : SettingsOverlay
+}
+
+@Composable
+private fun rememberExpandedSheetState() = rememberBottomSheetState(
+    initialValue = SheetValue.Hidden,
+    enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+)
 
 @Composable
 private fun ImageTargetDialog(
     current: ImageUploadTarget,
+    imageBedConfigured: Boolean,
     onSelect: (ImageUploadTarget) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -421,12 +440,14 @@ private fun ImageTargetDialog(
             Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 ImageUploadTarget.entries.forEach { target ->
                     val selected = target == current
+                    val enabled = target != ImageUploadTarget.ImageBed || imageBedConfigured
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 52.dp)
                             .selectable(
                                 selected = selected,
+                                enabled = enabled,
                                 onClick = { onSelect(target) },
                                 role = Role.RadioButton,
                             )
@@ -434,25 +455,32 @@ private fun ImageTargetDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        RadioButton(selected = selected, onClick = null)
+                        RadioButton(selected = selected, onClick = null, enabled = enabled)
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = imageTargetName(target),
                                 style = LoomaTokens.type.body,
-                                color = LoomaTokens.colors.title,
+                                color = if (enabled) LoomaTokens.colors.title else LoomaTokens.colors.muted,
                             )
                             Text(
                                 text = stringResource(target.descriptionRes()),
                                 style = LoomaTokens.type.supporting,
                                 color = LoomaTokens.colors.muted,
                             )
+                            if (!enabled) {
+                                Text(
+                                    text = stringResource(R.string.settings_image_destination_bed_unavailable),
+                                    style = LoomaTokens.type.supporting,
+                                    color = LoomaTokens.colors.muted,
+                                )
+                            }
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_confirm)) }
         },
     )
 }
@@ -477,7 +505,11 @@ private fun ImageBedSheet(
     var saveFailed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    ModalBottomSheet(onDismissRequest = { if (!saving) onDismiss() }) {
+    val sheetState = rememberExpandedSheetState()
+    ModalBottomSheet(
+        onDismissRequest = { if (!saving) onDismiss() },
+        sheetState = sheetState,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -675,7 +707,7 @@ private fun ThemePresetDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_confirm)) }
         },
     )
 }
@@ -718,7 +750,7 @@ private fun LanguageDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_confirm)) }
         },
     )
 }
@@ -793,7 +825,7 @@ private fun SettingsSwitchRow(
 }
 
 @Composable
-private fun SettingsRow(
+internal fun SettingsRow(
     index: Int,
     count: Int,
     title: String,
@@ -836,7 +868,7 @@ private fun SettingsRow(
 }
 
 @Composable
-private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
+internal fun SettingsGroup(title: String, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         Text(
             text = title,
@@ -860,7 +892,8 @@ private fun ToolbarOrderSheet(
 ) {
     var order by remember { mutableStateOf(current.filter { it.isAvailableInToolbar() }) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberExpandedSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
             Text(
                 text = stringResource(R.string.settings_toolbar_order),

@@ -1,13 +1,5 @@
-package com.example.looma.ui.markdown
+package com.example.looma.domain.markdown
 
-import com.example.looma.domain.markdown.MarkdownIndex
-import com.example.looma.domain.markdown.MarkdownReadingIndex
-import com.example.looma.domain.markdown.MathSpan
-import com.example.looma.domain.markdown.ReadingBlock
-import com.example.looma.domain.markdown.WikiImageFlavour
-import com.example.looma.domain.markdown.collectMathSpans
-import com.example.looma.domain.markdown.frontmatterEnd
-import com.example.looma.domain.markdown.preserveDisplayMathParagraphs
 import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.parseMarkdown
 import kotlinx.coroutines.CancellationException
@@ -19,10 +11,10 @@ import org.intellij.markdown.parser.CancellationToken
 import org.intellij.markdown.parser.EmptyStreamingMarkdownFile
 import org.intellij.markdown.parser.MarkdownParser
 
-internal sealed interface PreparedMarkdown {
+sealed interface PreparedMarkdown {
     val source: String
 
-    class Ready(
+    class Ready internal constructor(
         override val source: String,
         val index: MarkdownReadingIndex,
         val state: State.Success,
@@ -30,18 +22,18 @@ internal sealed interface PreparedMarkdown {
         val blocks: List<ReadingBlock>,
     ) : PreparedMarkdown
 
-    class Opening(
+    class Opening internal constructor(
         override val source: String,
         val preview: Ready,
     ) : PreparedMarkdown
 
-    class Failed(override val source: String) : PreparedMarkdown
+    class Failed internal constructor(override val source: String) : PreparedMarkdown
 }
 
-internal suspend fun prepareMarkdown(source: String): PreparedMarkdown =
+suspend fun prepareMarkdown(source: String): PreparedMarkdown =
     prepareInBackground { prepareMarkdownOnCurrentThread(source, it) }
 
-internal suspend fun prepareMarkdownOpening(source: String): PreparedMarkdown.Opening? =
+suspend fun prepareMarkdownOpening(source: String): PreparedMarkdown.Opening? =
     prepareInBackground { prepareMarkdownOpeningOnCurrentThread(source, it) }
 
 private suspend fun <T> prepareInBackground(prepare: (CancellationToken) -> T): T =
@@ -52,7 +44,7 @@ private suspend fun <T> prepareInBackground(prepare: (CancellationToken) -> T): 
         prepare(cancellation)
     }
 
-internal fun prepareMarkdownOpeningOnCurrentThread(
+fun prepareMarkdownOpeningOnCurrentThread(
     source: String,
     cancellation: CancellationToken,
 ): PreparedMarkdown.Opening? {
@@ -75,7 +67,7 @@ internal fun prepareMarkdownOpeningOnCurrentThread(
     return (preview as? PreparedMarkdown.Ready)?.let { PreparedMarkdown.Opening(source, it) }
 }
 
-internal fun prepareMarkdownOnCurrentThread(
+fun prepareMarkdownOnCurrentThread(
     source: String,
     cancellation: CancellationToken,
 ): PreparedMarkdown = try {

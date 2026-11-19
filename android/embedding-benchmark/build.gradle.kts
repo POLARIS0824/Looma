@@ -25,9 +25,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":embedding"))
     implementation(libs.benchmark.ort)
-    implementation(libs.benchmark.mediapipe)
-    implementation(libs.benchmark.litertlm)
     implementation(libs.kotlinx.coroutines.core)
 }
 

@@ -27,6 +27,7 @@ import com.example.looma.data.note.VaultFileFailure
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NoteWriteMode
+import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.wiki.WikiContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -60,6 +61,8 @@ class NoteViewModel(
 
     private val draft = NoteDraft()
     internal val editor get() = draft.editor
+    internal fun matchesPassage(passage: PassageAnchor): Boolean =
+        !draft.isDirty && passage.matches(draft.revision, draft.content)
     private var restoredSelection = savedStateHandle.get<Bundle>(EDITOR_SELECTION)
         ?.getIntArray(EDITOR_SELECTION)
         ?.takeIf { it.size == 2 }

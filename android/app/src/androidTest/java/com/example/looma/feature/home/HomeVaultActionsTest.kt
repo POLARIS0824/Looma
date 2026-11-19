@@ -16,6 +16,7 @@ import com.example.looma.data.index.NoteIndexDatabase
 import com.example.looma.data.index.RoomNoteIndex
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.search.SearchHistoryRepository
+import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.vault.VaultPreferences
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.model.FolderPath
@@ -64,6 +65,7 @@ class HomeVaultActionsTest {
             notes,
             FolderRepository(notes),
             SearchHistoryRepository(vaults, database.searchHistoryDao()),
+            SemanticSearchRepository(context, notes, vaults),
         )
         withContext(Dispatchers.Main) {
             home = ViewModelProvider.create(viewModels, factory)[HomeViewModel::class]

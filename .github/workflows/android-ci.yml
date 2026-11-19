@@ -57,7 +57,7 @@ jobs:
         run: ./gradlew :app:assembleDebug --stacktrace
 
       - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :markdown-core:test :app:testDebugUnitTest --stacktrace
 
       - name: Run lint
         run: ./gradlew :app:lintDebug --stacktrace
@@ -72,4 +72,6 @@ jobs:
           path: |
             android/app/build/reports/tests/
             android/app/build/test-results/
+            android/markdown-core/build/reports/tests/
+            android/markdown-core/build/test-results/
             android/app/build/reports/lint-results-debug.html

@@ -17,4 +17,5 @@ internal data class NoteListResult(
     val folders: List<VaultFolder> = emptyList(),
     val unreadableCount: Int = 0,
     val stalledRelocation: StalledRelocation? = null,
+    val complete: Boolean = true,
 )

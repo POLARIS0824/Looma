@@ -1,4 +1,4 @@
-package com.example.looma.domain.search
+package com.example.looma.data.index
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

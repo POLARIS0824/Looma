@@ -9,7 +9,7 @@ data class MarkdownLinkSpan(
     val embedded: Boolean,
 )
 
-internal object WikiLinks {
+object WikiLinks {
 
     fun occurrences(
         text: String,
@@ -41,7 +41,7 @@ internal object WikiLinks {
         return result.takeIf { changed }
     }
 
-    fun imageSpan(text: String, start: Int, end: Int, base: Int): MarkdownLinkSpan? =
+    internal fun imageSpan(text: String, start: Int, end: Int, base: Int): MarkdownLinkSpan? =
         spanOf(text.substring(start + 3, end - 2), start until end, start + 3, base, embedded = true)
 
     private fun spanOf(

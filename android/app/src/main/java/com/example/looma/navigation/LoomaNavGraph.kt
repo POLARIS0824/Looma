@@ -49,6 +49,7 @@ import com.example.looma.data.folder.FolderRepository
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.search.SearchHistoryRepository
+import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
@@ -58,6 +59,8 @@ import com.example.looma.feature.home.HomeViewModel
 import com.example.looma.feature.note.NoteRoute
 import com.example.looma.feature.note.NoteViewModel
 import com.example.looma.feature.note.titleEditFor
+import com.example.looma.feature.settings.SemanticSearchSettingsRoute
+import com.example.looma.feature.settings.SemanticSearchSettingsViewModel
 import com.example.looma.feature.settings.SettingsRoute
 import com.example.looma.feature.settings.SettingsViewModel
 import com.example.looma.feature.trash.TrashRoute
@@ -78,6 +81,7 @@ fun LoomaNavGraph(
     noteRepository: NoteRepository,
     folderRepository: FolderRepository,
     searchHistoryRepository: SearchHistoryRepository,
+    semanticSearchRepository: SemanticSearchRepository,
     settingsRepository: SettingsRepository,
     imageUploader: ImageUploader,
     vaultSetupViewModel: VaultSetupViewModel,
@@ -164,6 +168,7 @@ fun LoomaNavGraph(
                             noteRepository = noteRepository,
                             folderRepository = folderRepository,
                             searchHistoryRepository = searchHistoryRepository,
+                            semanticSearchRepository = semanticSearchRepository,
                         ),
                     )
                     val homeState by homeViewModel.uiState.collectAsStateWithLifecycle()
@@ -174,6 +179,9 @@ fun LoomaNavGraph(
                         viewModel = homeViewModel,
                         loadingFeedbackEnabled = launchGate.isReleased,
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
+                        onOpenSearchResult = { result ->
+                            backStack.add(LoomaRoute.Note.from(result.id, passage = result.passage))
+                        },
                         onCreatedNote = { noteId ->
                             backStack.add(LoomaRoute.Note.from(noteId, isNew = true))
                         },
@@ -181,6 +189,11 @@ fun LoomaNavGraph(
                         onSettingsClick = {
                             if (backStack.lastOrNull() != LoomaRoute.Settings) {
                                 backStack.add(LoomaRoute.Settings)
+                            }
+                        },
+                        onManageSemanticSearch = {
+                            if (backStack.lastOrNull() == LoomaRoute.Home) {
+                                backStack.add(LoomaRoute.SemanticSearchSettings)
                             }
                         },
                     )
@@ -208,6 +221,22 @@ fun LoomaNavGraph(
                                 backStack.add(LoomaRoute.VaultSetup)
                             }
                         },
+                        onSemanticSearchClick = {
+                            if (backStack.lastOrNull() == LoomaRoute.Settings) {
+                                backStack.add(LoomaRoute.SemanticSearchSettings)
+                            }
+                        },
+                        onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                    )
+                }
+
+                entry<LoomaRoute.SemanticSearchSettings> {
+                    val semanticSettingsViewModel: SemanticSearchSettingsViewModel = viewModel(
+                        factory = SemanticSearchSettingsViewModel.factory(semanticSearchRepository),
+                    )
+                    SemanticSearchSettingsRoute(
+                        viewModel = semanticSettingsViewModel,
+                        vaultName = vault?.name.orEmpty(),
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
                     )
                 }
@@ -254,6 +283,7 @@ fun LoomaNavGraph(
                         onTitleFocusChange = { titleFocused.value = it },
                         noteId = noteId,
                         retargetVersion = route.retargetVersion,
+                        passage = route.passage,
                         onNavigateUp = navigateUp,
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
                         onRenameNavigate = { from, to ->

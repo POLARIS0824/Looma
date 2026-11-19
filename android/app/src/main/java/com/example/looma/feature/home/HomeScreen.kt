@@ -104,7 +104,11 @@ import com.example.looma.ui.theme.LoomaTokens
 data class HomeActions(
     val onQueryChange: (String) -> Unit = {},
     val onSearchSubmit: () -> Unit = {},
-    val onSearchResultClick: (NoteId) -> Unit = {},
+    val onSearchResultClick: (HomeSearchResult) -> Unit = {},
+    val onSemanticSearchToggle: (Boolean) -> Unit = {},
+    val onManageSemanticSearch: () -> Unit = {},
+    val onRetrySemanticSearch: () -> Unit = {},
+    val onSearchClosed: () -> Unit = {},
     val onToggleLayout: () -> Unit = {},
     val onSortSelect: (HomeSort) -> Unit = {},
     val onNoteClick: (HomeNoteItem) -> Unit = {},
@@ -142,9 +146,11 @@ data class HomeActions(
 fun HomeRoute(
     viewModel: HomeViewModel,
     onOpenNote: (NoteId) -> Unit,
+    onOpenSearchResult: (HomeSearchResult) -> Unit,
     onCreatedNote: (NoteId) -> Unit,
     onMenuClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onManageSemanticSearch: () -> Unit,
     modifier: Modifier = Modifier,
     loadingFeedbackEnabled: Boolean = true,
 ) {
@@ -158,6 +164,7 @@ fun HomeRoute(
     )
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.unloadSemanticModel() }
 
     LaunchedEffect(state.createdNote) {
         state.createdNote?.let { noteId ->
@@ -184,10 +191,14 @@ fun HomeRoute(
         actions = HomeActions(
             onQueryChange = viewModel::setQuery,
             onSearchSubmit = viewModel::recordSearch,
-            onSearchResultClick = { noteId ->
+            onSearchResultClick = { result ->
                 viewModel.recordSearch()
-                onOpenNote(noteId)
+                onOpenSearchResult(result)
             },
+            onSemanticSearchToggle = viewModel::setSemanticSearch,
+            onManageSemanticSearch = onManageSemanticSearch,
+            onRetrySemanticSearch = viewModel::retrySemanticSearch,
+            onSearchClosed = viewModel::onSearchClosed,
             onToggleLayout = viewModel::toggleLayout,
             onSortSelect = viewModel::setSort,
             onNoteClick = { viewModel.onSelectionEvent(HomeSelectionEvent.NoteTapped(it)) },
@@ -327,6 +338,10 @@ fun HomeScreen(
                             onSortClick = { sortSheetVisible = true },
                             onSearchSubmit = actions.onSearchSubmit,
                             onSearchResultClick = actions.onSearchResultClick,
+                            onSemanticSearchToggle = actions.onSemanticSearchToggle,
+                            onManageSemanticSearch = actions.onManageSemanticSearch,
+                            onRetrySemanticSearch = actions.onRetrySemanticSearch,
+                            onSearchClosed = actions.onSearchClosed,
                             onMenuClick = actions.onMenuClick,
                             onAvatarClick = actions.onSettingsClick,
                         )

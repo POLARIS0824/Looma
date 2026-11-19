@@ -5,6 +5,7 @@ import com.example.looma.data.index.IndexDelta
 import com.example.looma.data.index.IndexedNote
 import com.example.looma.data.index.NoteIndex
 import com.example.looma.data.index.NoteIndexUpdater
+import com.example.looma.data.index.SearchSignature
 import com.example.looma.data.index.fingerprint
 import com.example.looma.data.index.indexedNote
 import com.example.looma.data.index.toIndexedNote
@@ -26,7 +27,6 @@ import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultFolder
 import com.example.looma.domain.model.VaultId
 import com.example.looma.domain.search.NoteSearchMatch
-import com.example.looma.domain.search.SearchSignature
 import com.example.looma.domain.search.SearchableNote
 import com.example.looma.domain.search.searchNote
 import com.example.looma.domain.wiki.WikiContext
@@ -53,12 +53,16 @@ class NoteRepository internal constructor(
     private val searchDispatcher = Dispatchers.IO.limitedParallelism(SEARCH_IO_PARALLELISM)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
-    internal suspend fun listNotes(): NoteListResult {
-        val current = currentVault()
+    internal suspend fun listNotes(expected: Vault? = null): NoteListResult {
+        val current = currentVault(expected?.id)
+        if (expected != null && current.rootPath != expected.rootPath) {
+            throw VaultFileException(VaultFileFailure.NOT_FOUND)
+        }
         val stalled = VaultWriteCoordinator.write(current) {
             recoverPendingRelocations(current, retryStalled = true)
         }
         return read(current.id) { vault, _ ->
+            if (vault.rootPath != current.rootPath) throw VaultFileException(VaultFileFailure.NOT_FOUND)
             val scan = indexUpdater.scan(vault)
             NoteListResult(
                 vault = vault,
@@ -68,6 +72,7 @@ class NoteRepository internal constructor(
                 folders = scan.folders,
                 unreadableCount = scan.unreadableCount,
                 stalledRelocation = stalled,
+                complete = scan.complete,
             )
         }
     }
@@ -151,6 +156,11 @@ class NoteRepository internal constructor(
 
     suspend fun readNote(id: NoteId): Note = read(id.vaultId) { _, store ->
         parser.note(store.readNote(id))
+    }
+
+    internal suspend fun readSearchSource(id: NoteId, expectedRoot: String): StoredMarkdown = read(id.vaultId) { vault, store ->
+        if (vault.rootPath != expectedRoot) throw VaultFileException(VaultFileFailure.NOT_FOUND)
+        store.readNote(id)
     }
 
     suspend fun imageContext(id: NoteId): ImageContext? = read(id.vaultId) { _, store -> store.imageContext(id) }

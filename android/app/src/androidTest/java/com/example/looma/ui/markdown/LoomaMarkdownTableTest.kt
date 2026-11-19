@@ -14,6 +14,8 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.looma.domain.markdown.PreparedMarkdown
+import com.example.looma.domain.markdown.prepareMarkdown
 import com.example.looma.ui.theme.LoomaTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
