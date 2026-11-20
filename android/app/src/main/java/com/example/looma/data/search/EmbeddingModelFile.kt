@@ -1,13 +1,16 @@
 package com.example.looma.data.search
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.utils.io.readAvailable
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.EOFException
 import java.io.File
 import java.io.FileOutputStream
@@ -15,10 +18,8 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.coroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 internal class EmbeddingModelFile(directory: File) {
     private val file = directory.resolve("embeddinggemma-2-text-270m.litertlm")
@@ -59,11 +60,13 @@ internal class EmbeddingModelFile(directory: File) {
 
         val offset = pending.length()
         onProgress(offset.toProgress())
-        HttpClient(CIO) {
+        HttpClient(OkHttp) {
             engine {
-                requestTimeout = 0
-                endpoint.connectTimeout = 15_000
-                endpoint.socketTimeout = 30_000
+                config {
+                    callTimeout(0, TimeUnit.MILLISECONDS)
+                    connectTimeout(15_000, TimeUnit.MILLISECONDS)
+                    readTimeout(30_000, TimeUnit.MILLISECONDS)
+                }
             }
         }.use { client ->
             val published = receive(client, offset, onProgress) && publishIfValid()
