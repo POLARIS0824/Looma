@@ -1,7 +1,10 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
 
 package com.example.looma.feature.settings
 
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,13 +13,17 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,15 +36,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.data.settings.S3ImageBedConfig
 import com.example.looma.domain.markdown.ToolbarItem
 import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.theme.LoomaTokens
 import java.io.IOException
 import kotlinx.coroutines.launch
 
@@ -48,13 +51,13 @@ internal fun ImageBedSheet(
     credentialsUnavailable: Boolean,
     onDismiss: () -> Unit,
 ) {
-    var endpoint by remember { mutableStateOf(config.endpoint) }
-    var region by remember { mutableStateOf(config.region) }
-    var bucket by remember { mutableStateOf(config.bucket) }
-    var accessKey by remember { mutableStateOf(config.accessKey) }
-    var secretKey by remember { mutableStateOf(config.secretKey) }
-    var pathPrefix by remember { mutableStateOf(config.pathPrefix) }
-    var publicBaseUrl by remember { mutableStateOf(config.publicBaseUrl) }
+    val endpoint = rememberTextFieldState(config.endpoint)
+    val region = rememberTextFieldState(config.region)
+    val bucket = rememberTextFieldState(config.bucket)
+    val accessKey = rememberTextFieldState(config.accessKey)
+    val secretKey = rememberTextFieldState(config.secretKey)
+    val pathPrefix = rememberTextFieldState(config.pathPrefix)
+    val publicBaseUrl = rememberTextFieldState(config.publicBaseUrl)
     var pathStyle by remember { mutableStateOf(config.pathStyle) }
     var publicRead by remember { mutableStateOf(config.publicRead) }
     var saving by remember { mutableStateOf(false) }
@@ -79,7 +82,7 @@ internal fun ImageBedSheet(
             Text(
                 text = stringResource(R.string.settings_image_bed_sheet_title),
                 style = MaterialTheme.typography.headlineSmall,
-                color = LoomaTokens.colors.title,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             if (credentialsUnavailable) {
                 Text(stringResource(R.string.settings_image_bed_credentials_unavailable))
@@ -87,44 +90,19 @@ internal fun ImageBedSheet(
             Text(
                 text = stringResource(R.string.settings_image_bed_credentials_hint),
                 style = MaterialTheme.typography.bodySmall,
-                color = LoomaTokens.colors.muted,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            ImageBedField(
-                value = endpoint,
-                label = stringResource(R.string.settings_image_bed_endpoint),
-                onChange = { endpoint = it },
+            ImageBedField(state = endpoint, label = stringResource(R.string.settings_image_bed_endpoint))
+            ImageBedField(state = region, label = stringResource(R.string.settings_image_bed_region))
+            ImageBedField(state = bucket, label = stringResource(R.string.settings_image_bed_bucket))
+            ImageBedField(state = accessKey, label = stringResource(R.string.settings_image_bed_access_key))
+            OutlinedSecureTextField(
+                state = secretKey,
+                label = { Text(stringResource(R.string.settings_image_bed_secret_key)) },
+                modifier = Modifier.fillMaxWidth(),
             )
-            ImageBedField(
-                value = region,
-                label = stringResource(R.string.settings_image_bed_region),
-                onChange = { region = it },
-            )
-            ImageBedField(
-                value = bucket,
-                label = stringResource(R.string.settings_image_bed_bucket),
-                onChange = { bucket = it },
-            )
-            ImageBedField(
-                value = accessKey,
-                label = stringResource(R.string.settings_image_bed_access_key),
-                onChange = { accessKey = it },
-            )
-            ImageBedField(
-                value = secretKey,
-                label = stringResource(R.string.settings_image_bed_secret_key),
-                onChange = { secretKey = it },
-                secret = true,
-            )
-            ImageBedField(
-                value = pathPrefix,
-                label = stringResource(R.string.settings_image_bed_path_prefix),
-                onChange = { pathPrefix = it },
-            )
-            ImageBedField(
-                value = publicBaseUrl,
-                label = stringResource(R.string.settings_image_bed_public_url),
-                onChange = { publicBaseUrl = it },
-            )
+            ImageBedField(state = pathPrefix, label = stringResource(R.string.settings_image_bed_path_prefix))
+            ImageBedField(state = publicBaseUrl, label = stringResource(R.string.settings_image_bed_public_url))
             Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
                 SettingsSwitchRow(
                     index = 0,
@@ -151,19 +129,22 @@ internal fun ImageBedSheet(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss, enabled = !saving) { Text(stringResource(R.string.dialog_cancel)) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                TextButton(onClick = onDismiss, enabled = !saving, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
                 TextButton(
                     enabled = !saving,
+                    shapes = ButtonDefaults.shapes(),
                     onClick = {
                         val updatedConfig = S3ImageBedConfig(
-                            endpoint = endpoint.trim(),
-                            region = region.trim(),
-                            bucket = bucket.trim(),
-                            accessKey = accessKey.trim(),
-                            secretKey = secretKey,
-                            pathPrefix = pathPrefix.trim(),
-                            publicBaseUrl = publicBaseUrl.trim(),
+                            endpoint = endpoint.text.toString().trim(),
+                            region = region.text.toString().trim(),
+                            bucket = bucket.text.toString().trim(),
+                            accessKey = accessKey.text.toString().trim(),
+                            secretKey = secretKey.text.toString(),
+                            pathPrefix = pathPrefix.text.toString().trim(),
+                            publicBaseUrl = publicBaseUrl.text.toString().trim(),
                             pathStyle = pathStyle,
                             publicRead = publicRead,
                         )
@@ -186,27 +167,11 @@ internal fun ImageBedSheet(
 }
 
 @Composable
-private fun ImageBedField(
-    value: String,
-    label: String,
-    onChange: (String) -> Unit,
-    secret: Boolean = false,
-) {
+private fun ImageBedField(state: TextFieldState, label: String) {
     OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
+        state = state,
         label = { Text(label) },
-        singleLine = true,
-        visualTransformation = if (secret) {
-            PasswordVisualTransformation()
-        } else {
-            VisualTransformation.None
-        },
-        keyboardOptions = if (secret) {
-            KeyboardOptions(keyboardType = KeyboardType.Password)
-        } else {
-            KeyboardOptions.Default
-        },
+        lineLimits = TextFieldLineLimits.SingleLine,
         modifier = Modifier.fillMaxWidth(),
     )
 }
@@ -225,7 +190,7 @@ internal fun ToolbarOrderSheet(
             Text(
                 text = stringResource(R.string.settings_toolbar_order),
                 style = MaterialTheme.typography.headlineSmall,
-                color = LoomaTokens.colors.title,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Column(
                 modifier = Modifier
@@ -246,6 +211,7 @@ internal fun ToolbarOrderSheet(
                             onClick = {
                                 order = order.toMutableList().apply { add(index - 1, removeAt(index)) }
                             },
+                            shapes = IconButtonDefaults.shapes(),
                         ) {
                             LoomaIcon(iconRes = R.drawable.ic_arrow_up, contentDescription = upLabel)
                         }
@@ -254,6 +220,7 @@ internal fun ToolbarOrderSheet(
                             onClick = {
                                 order = order.toMutableList().apply { add(index + 1, removeAt(index)) }
                             },
+                            shapes = IconButtonDefaults.shapes(),
                         ) {
                             LoomaIcon(iconRes = R.drawable.ic_arrow_down, contentDescription = downLabel)
                         }
@@ -262,15 +229,15 @@ internal fun ToolbarOrderSheet(
             }
             TextButton(onClick = {
                 order = ToolbarItem.DEFAULT_ORDER.filter { it.isAvailableInToolbar() }
-            }) { Text(stringResource(R.string.toolbar_reset)) }
+            }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.toolbar_reset)) }
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
             ) {
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
+                TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.dialog_cancel)) }
                 Button(onClick = {
                     onSave(order + current.filterNot { it.isAvailableInToolbar() })
-                }) { Text(stringResource(R.string.dialog_save)) }
+                }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.dialog_save)) }
             }
         }
     }

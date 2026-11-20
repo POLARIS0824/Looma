@@ -1,22 +1,20 @@
 package com.example.looma.feature.home.components
 
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridScope
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
-import com.example.looma.feature.home.RecentReveal
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.domain.model.FolderPath
@@ -24,7 +22,8 @@ import com.example.looma.feature.home.HomeFilesState
 import com.example.looma.feature.home.HomeFolderItem
 import com.example.looma.feature.home.HomeNoteItem
 import com.example.looma.feature.home.HomeSelection
-import com.example.looma.ui.theme.LoomaTokens
+import com.example.looma.feature.home.RecentReveal
+import com.example.looma.ui.components.SectionHeader
 
 @Composable
 internal fun HomeFilesGrid(
@@ -38,9 +37,9 @@ internal fun HomeFilesGrid(
     onNoteClick: (HomeNoteItem) -> Unit,
     onNoteLongClick: (HomeNoteItem) -> Unit,
     modifier: Modifier = Modifier,
+    gridState: LazyStaggeredGridState = rememberLazyStaggeredGridState(),
 ) {
     val selectedFolder = selection.folder?.path
-    val gridState = rememberLazyStaggeredGridState()
     val recentState = rememberLazyListState()
     val acknowledge = rememberUpdatedState(onRecentRevealed)
     val targetIndex = recentReveal?.let { request -> files.recents.indexOfFirst { it.note.id == request.noteId } } ?: -1
@@ -59,7 +58,10 @@ internal fun HomeFilesGrid(
         if (files.isAtRoot) {
             if (files.recents.isNotEmpty()) {
                 item(key = "recents-header", span = StaggeredGridItemSpan.FullLine) {
-                    HomeSectionHeader(title = stringResource(R.string.home_section_recents))
+                    SectionHeader(
+                        title = stringResource(R.string.home_section_recents),
+                        parentSpacing = HomeCardGap,
+                    )
                 }
                 item(key = "recents-row", span = StaggeredGridItemSpan.FullLine) {
                     HomeRecentRow(
@@ -73,18 +75,20 @@ internal fun HomeFilesGrid(
             }
             if (files.folders.isNotEmpty()) {
                 item(key = "folders-header", span = StaggeredGridItemSpan.FullLine) {
-                    HomeSectionHeader(
+                    SectionHeader(
                         title = stringResource(R.string.home_section_folders),
-                        topPadding = 12.dp,
+                        first = files.recents.isEmpty(),
+                        parentSpacing = HomeCardGap,
                     )
                 }
                 folderSection(files.folders, isGridMode, selectedFolder, onFolderClick, onFolderLongClick)
             }
             if (files.notes.isNotEmpty()) {
                 item(key = "notes-header", span = StaggeredGridItemSpan.FullLine) {
-                    HomeSectionHeader(
+                    SectionHeader(
                         title = stringResource(R.string.home_section_notes),
-                        topPadding = 12.dp,
+                        first = files.recents.isEmpty() && files.folders.isEmpty(),
+                        parentSpacing = HomeCardGap,
                     )
                 }
             }
@@ -93,8 +97,8 @@ internal fun HomeFilesGrid(
                 item(key = "empty-folder", span = StaggeredGridItemSpan.FullLine) {
                     Text(
                         text = stringResource(R.string.home_empty_folder),
-                        style = LoomaTokens.type.supporting,
-                        color = LoomaTokens.colors.muted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                     )
                 }
@@ -145,22 +149,5 @@ private fun LazyStaggeredGridScope.folderSection(
                 onFolderLongClick = onFolderLongClick,
             )
         }
-    }
-}
-
-@Composable
-private fun HomeSectionHeader(
-    title: String,
-    topPadding: Dp = 4.dp,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = topPadding, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            style = LoomaTokens.type.sectionTitle,
-            color = LoomaTokens.colors.title,
-        )
     }
 }

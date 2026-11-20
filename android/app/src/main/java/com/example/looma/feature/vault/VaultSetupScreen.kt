@@ -1,4 +1,6 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
 
 package com.example.looma.feature.vault
 
@@ -30,7 +32,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -47,6 +48,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.ui.components.DelayedLoadingIndicator
+import com.example.looma.ui.components.ErrorBanner
+import com.example.looma.ui.components.PageMaxWidth
+import com.example.looma.ui.components.pageMargin
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTheme
 import com.example.looma.ui.theme.LoomaTokens
@@ -75,9 +79,9 @@ fun VaultSetupScreen(
             Modifier
                 .fillMaxSize()
                 .wrapContentWidth(Alignment.CenterHorizontally)
-                .widthIn(max = 640.dp)
+                .widthIn(max = PageMaxWidth)
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 24.dp),
+                .padding(horizontal = pageMargin(), vertical = 24.dp),
         ) {
             Column(
                 modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -114,18 +118,10 @@ fun VaultSetupScreen(
                     enter = fadeIn(motion.defaultEffectsSpec()),
                     exit = fadeOut(motion.fastEffectsSpec()),
                 ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                        shape = MaterialTheme.shapes.large,
-                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                    ) {
-                        Text(
-                            text = vaultErrorText(error),
-                            modifier = Modifier.padding(16.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
+                    ErrorBanner(
+                        message = vaultErrorText(error),
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
                 }
             }
 
@@ -246,7 +242,6 @@ private fun VaultFolderCard(
                 )
             }
             if (pending && previousFolderName != null) {
-                HorizontalDivider(color = colors.outlineVariant)
                 Text(
                     text = stringResource(R.string.vault_setup_previous, previousFolderName),
                     style = MaterialTheme.typography.labelLarge,
@@ -276,6 +271,7 @@ private fun VaultSetupActions(
         Button(
             onClick = onChooseFolderClick,
             enabled = !busy,
+            shapes = ButtonDefaults.shapesFor(height),
             modifier = Modifier.fillMaxWidth().heightIn(min = height),
             contentPadding = ButtonDefaults.contentPaddingFor(height),
         ) {
@@ -303,7 +299,7 @@ private fun VaultSetupActions(
         FilledTonalButton(
             onClick = onChooseFolderClick,
             enabled = !busy,
-            shapes = ButtonDefaults.shapes(),
+            shapes = ButtonDefaults.shapesFor(height),
             modifier = Modifier.weight(1f).heightIn(min = height),
             contentPadding = ButtonDefaults.contentPaddingFor(height),
         ) {
@@ -312,7 +308,7 @@ private fun VaultSetupActions(
         Button(
             onClick = onConfirmClick,
             enabled = !busy,
-            shapes = ButtonDefaults.shapes(),
+            shapes = ButtonDefaults.shapesFor(height),
             modifier = Modifier.weight(1f).heightIn(min = height),
             contentPadding = ButtonDefaults.contentPaddingFor(height),
         ) {

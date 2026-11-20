@@ -1,3 +1,8 @@
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
+
 package com.example.looma.feature.home
 
 import android.net.Uri
@@ -22,14 +27,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButtonMenu
 import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -90,9 +94,12 @@ import com.example.looma.feature.home.components.HomeSearchField
 import com.example.looma.feature.home.components.HomeSearchOverlay
 import com.example.looma.feature.home.components.HomeTopBarHost
 import com.example.looma.feature.home.components.rememberHomeSearchState
-import com.example.looma.ui.components.DelayedLoadingIndicator
+import com.example.looma.ui.components.ErrorBanner
+import com.example.looma.ui.components.LoadingPage
 import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.components.LoomaLoadingIndicator
+import com.example.looma.ui.components.MessagePage
+import com.example.looma.ui.components.pageMargin
+import com.example.looma.ui.components.rememberDelayedVisibility
 import com.example.looma.ui.theme.LoomaTokens
 
 @Immutable
@@ -169,7 +176,6 @@ fun HomeRoute(
     onManageSemanticSearch: () -> Unit,
     modifier: Modifier = Modifier,
     loadingFeedbackEnabled: Boolean = true,
-    onDrawerGestureEnabledChange: (Boolean) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val untitledTitle = stringResource(R.string.home_untitled_note)
@@ -179,14 +185,6 @@ fun HomeRoute(
         onPicked = viewModel::moveSelectionTo,
         onRejected = { viewModel.moveSelectionTo(null) },
     )
-
-    val updateDrawerGestureEnabled by rememberUpdatedState(onDrawerGestureEnabledChange)
-    LaunchedEffect(state.topBarMode) {
-        updateDrawerGestureEnabled(state.topBarMode == HomeTopBarMode.Root)
-    }
-    DisposableEffect(Unit) {
-        onDispose { updateDrawerGestureEnabled(true) }
-    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.unloadSemanticModel() }
@@ -281,7 +279,6 @@ private fun rememberVaultFolderPicker(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HomeScreen(
     state: HomeUiState,
@@ -293,8 +290,9 @@ fun HomeScreen(
     val topBarMode = state.topBarMode
     val search = rememberHomeSearchState(initialQuery = state.search.query)
     val rootScrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
+    val gridState = key(state.files.path) { rememberLazyStaggeredGridState() }
     val folderScrollBehavior = key(state.files.path) {
-        TopAppBarDefaults.enterAlwaysScrollBehavior()
+        TopAppBarDefaults.enterAlwaysScrollBehavior(scrollableState = gridState)
     }
     LaunchedEffect(state.files.path) {
         if (state.files.isAtRoot) {
@@ -303,11 +301,7 @@ fun HomeScreen(
         }
     }
     LaunchedEffect(topBarMode) {
-        when (topBarMode) {
-            HomeTopBarMode.Root -> rootScrollBehavior.scrollState.scrollOffset = 0f
-            HomeTopBarMode.Folder -> folderScrollBehavior.state.heightOffset = 0f
-            HomeTopBarMode.Selection -> Unit
-        }
+        if (topBarMode == HomeTopBarMode.Root) rootScrollBehavior.scrollState.scrollOffset = 0f
     }
     val scrollConnection = when (topBarMode) {
         HomeTopBarMode.Selection -> null
@@ -408,6 +402,7 @@ fun HomeScreen(
                     state = state,
                     actions = actions.browse,
                     onRecentRevealed = onRecentRevealed,
+                    gridState = gridState,
                 )
             }
         }
@@ -494,8 +489,8 @@ private fun HomeSortSheet(current: HomeSort, onSelect: (HomeSort) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
         Text(
             text = stringResource(R.string.home_sort_sheet_title),
-            style = LoomaTokens.type.pageTitle,
-            color = LoomaTokens.colors.title,
+            style = MaterialTheme.typography.titleLargeEmphasized,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
         )
         Column(Modifier.selectableGroup()) {
@@ -520,13 +515,13 @@ private fun HomeSortSheet(current: HomeSort, onSelect: (HomeSort) -> Unit) {
 
 @Composable
 private fun HomeSortOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(28.dp)
+    val shape = MaterialTheme.shapes.extraLarge
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 2.dp)
             .clip(shape)
-            .background(if (selected) LoomaTokens.colors.chip else Color.Transparent)
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -536,7 +531,7 @@ private fun HomeSortOption(label: String, selected: Boolean, onClick: () -> Unit
                 iconRes = R.drawable.ic_check,
                 contentDescription = null,
                 modifier = Modifier.size(22.dp),
-                tint = LoomaTokens.colors.onChip,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         } else {
             Spacer(Modifier.width(22.dp))
@@ -544,8 +539,8 @@ private fun HomeSortOption(label: String, selected: Boolean, onClick: () -> Unit
         Spacer(Modifier.width(16.dp))
         Text(
             text = label,
-            style = LoomaTokens.type.body,
-            color = if (selected) LoomaTokens.colors.onChip else LoomaTokens.colors.title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -556,30 +551,32 @@ private fun HomeContent(
     actions: HomeBrowseActions,
     onRecentRevealed: (RecentReveal) -> Unit,
     loadingFeedbackEnabled: Boolean,
+    gridState: LazyStaggeredGridState,
 ) {
     Column(Modifier.fillMaxSize()) {
-        state.stalledRelocation?.let { stalled ->
-            StalledRelocationBanner(
-                stalled = stalled,
-                isActionRunning = state.isActionRunning,
-                onAbandonClick = actions.onAbandonStalledRelocationClick,
-            )
-        }
-        state.error?.let { error ->
-            HomeErrorBanner(error = error, onRetryClick = actions.onRetryClick)
+        val stalled = state.stalledRelocation
+        val error = state.error
+        if (stalled != null || error != null) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = pageMargin(), vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                stalled?.let {
+                    StalledRelocationBanner(
+                        stalled = it,
+                        isActionRunning = state.isActionRunning,
+                        onAbandonClick = actions.onAbandonStalledRelocationClick,
+                    )
+                }
+                error?.let { HomeErrorBanner(error = it, onRetryClick = actions.onRetryClick) }
+            }
         }
         when {
-            state.isLoading && state.notes.isEmpty() -> HomeCentered {
-                DelayedLoadingIndicator(loading = loadingFeedbackEnabled)
-            }
+            state.isLoading && state.notes.isEmpty() -> LoadingPage(loading = loadingFeedbackEnabled)
 
-            state.files.isAtRoot && state.files.isEmpty -> HomeCentered {
-                Text(
-                    text = stringResource(R.string.home_empty_vault),
-                    style = LoomaTokens.type.supporting,
-                    color = LoomaTokens.colors.muted,
-                )
-            }
+            state.files.isAtRoot && state.files.isEmpty -> MessagePage(
+                title = stringResource(R.string.home_empty_vault),
+            )
 
             else -> key(state.files.path) {
                 Box(
@@ -607,6 +604,7 @@ private fun HomeContent(
                         onFolderLongClick = actions.onFolderLongClick,
                         onNoteClick = actions.onNoteClick,
                         onNoteLongClick = actions.onNoteLongClick,
+                        gridState = gridState,
                     )
                 }
             }
@@ -620,7 +618,7 @@ private fun StalledRelocationBanner(
     isActionRunning: Boolean,
     onAbandonClick: () -> Unit,
 ) {
-    HomeErrorContainer(
+    ErrorBanner(
         message = stringResource(
             R.string.home_stalled_relocation_banner,
             stalled.sourcePath,
@@ -628,7 +626,7 @@ private fun StalledRelocationBanner(
         ),
         actionLabel = stringResource(R.string.home_stalled_relocation_abandon),
         actionEnabled = !isActionRunning,
-        onActionClick = onAbandonClick,
+        onAction = onAbandonClick,
     )
 }
 
@@ -639,56 +637,13 @@ private fun HomeErrorBanner(error: HomeError, onRetryClick: () -> Unit) {
         HomeError.LoadFailed -> stringResource(R.string.home_error_load)
         HomeError.CreateFailed -> stringResource(R.string.home_error_create)
     }
-    HomeErrorContainer(
+    ErrorBanner(
         message = message,
         actionLabel = stringResource(R.string.home_retry),
-        actionEnabled = true,
-        onActionClick = onRetryClick,
+        onAction = onRetryClick,
     )
 }
 
-@Composable
-private fun HomeErrorContainer(
-    message: String,
-    actionLabel: String,
-    actionEnabled: Boolean,
-    onActionClick: () -> Unit,
-) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = MaterialTheme.shapes.large,
-        color = scheme.errorContainer,
-        contentColor = scheme.onErrorContainer,
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = message,
-                style = LoomaTokens.type.cardBody,
-                color = scheme.onErrorContainer,
-                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
-            )
-            TextButton(
-                onClick = onActionClick,
-                enabled = actionEnabled,
-                colors = ButtonDefaults.textButtonColors(contentColor = scheme.onErrorContainer),
-            ) {
-                Text(actionLabel)
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeCentered(content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { content() }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HomeActionMenu(
     isCreating: Boolean,
@@ -697,6 +652,7 @@ private fun HomeActionMenu(
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val menuOpen = expanded && !isCreating
+    val showProgress = rememberDelayedVisibility(isCreating)
     // Scaffold already keeps 16dp from the edge; cancel the menu's own 16dp padding.
     val layoutDirection = LocalLayoutDirection.current
     val edgeOffset = if (layoutDirection == LayoutDirection.Rtl) (-16).dp else 16.dp
@@ -711,8 +667,11 @@ private fun HomeActionMenu(
                 containerSize = ToggleFloatingActionButtonDefaults.containerSizeMedium(),
                 containerCornerRadius = ToggleFloatingActionButtonDefaults.containerCornerRadiusMedium(),
             ) {
-                if (isCreating) {
-                    LoomaLoadingIndicator(size = 24.dp, color = LocalContentColor.current)
+                if (showProgress) {
+                    LoadingIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = LocalContentColor.current,
+                    )
                 } else {
                     val open = checkedProgress > 0.5f
                     LoomaIcon(

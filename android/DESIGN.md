@@ -106,7 +106,7 @@ M3 Expressive 的圆角刻度如下。加粗的是 1.5.0 新增的级别。
 | `CircleShape` | 完全圆角 |
 
 - 优先使用 M3 组件的默认形状，不传 `shape`。卡片用 `Card`，对话框用 `AlertDialog`，分组列表用 `SegmentedListItem`。
-- 首页的笔记卡片、文件夹卡片和最近笔记卡片使用 `Card(shape = MaterialTheme.shapes.largeIncreased)`。这一条是 Looma 决定，保留现在 20dp 的外观。
+- 首页的笔记卡片、文件夹卡片、最近笔记卡片和回收站的笔记卡片使用 `Card(shape = MaterialTheme.shapes.largeIncreased)`。同一种内容的卡片圆角一致。这一条是 Looma 决定，保留现在 20dp 的外观。
 - 自定义容器从上表选一级。不写 `RoundedCornerShape(xx.dp)`。
 - 嵌套容器的内层圆角小于外层。M3 的公式是“内层圆角等于外层圆角减去内边距”，可以按视觉效果微调。
 - 卡片和列表这类信息密集的容器不用完全圆角。
@@ -171,7 +171,7 @@ Material 3 1.5.0 已将绝大部分 Expressive API 转为稳定版。不要在�
 | 延迟显示，即 `rememberDelayedVisibility` | 提取 | `DelayedContent` 和 `DelayedLoadingIndicator` 各写了一份相同的计时和显示逻辑 |
 | 错误横幅 | 提取 | 3 处的语义都是“一段出错说明加一个操作”。M3 没有横幅组件 |
 | 整页的加载、空和错误状态 | 提取 | 5 处的语义相同，布局应该相同 |
-| 分组标题 | 暂不提取 | 先按“布局数值”表统一写法。两处以上需要尾部操作（例如“查看全部”）时再提取 |
+| 分组标题，即 `SectionHeader` | 提取 | 4 处的语义相同。字体、颜色、`heading()` 语义、标题到内容的间距和分组之间的间距都定义在 `SectionHeader` 和 `SectionHeaderDefaults` 里。父布局已有间距时，用 `parentSpacing` 扣除 |
 | `LoomaLoadingIndicator` | 删除 | 它只给 `LoadingIndicator` 设置了尺寸和颜色，属于上面禁止的 wrapper。调用处改用 `DelayedLoadingIndicator` 或 `LoadingIndicator` |
 | 卡片、顶栏、确认对话框、开关行 | 不提取 | 直接使用 M3 组件 |
 
@@ -193,6 +193,7 @@ Looma 决定如下：
 - 通常很快完成的操作延迟 300ms 再显示指示器，常量是 `DelayedFeedbackMillis`。这类操作包括读取本地文件、搜索和按钮里的短操作。
 - 确定进度的长任务不延迟。
 - 输入搜索词时，用 `DelayedContent` 延迟显示“无结果”提示，避免打字过程中闪出提示。
+- 所有加载反馈都经过 `rememberDelayedVisibility`，包括整页加载、按钮里的加载、笔记阅读视图的加载和 Markdown 图片的占位块。占位块先保留尺寸，300ms 后才淡入底色。
 
 ## 无障碍
 
@@ -220,24 +221,3 @@ Looma 决定如下：
 
 | 位置 | 偏差 | 对应规则 |
 |---|---|---|
-| `gradle/libs.versions.toml` | `composeBom` 仍是 `2026.09.00`，`material3` 仍是 `1.5.0-beta02`，未升级到 `2026.11.01`（Compose 1.13.0）和 `1.5.0` 正式版 | 版本基线 |
-| `feature/` 与 `ui/components/` 多个文件 | 对 1.5.0 已转正的组件（`TopAppBar`、`LargeFlexibleTopAppBar`、`MediumFlexibleTopAppBar`、`SegmentedListItem`、`FloatingActionButtonMenu`、`ExpandedFullScreenSearchBar`）仍保留了多余的 `@OptIn(ExperimentalMaterial3Api::class)` 和 `@OptIn(ExperimentalMaterial3ExpressiveApi::class)` | 1.5.0 的实验性注解边界 |
-| `ui/theme/LoomaTokens.kt` | 保留了“Token”一节列出的别名 | Token |
-| `ui/theme/LoomaTokens.kt` | `homeNoteTitle` 把字号改成 18sp，不在 M3 字号刻度上 | 字体 |
-| `LoomaSpacing.pageMargin`，用于 `HomeNoteGrid` 和 `HomeSearchResults` | 页边距是 8dp | 布局数值 |
-| 设置页、回收站和加载失败页 | 页边距分别是 16dp、16dp 和 24dp，没有按窗口尺寸取值 | 布局数值 |
-| 分组标题 | `HomeSectionHeader`、`SettingsGroup`、`HomeSearchResults` 的“最近搜索”和 `BacklinksSection` 有四种写法，颜色、边距和 `heading()` 语义都不一致 | 布局数值 |
-| 错误横幅、整页状态、开关行 | 分别有 3 种、5 种和 2 种实现 | 共享组件的取舍 |
-| `HomeNoteCard`、`HomeFolderCard`、`HomeRecentRow`、`TrashScreen` | 用 `Surface` 加 `RoundedCornerShape(20.dp)`，没有用 `Card` | 形状 |
-| `HomeScreen`、`LoomaDrawer`、`HomeNoteCard` | 写死了 `RoundedCornerShape(28.dp)` 和 `RoundedCornerShape(12.dp)` | 形状 |
-| `WikiLinkPanel` | `RoundedCornerShape(10.dp)`，10dp 不在圆角刻度上 | 形状 |
-| `NoteTopBar` | 使用 `CenterAlignedTopAppBar` | 组件 |
-| `HomeScreen`、`NoteScreen` | `TopAppBarDefaults` 的 scrollBehavior 未传入 1.5.0 新增的 `ScrollableState` 参数，而是手动重置 `heightOffset` 或自己判断 `canScroll` | 1.5.0 与 1.13.0 的组件和 API 选择 |
-| `LoomaDrawer` | 使用 `ModalNavigationDrawer` | 1.5.0 与 1.13.0 的组件和 API 选择 |
-| `HomeSearchResults`、`HomeSemanticSearchControls` | 使用 1.5.0 已废弃的 `ListItem(headlineContent = ...)` 重载 | 1.5.0 与 1.13.0 的组件和 API 选择 |
-| `WikiLinkPanel`、`HomeDialogs`、`SettingsSheets` | 使用 Compose 1.13.0 已废弃的 `BasicTextField(value, onValueChange)` 和 `OutlinedTextField(value, onValueChange)`，S3 密钥框未使用 `OutlinedSecureTextField(state)` | 1.5.0 与 1.13.0 的组件和 API 选择 |
-| `NoteScreen` | 使用 `CircularProgressIndicator` | 1.5.0 与 1.13.0 的组件和 API 选择 |
-| `SemanticSearchSettingsScreen` | 使用 `LinearProgressIndicator` | 1.5.0 与 1.13.0 的组件和 API 选择 |
-| `HomeSearchOverlay` | 搜索图标的进出动画使用 `tween()` | 动效 |
-| `VaultSetupScreen` | `Card` 里用 `HorizontalDivider` 分隔内容 | 颜色 |
-| FAB、`TrashRow` 和 `NoteFormatBar` | 直接显示 `LoomaLoadingIndicator`，没有延迟，快速完成时指示器会闪一下 | 加载状态 |

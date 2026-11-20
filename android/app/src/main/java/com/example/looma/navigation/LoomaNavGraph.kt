@@ -5,8 +5,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.WideNavigationRailValue
+import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -70,7 +70,8 @@ import com.example.looma.feature.vault.VaultSelection
 import com.example.looma.feature.vault.VaultSetupRoute
 import com.example.looma.feature.vault.VaultSetupViewModel
 import com.example.looma.feature.vault.VaultState
-import com.example.looma.ui.components.DelayedLoadingIndicator
+import com.example.looma.ui.components.LoadingPage
+import com.example.looma.ui.components.isCompactWindow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -101,9 +102,7 @@ fun LoomaNavGraph(
     }
 
     if (status is VaultState.Checking) {
-        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            DelayedLoadingIndicator(loading = launchGate.isReleased, size = 44.dp)
-        }
+        LoadingPage(modifier = modifier, loading = launchGate.isReleased)
         return
     }
 
@@ -122,8 +121,8 @@ fun LoomaNavGraph(
     }
     if (reset == LoomaRoute.VaultSetup) return
 
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
-    var homeDrawerGestureEnabled by remember { mutableStateOf(true) }
+    val railState = rememberWideNavigationRailState()
+    val compact = isCompactWindow()
     val scope = rememberCoroutineScope()
     val current = backStack.lastOrNull()
     LaunchedEffect(status, current) {
@@ -133,18 +132,22 @@ fun LoomaNavGraph(
     }
     val destination = current.toDestination()
     val vault = (status as? VaultState.Ready)?.vault
-
-    BackHandler(enabled = drawerState.isOpen) {
-        scope.launch { drawerState.close() }
+    val modalRailOpen = compact && railState.targetValue == WideNavigationRailValue.Expanded
+    LaunchedEffect(compact) {
+        if (compact) railState.snapTo(WideNavigationRailValue.Collapsed)
     }
 
-    LoomaDrawer(
-        drawerState = drawerState,
+    BackHandler(enabled = modalRailOpen) {
+        scope.launch { railState.collapse() }
+    }
+
+    LoomaNavigationRail(
+        state = railState,
+        compact = compact,
         current = destination,
         vaultName = vault?.name.orEmpty(),
-        gesturesEnabled = destination != null && (destination != LoomaDestination.Notes || homeDrawerGestureEnabled),
         onSelect = { target ->
-            scope.launch { drawerState.close() }
+            if (compact) scope.launch { railState.collapse() }
             selectDrawerDestination(backStack, target)
         },
         modifier = modifier.fillMaxSize(),
@@ -181,7 +184,6 @@ fun LoomaNavGraph(
                     HomeRoute(
                         viewModel = homeViewModel,
                         loadingFeedbackEnabled = launchGate.isReleased,
-                        onDrawerGestureEnabledChange = { homeDrawerGestureEnabled = it },
                         onOpenNote = { noteId -> backStack.add(LoomaRoute.Note.from(noteId)) },
                         onOpenSearchResult = { result ->
                             backStack.add(LoomaRoute.Note.from(result.id, passage = result.passage))
@@ -189,7 +191,7 @@ fun LoomaNavGraph(
                         onCreatedNote = { noteId ->
                             backStack.add(LoomaRoute.Note.from(noteId, isNew = true))
                         },
-                        onMenuClick = { scope.launch { drawerState.open() } },
+                        onMenuClick = { scope.launch { railState.toggle() } },
                         onSettingsClick = {
                             if (backStack.lastOrNull() != LoomaRoute.Settings) {
                                 backStack.add(LoomaRoute.Settings)
@@ -275,7 +277,7 @@ fun LoomaNavGraph(
                             viewModel = noteViewModel,
                             titleBuffer = titleBuffer,
                             titleFocused = titleFocused,
-                            enabled = backStack.size > 1 && !drawerState.isOpen,
+                            enabled = backStack.size > 1 && !modalRailOpen,
                             vaultBusy = setupState.isBusy,
                             canLeave = { isActive() && !vaultSetupViewModel.uiState.value.isBusy },
                             onNavigateUp = navigateUp,
@@ -316,7 +318,7 @@ fun LoomaNavGraph(
         if (noteVisitId == null) {
             NavigationBackHandler(
                 state = sceneBackState,
-                isBackEnabled = backStack.size > 1 && !drawerState.isOpen,
+                isBackEnabled = backStack.size > 1 && !modalRailOpen,
                 onBackCompleted = onBack,
             )
         }

@@ -1,10 +1,11 @@
 @file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
 )
 
 package com.example.looma.feature.trash
 
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,21 +15,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -44,7 +47,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -53,8 +55,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.looma.R
 import com.example.looma.data.note.TrashBulkOutcome
 import com.example.looma.ui.components.DelayedLoadingIndicator
+import com.example.looma.ui.components.LoadingPage
 import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.components.LoomaLoadingIndicator
+import com.example.looma.ui.components.MessagePage
+import com.example.looma.ui.components.PageMaxWidth
+import com.example.looma.ui.components.pageMargin
+import com.example.looma.ui.components.rememberDelayedVisibility
 import com.example.looma.ui.format.formatDateTime
 import com.example.looma.ui.theme.LoomaTokens
 import kotlinx.coroutines.launch
@@ -180,7 +186,7 @@ fun TrashScreen(
             MediumFlexibleTopAppBar(
                 title = { Text(stringResource(R.string.trash_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateUp) {
+                    IconButton(onClick = onNavigateUp, shapes = IconButtonDefaults.shapes()) {
                         LoomaIcon(
                             iconRes = R.drawable.ic_arrow_back,
                             contentDescription = stringResource(R.string.nav_back),
@@ -189,7 +195,7 @@ fun TrashScreen(
                 },
                 actions = {
                     if (state.items.isNotEmpty()) {
-                        IconButton(onClick = onRestoreAllClick, enabled = state.canRestoreAll) {
+                        IconButton(onClick = onRestoreAllClick, enabled = state.canRestoreAll, shapes = IconButtonDefaults.shapes()) {
                             LoomaIcon(
                                 iconRes = R.drawable.ic_restore,
                                 contentDescription = stringResource(R.string.trash_restore_all),
@@ -198,6 +204,7 @@ fun TrashScreen(
                         IconButton(
                             onClick = { confirm = TrashConfirm.EmptyTrash },
                             enabled = state.canEmptyTrash,
+                            shapes = IconButtonDefaults.shapes(),
                         ) {
                             LoomaIcon(
                                 iconRes = R.drawable.ic_delete,
@@ -213,45 +220,19 @@ fun TrashScreen(
     ) { innerPadding ->
         Box(Modifier.fillMaxSize().padding(innerPadding)) {
             when {
-                state.isLoading && state.items.isEmpty() -> Box(
-                    Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) { DelayedLoadingIndicator(loading = true) }
+                state.isLoading && state.items.isEmpty() -> LoadingPage()
 
-                state.loadFailed -> Column(
-                    Modifier.fillMaxSize().padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = stringResource(R.string.trash_load_failed),
-                        color = LoomaTokens.colors.error,
-                        style = LoomaTokens.type.body,
-                        textAlign = TextAlign.Center,
-                    )
-                    FilledTonalButton(onClick = onRetryClick) {
-                        Text(stringResource(R.string.trash_retry))
-                    }
-                }
+                state.loadFailed -> MessagePage(
+                    title = stringResource(R.string.trash_load_failed),
+                    isError = true,
+                    actionLabel = stringResource(R.string.trash_retry),
+                    onAction = onRetryClick,
+                )
 
-                state.isEmpty -> Column(
-                    Modifier.fillMaxSize().padding(32.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = stringResource(R.string.trash_empty),
-                        style = LoomaTokens.type.cardTitle,
-                        color = LoomaTokens.colors.title,
-                        textAlign = TextAlign.Center,
-                    )
-                    Text(
-                        text = stringResource(R.string.trash_empty_hint),
-                        style = LoomaTokens.type.supporting,
-                        color = LoomaTokens.colors.muted,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+                state.isEmpty -> MessagePage(
+                    title = stringResource(R.string.trash_empty),
+                    supportingText = stringResource(R.string.trash_empty_hint),
+                )
 
                 else -> Column(
                     Modifier.fillMaxSize(),
@@ -261,8 +242,8 @@ fun TrashScreen(
                         LinearWavyProgressIndicator(Modifier.fillMaxWidth())
                     }
                     LazyColumn(
-                        modifier = Modifier.weight(1f).widthIn(max = 640.dp).fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.weight(1f).widthIn(max = PageMaxWidth).fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = pageMargin(), vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(state.items, key = { it.trashId }) { item ->
@@ -312,12 +293,12 @@ private fun TrashDeleteDialog(
         title = { Text(stringResource(R.string.trash_delete_title)) },
         text = { Text(stringResource(R.string.trash_delete_message)) },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            TextButton(onClick = onConfirm, shapes = ButtonDefaults.shapes()) {
                 Text(stringResource(R.string.trash_delete_confirm))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.dialog_cancel)) }
         },
     )
 }
@@ -335,12 +316,12 @@ private fun TrashEmptyDialog(
             Text(pluralStringResource(R.plurals.trash_empty_confirm_message, noteCount, noteCount))
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            TextButton(onClick = onConfirm, shapes = ButtonDefaults.shapes()) {
                 Text(stringResource(R.string.trash_empty_confirm))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.dialog_cancel)) }
         },
     )
 }
@@ -353,10 +334,10 @@ private fun TrashRow(
     onRestoreClick: () -> Unit,
     onDeleteClick: () -> Unit,
 ) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = LoomaTokens.colors.card,
+    Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.largeIncreased,
+        colors = CardDefaults.cardColors(containerColor = LoomaTokens.colors.card),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
@@ -366,16 +347,16 @@ private fun TrashRow(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = item.title,
-                    style = LoomaTokens.type.cardTitle,
-                    color = LoomaTokens.colors.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (item.excerpt.isNotBlank()) {
                     Text(
                         text = item.excerpt,
-                        style = LoomaTokens.type.cardBody,
-                        color = LoomaTokens.colors.body,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -383,14 +364,14 @@ private fun TrashRow(
                 Text(
                     text = stringResource(R.string.trash_original_path, item.originalPath),
                     style = LoomaTokens.type.cardMeta,
-                    color = LoomaTokens.colors.muted,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = stringResource(R.string.trash_deleted_at, formatDateTime(item.deletedAt)),
                     style = LoomaTokens.type.cardMeta,
-                    color = LoomaTokens.colors.muted,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
             }
@@ -398,17 +379,25 @@ private fun TrashRow(
                 modifier = Modifier.width(96.dp).height(48.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                if (isRestoring) {
-                    LoomaLoadingIndicator(size = 40.dp)
+                if (rememberDelayedVisibility(isRestoring)) {
+                    LoadingIndicator(Modifier.size(40.dp))
                 } else {
                     Row {
-                        IconButton(onClick = onRestoreClick, enabled = actionsEnabled) {
+                        IconButton(
+                            onClick = onRestoreClick,
+                            enabled = actionsEnabled,
+                            shapes = IconButtonDefaults.shapes(),
+                        ) {
                             LoomaIcon(
                                 iconRes = R.drawable.ic_restore,
                                 contentDescription = stringResource(R.string.trash_restore),
                             )
                         }
-                        IconButton(onClick = onDeleteClick, enabled = actionsEnabled) {
+                        IconButton(
+                            onClick = onDeleteClick,
+                            enabled = actionsEnabled,
+                            shapes = IconButtonDefaults.shapes(),
+                        ) {
                             LoomaIcon(
                                 iconRes = R.drawable.ic_delete,
                                 contentDescription = stringResource(R.string.trash_delete),

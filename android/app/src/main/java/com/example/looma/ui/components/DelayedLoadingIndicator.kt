@@ -1,4 +1,6 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
 
 package com.example.looma.ui.components
 
@@ -7,42 +9,30 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.LoadingIndicatorDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 
 @Composable
 fun DelayedLoadingIndicator(
     loading: Boolean,
     modifier: Modifier = Modifier,
-    size: Dp = 44.dp,
-    color: Color = MaterialTheme.colorScheme.primary,
+    size: Dp = LoadingIndicatorDefaults.ContainerHeight,
+    color: Color = LoadingIndicatorDefaults.indicatorColor,
 ) {
-    var ready by remember(loading) { mutableStateOf(false) }
-    LaunchedEffect(loading) {
-        if (loading) {
-            delay(DelayedFeedbackMillis)
-            ready = true
-        }
-    }
     val motion = MaterialTheme.motionScheme
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
         AnimatedVisibility(
-            visible = loading && ready,
+            visible = rememberDelayedVisibility(loading),
             enter = fadeIn(motion.defaultEffectsSpec()),
             exit = fadeOut(motion.fastEffectsSpec()),
         ) {
-            LoomaLoadingIndicator(size = size, color = color)
+            LoadingIndicator(modifier = Modifier.size(size), color = color)
         }
     }
 }

@@ -1,7 +1,6 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.example.looma.feature.settings
 
+import androidx.compose.material3.MaterialTheme
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,7 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -43,7 +44,10 @@ import com.example.looma.feature.vault.VaultSetupError
 import com.example.looma.feature.vault.VaultSetupViewModel
 import com.example.looma.feature.vault.rememberVaultPickerActions
 import com.example.looma.feature.vault.vaultErrorText
+import com.example.looma.ui.components.ErrorBanner
 import com.example.looma.ui.components.LoomaIcon
+import com.example.looma.ui.components.PageMaxWidth
+import com.example.looma.ui.components.pageMargin
 import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
@@ -135,7 +139,7 @@ fun SettingsScreen(
             LargeFlexibleTopAppBar(
                 title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateUp) {
+                    IconButton(onClick = onNavigateUp, shapes = IconButtonDefaults.shapes()) {
                         LoomaIcon(
                             iconRes = R.drawable.ic_arrow_back,
                             contentDescription = stringResource(R.string.nav_back),
@@ -152,12 +156,12 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = pageMargin(), vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(
-                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                modifier = Modifier.widthIn(max = PageMaxWidth).fillMaxWidth().padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(SettingsGroupGap),
             ) {
                 SettingsGroup(stringResource(R.string.settings_section_vault)) {
                     SettingsRow(
@@ -166,18 +170,17 @@ fun SettingsScreen(
                         title = vaultName ?: stringResource(R.string.settings_vault_none),
                         description = vaultPath,
                         trailing = {
-                            TextButton(onClick = onChangeVaultClick, enabled = !isVaultBusy) {
+                            TextButton(
+                                onClick = onChangeVaultClick,
+                                enabled = !isVaultBusy,
+                                shapes = ButtonDefaults.shapes(),
+                            ) {
                                 Text(stringResource(R.string.settings_vault_change))
                             }
                         },
                     )
                     vaultError?.let { failure ->
-                        Text(
-                            text = vaultErrorText(failure),
-                            style = LoomaTokens.type.supporting,
-                            color = LoomaTokens.colors.error,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
+                        ErrorBanner(message = vaultErrorText(failure))
                     }
                 }
 
@@ -309,7 +312,7 @@ fun SettingsScreen(
                         ),
                         trailing = if (!hasStorageAccess) {
                             {
-                                TextButton(onClick = onStorageAccessClick) {
+                                TextButton(onClick = onStorageAccessClick, shapes = ButtonDefaults.shapes()) {
                                     Text(stringResource(R.string.settings_storage_grant))
                                 }
                             }

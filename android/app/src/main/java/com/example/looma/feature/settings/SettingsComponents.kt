@@ -1,11 +1,13 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
 
 package com.example.looma.feature.settings
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ListItemColors
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.SegmentedListItem
@@ -22,6 +24,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
+import com.example.looma.ui.components.SectionHeader
+import com.example.looma.ui.components.SectionHeaderDefaults
 import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
@@ -45,12 +49,10 @@ internal fun SettingsSwitchRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     SegmentedListItem(
-        onClick = { onCheckedChange(!checked) },
+        checked = checked,
+        onCheckedChange = onCheckedChange,
         shapes = ListItemDefaults.segmentedShapes(index, count),
-        modifier = Modifier.fillMaxWidth().semantics {
-            role = Role.Switch
-            toggleableState = ToggleableState(checked)
-        },
+        modifier = Modifier.fillMaxWidth(),
         enabled = enabled,
         supportingContent = { Text(description) },
         trailingContent = {
@@ -105,17 +107,12 @@ internal fun SettingsRow(
     }
 }
 
+internal val SettingsGroupGap = SectionHeaderDefaults.GroupGap
+
 @Composable
 internal fun SettingsGroup(title: String, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            style = LoomaTokens.type.sectionTitle,
-            color = LoomaTokens.colors.accent,
-            modifier = Modifier
-                .padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-                .semantics { heading() },
-        )
+        SectionHeader(title = title)
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             content()
         }

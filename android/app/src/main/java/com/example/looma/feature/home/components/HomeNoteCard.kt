@@ -11,14 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -51,29 +51,30 @@ internal fun HomeNoteCard(
     modifier: Modifier = Modifier,
     search: HomeSearchResult? = null,
 ) {
-    val shape = RoundedCornerShape(20.dp)
     val selectLabel = stringResource(R.string.home_select_note_label)
     val colors = homeCardColors(isSelected)
     val highlight = SpanStyle(
         color = MaterialTheme.colorScheme.onPrimaryContainer,
-        background = LoomaTokens.colors.accentContainer,
+        background = MaterialTheme.colorScheme.primaryContainer,
     )
-    Surface(
+    Card(
         modifier = modifier
             .fillMaxWidth()
-            .clip(shape)
-            .combinedClickable(
-                onClickLabel = if (search != null) stringResource(R.string.home_open_note_label) else null,
-                onLongClickLabel = if (onLongClick != null) selectLabel else null,
-                onLongClick = onLongClick,
-                onClick = onClick,
-            )
             .semantics { selected = isSelected },
-        shape = shape,
-        color = colors.container,
-        border = if (isSelected) BorderStroke(2.dp, LoomaTokens.colors.accent) else null,
+        shape = MaterialTheme.shapes.largeIncreased,
+        colors = CardDefaults.cardColors(containerColor = colors.container, contentColor = colors.title),
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
-        Column {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClickLabel = if (search != null) stringResource(R.string.home_open_note_label) else null,
+                    onLongClickLabel = if (onLongClick != null) selectLabel else null,
+                    onLongClick = onLongClick,
+                    onClick = onClick,
+                ),
+        ) {
             note.coverPath?.let { path ->
                 LoomaAsyncImage(
                     source = ImageSource.Local(path),
@@ -89,7 +90,7 @@ internal fun HomeNoteCard(
                 val title = search?.titleMatch
                 Text(
                     text = title?.highlighted(highlight) ?: AnnotatedString(note.summary.title),
-                    style = LoomaTokens.type.homeNoteTitle,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
                     color = colors.title,
                     maxLines = if (title == null) 2 else 3,
                     overflow = TextOverflow.Ellipsis,
@@ -98,7 +99,7 @@ internal fun HomeNoteCard(
                     Text(
                         text = search.id.path.relativePath,
                         style = LoomaTokens.type.cardMeta,
-                        color = LoomaTokens.colors.muted,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.MiddleEllipsis,
                     )
@@ -106,7 +107,7 @@ internal fun HomeNoteCard(
                         Text(
                             text = search.section,
                             style = LoomaTokens.type.cardMeta,
-                            color = LoomaTokens.colors.muted,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -222,14 +223,14 @@ private fun SearchMatch.highlighted(style: SpanStyle): AnnotatedString = buildAn
 @Composable
 private fun HomeChip(label: AnnotatedString, onSelectedCard: Boolean, maxLines: Int) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = if (onSelectedCard) LoomaTokens.colors.card else LoomaTokens.colors.chip,
+        shape = MaterialTheme.shapes.small,
+        color = if (onSelectedCard) LoomaTokens.colors.card else MaterialTheme.colorScheme.secondaryContainer,
     ) {
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             style = LoomaTokens.type.cardMeta,
-            color = if (onSelectedCard) LoomaTokens.colors.body else LoomaTokens.colors.onChip,
+            color = if (onSelectedCard) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSecondaryContainer,
             maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
         )
@@ -260,10 +261,10 @@ internal fun homeCardColors(isSelected: Boolean): HomeCardColors {
     } else {
         HomeCardColors(
             container = colors.card,
-            title = colors.title,
-            body = colors.body,
-            icon = colors.muted,
-            selectedCheck = colors.muted,
+            title = scheme.onSurface,
+            body = scheme.onSurfaceVariant,
+            icon = scheme.onSurfaceVariant,
+            selectedCheck = scheme.onSurfaceVariant,
         )
     }
 }

@@ -1,6 +1,5 @@
 @file:OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
 )
 
 package com.example.looma.feature.note
@@ -13,7 +12,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -33,17 +31,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
@@ -74,7 +67,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -106,9 +98,10 @@ import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.compose.animation.EnterExitState
 import com.example.looma.feature.note.components.WikiLinkPanel
 import com.example.looma.feature.note.components.wikiReferenceFor
-import com.example.looma.ui.components.DelayedLoadingIndicator
-import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.components.LoomaLoadingIndicator
+import com.example.looma.ui.components.LoadingPage
+import com.example.looma.ui.components.MessagePage
+import com.example.looma.ui.components.PageMaxWidth
+import com.example.looma.ui.components.pageMargin
 import com.example.looma.ui.markdown.LocalImageSourceResolver
 import com.example.looma.ui.markdown.LocalImageSourceRetryResolver
 import com.example.looma.ui.markdown.MarkdownBody
@@ -498,9 +491,7 @@ private fun NoteWorkspace(
                                 fileName = state.fileName,
                                 isNewNote = state.isNewNote,
                                 isRenaming = state.isRenaming,
-                                textStyle = LoomaTokens.type.sectionTitle.copy(
-                                    textAlign = TextAlign.Center,
-                                ),
+                                textStyle = MaterialTheme.typography.titleMediumEmphasized,
                                 focusRequester = titleFocus,
                                 onCommit = onCommitTitle,
                                 onFocusChange = onTitleFocusChange,
@@ -512,8 +503,8 @@ private fun NoteWorkspace(
                         } else {
                             Text(
                                 text = state.fileName,
-                                style = LoomaTokens.type.sectionTitle,
-                                color = LoomaTokens.colors.title,
+                                style = MaterialTheme.typography.titleMediumEmphasized,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -569,8 +560,8 @@ private fun NoteWorkspace(
                                 {
                                     Text(
                                         text = state.fileName,
-                                        style = LoomaTokens.type.noteTitle,
-                                        color = LoomaTokens.colors.title,
+                                        style = MaterialTheme.typography.headlineLargeEmphasized,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(bottom = 8.dp),
@@ -611,7 +602,7 @@ private fun NoteWorkspace(
                                     fileName = state.fileName,
                                     isNewNote = state.isNewNote,
                                     isRenaming = state.isRenaming,
-                                    textStyle = LoomaTokens.type.noteTitle,
+                                    textStyle = MaterialTheme.typography.headlineLargeEmphasized,
                                     focusRequester = titleFocus,
                                     onCommit = onCommitTitle,
                                     onFocusChange = onTitleFocusChange,
@@ -620,8 +611,8 @@ private fun NoteWorkspace(
                                     error = state.titleError,
                                     onDone = { bodyFocus.requestFocus() },
                                     modifier = Modifier
-                                        .padding(horizontal = 20.dp, vertical = 4.dp)
-                                        .widthIn(max = NoteColumnMaxWidth)
+                                        .padding(horizontal = pageMargin(), vertical = 4.dp)
+                                        .widthIn(max = PageMaxWidth)
                                         .fillMaxWidth(),
                                 )
                             }
@@ -702,21 +693,21 @@ private fun NoteBodyEditor(
         active = active,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = BodyVerticalPadding)
+            .padding(horizontal = pageMargin(), vertical = BodyVerticalPadding)
             .onGloballyPositioned { onTextTopInContent(it.positionInParent().y.roundToInt()) }
             .focusRequester(focusRequester),
         textStyle = LoomaTokens.type.noteBody.copy(
-            color = LoomaTokens.colors.title,
+            color = MaterialTheme.colorScheme.onSurface,
         ),
         onTextLayout = onTextLayout,
         decorator = TextFieldDecorator { innerTextField ->
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                Box(Modifier.widthIn(max = NoteColumnMaxWidth).fillMaxWidth()) {
+                Box(Modifier.widthIn(max = PageMaxWidth).fillMaxWidth()) {
                     if (buffer.text.isEmpty()) {
                         Text(
                             text = placeholder,
                             style = LoomaTokens.type.noteBody,
-                            color = LoomaTokens.colors.muted,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     innerTextField()
@@ -740,20 +731,14 @@ private fun NoteReadBody(
 ) {
     val ready = when (preview) {
         null -> {
-            Box(
-                modifier = modifier,
-                contentAlignment = Alignment.Center,
-            ) {
-                LoomaLoadingIndicator()
-            }
+            LoadingPage(modifier = modifier)
             return
         }
         is PreparedMarkdown.Failed -> {
-            Text(
-                text = stringResource(R.string.editor_load_failed),
-                modifier = modifier.padding(24.dp),
-                style = LoomaTokens.type.supporting,
-                color = MaterialTheme.colorScheme.error,
+            MessagePage(
+                title = stringResource(R.string.editor_load_failed),
+                isError = true,
+                modifier = modifier,
             )
             return
         }
@@ -769,7 +754,7 @@ private fun NoteReadBody(
                 null
             },
             modifier = Modifier
-                .widthIn(max = NoteColumnMaxWidth)
+                .widthIn(max = PageMaxWidth)
                 .fillMaxWidth(),
             wiki = wiki,
             onWikiLinkClick = if (previewIsCurrent) onWikiLinkClick else { _ -> },
@@ -788,7 +773,6 @@ private fun NoteReadBody(
     }
 }
 
-private val NoteColumnMaxWidth = 640.dp
 private val BodyVerticalPadding = 4.dp
 
 private fun PreparedMarkdown.visibleBlocks(): PreparedMarkdown.Ready? = when (this) {
@@ -870,12 +854,7 @@ private fun NoteLoadingScreen(
     modifier: Modifier = Modifier,
 ) {
     NoteStatusScaffold(onNavigateUp = onNavigateUp, modifier = modifier) { innerPadding ->
-        Box(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
-            contentAlignment = Alignment.Center,
-        ) {
-            DelayedLoadingIndicator(loading = true)
-        }
+        LoadingPage(modifier = Modifier.padding(innerPadding))
     }
 }
 
@@ -886,35 +865,28 @@ private fun NoteLoadErrorScreen(
     modifier: Modifier = Modifier,
 ) {
     NoteStatusScaffold(onNavigateUp = onNavigateUp, modifier = modifier) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.editor_load_failed),
-                style = LoomaTokens.type.supporting,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            FilledTonalButton(onClick = onRetry) { Text(stringResource(R.string.editor_reload)) }
-        }
+        MessagePage(
+            title = stringResource(R.string.editor_load_failed),
+            isError = true,
+            actionLabel = stringResource(R.string.editor_reload),
+            onAction = onRetry,
+            modifier = Modifier.padding(innerPadding),
+        )
     }
 }
 
 @Preview(showBackground = true, heightDp = 780)
 @Composable
 private fun NoteWorkspacePreview() {
-    val content = "# 周会记录\n\n- [ ] 补充**设计稿**\n- [x] 对齐接口\n\n> 记得同步给 @所有人"
+    val content = "# 鍛ㄤ細璁板綍\n\n- [ ] 琛ュ厖**璁捐绋?*\n- [x] 瀵归綈鎺ュ彛\n\n> 璁板緱鍚屾缁?@鎵€鏈変汉"
     LoomaTheme(dynamicColor = false) {
         NoteWorkspace(
             state = NoteUiState(
                 isLoading = false,
-                fileName = "周会记录",
+                fileName = "鍛ㄤ細璁板綍",
             ),
             contentBuffer = remember { TextFieldState(content) },
-            titleBuffer = remember { TextFieldState("周会记录") },
+            titleBuffer = remember { TextFieldState("鍛ㄤ細璁板綍") },
             onCommitTitle = {},
             onTitleErrorShown = {},
             onRenameNoticeShown = {},

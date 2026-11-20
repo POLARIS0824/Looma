@@ -1,10 +1,6 @@
-@file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
-)
-
 package com.example.looma.feature.home.components
 
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.SearchBarScrollBehavior
@@ -74,7 +70,7 @@ internal fun HomeListControls(
     onSortClick: () -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onToggleLayout) {
+        IconButton(onClick = onToggleLayout, shapes = IconButtonDefaults.shapes()) {
             LoomaIcon(
                 iconRes = if (isGridMode) R.drawable.ic_view_agenda else R.drawable.ic_grid,
                 contentDescription = stringResource(
@@ -82,7 +78,7 @@ internal fun HomeListControls(
                 ),
             )
         }
-        IconButton(onClick = onSortClick) {
+        IconButton(onClick = onSortClick, shapes = IconButtonDefaults.shapes()) {
             LoomaIcon(
                 iconRes = R.drawable.ic_swap_vert,
                 contentDescription = stringResource(R.string.home_sort_description),

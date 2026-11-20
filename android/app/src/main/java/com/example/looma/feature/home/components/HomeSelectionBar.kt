@@ -1,7 +1,7 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.example.looma.feature.home.components
 
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -39,14 +39,14 @@ internal fun HomeSelectionBar(
         title = {
             Text(
                 text = title,
-                style = LoomaTokens.type.pageTitle,
-                color = LoomaTokens.colors.title,
+                style = MaterialTheme.typography.titleLargeEmphasized,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         },
         navigationIcon = {
-            IconButton(onClick = actions.onClearSelection) {
+            IconButton(onClick = actions.onClearSelection, shapes = IconButtonDefaults.shapes()) {
                 LoomaIcon(
                     iconRes = R.drawable.ic_close,
                     contentDescription = stringResource(R.string.home_selection_close),
@@ -54,27 +54,27 @@ internal fun HomeSelectionBar(
             }
         },
         actions = {
-            IconButton(onClick = onRenameClick, enabled = showRename) {
+            IconButton(onClick = onRenameClick, enabled = showRename, shapes = IconButtonDefaults.shapes()) {
                 LoomaIcon(
                     iconRes = R.drawable.ic_editor_edit,
                     contentDescription = stringResource(R.string.home_selection_rename),
                 )
             }
-            IconButton(onClick = actions.onMoveClick) {
+            IconButton(onClick = actions.onMoveClick, shapes = IconButtonDefaults.shapes()) {
                 LoomaIcon(
                     iconRes = R.drawable.ic_move,
                     contentDescription = stringResource(R.string.home_selection_move),
                 )
             }
             if (showInfo) {
-                IconButton(onClick = actions.onInfoClick) {
+                IconButton(onClick = actions.onInfoClick, shapes = IconButtonDefaults.shapes()) {
                     LoomaIcon(
                         iconRes = R.drawable.ic_info,
                         contentDescription = stringResource(R.string.home_selection_info),
                     )
                 }
             }
-            IconButton(onClick = onDeleteClick) {
+            IconButton(onClick = onDeleteClick, shapes = IconButtonDefaults.shapes()) {
                 LoomaIcon(
                     iconRes = R.drawable.ic_delete,
                     contentDescription = stringResource(R.string.home_selection_delete),
@@ -83,8 +83,8 @@ internal fun HomeSelectionBar(
         },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = LoomaTokens.colors.page,
-            navigationIconContentColor = LoomaTokens.colors.title,
-            actionIconContentColor = LoomaTokens.colors.title,
+            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+            actionIconContentColor = MaterialTheme.colorScheme.onSurface,
         ),
     )
 }

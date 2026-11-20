@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -112,17 +113,18 @@ internal data class LoomaMarkdownScale(
 
 internal fun loomaMarkdownScale(
     type: LoomaTypography,
+    base: Typography,
     compact: Boolean = false,
     preview: LoomaPreviewTypography? = null,
 ): LoomaMarkdownScale = LoomaMarkdownScale(
-    h1 = if (compact) preview?.headings?.h1 ?: type.cardTitle else type.noteHeadings.h1,
-    h2 = if (compact) preview?.headings?.h2 ?: type.folderName else type.noteHeadings.h2,
-    h3 = if (compact) preview?.headings?.h3 ?: type.folderName else type.noteHeadings.h3,
-    h4 = if (compact) preview?.headings?.h4 ?: type.folderName else type.noteHeadings.h4,
-    h5 = if (compact) preview?.headings?.h5 ?: type.folderName else type.noteHeadings.h5,
-    h6 = if (compact) preview?.headings?.h6 ?: type.folderName else type.noteHeadings.h6,
-    code = if (compact) preview?.code ?: type.cardBody.copy(fontFamily = type.noteCode.fontFamily) else type.noteCode,
-    inlineCode = if (compact) preview?.code ?: type.cardBody.copy(fontFamily = type.noteCode.fontFamily) else type.noteCode,
+    h1 = if (compact) preview?.headings?.h1 ?: base.titleMedium else type.noteHeadings.h1,
+    h2 = if (compact) preview?.headings?.h2 ?: base.titleSmall else type.noteHeadings.h2,
+    h3 = if (compact) preview?.headings?.h3 ?: base.titleSmall else type.noteHeadings.h3,
+    h4 = if (compact) preview?.headings?.h4 ?: base.titleSmall else type.noteHeadings.h4,
+    h5 = if (compact) preview?.headings?.h5 ?: base.titleSmall else type.noteHeadings.h5,
+    h6 = if (compact) preview?.headings?.h6 ?: base.titleSmall else type.noteHeadings.h6,
+    code = if (compact) preview?.code ?: base.bodySmall.copy(fontFamily = type.noteCode.fontFamily) else type.noteCode,
+    inlineCode = if (compact) preview?.code ?: base.bodySmall.copy(fontFamily = type.noteCode.fontFamily) else type.noteCode,
 )
 
 @Composable
@@ -130,7 +132,7 @@ fun loomaMarkdownTheme(
     base: TextStyle,
     compact: Boolean = false,
     preview: LoomaPreviewTypography? = null,
-    textColor: Color = LoomaTokens.colors.title,
+    textColor: Color = MaterialTheme.colorScheme.onSurface,
 ): LoomaMarkdownTheme {
     val colors = LoomaTokens.colors
     val scheme = MaterialTheme.colorScheme
@@ -139,7 +141,8 @@ fun loomaMarkdownTheme(
     val inset = if (compact) colors.cardInset else scheme.surfaceContainer
     val inlineBackground = if (compact) colors.cardInset else scheme.surfaceContainerHigh
     val type = LoomaTokens.type
-    val scale = remember(type, compact, preview) { loomaMarkdownScale(type, compact, preview) }
+    val baseType = MaterialTheme.typography
+    val scale = remember(type, baseType, compact, preview) { loomaMarkdownScale(type, baseType, compact, preview) }
     val extendedSpans = markdownExtendedSpans {
         remember(inlineBackground, inlineCorner) {
             ExtendedSpans(InlineCodeBackground(inlineBackground, inlineCorner))
@@ -152,8 +155,8 @@ fun loomaMarkdownTheme(
             inlineCodeBackground = inlineBackground,
             dividerColor = scheme.outlineVariant,
             tableBackground = Color.Transparent,
-            highlightText = colors.onChip,
-            highlightBackground = colors.chip,
+            highlightText = scheme.onSecondaryContainer,
+            highlightBackground = scheme.secondaryContainer,
         ),
         typography = markdownTypography(
             text = base.copy(color = textColor),
@@ -170,7 +173,7 @@ fun loomaMarkdownTheme(
             h3 = scale.h3.copy(color = textColor),
             h4 = scale.h4.copy(color = textColor),
             h5 = scale.h5.copy(color = textColor),
-            h6 = scale.h6.copy(color = colors.muted),
+            h6 = scale.h6.copy(color = scheme.onSurfaceVariant),
         ),
         padding = markdownPadding(
             block = if (compact) 4.dp else 10.dp,

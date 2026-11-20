@@ -1,6 +1,7 @@
 package com.example.looma.ui.markdown
 
 import androidx.compose.foundation.Image
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -17,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -26,6 +28,7 @@ import coil3.compose.rememberConstraintsSizeResolver
 import com.example.looma.R
 import com.example.looma.domain.markdown.splitImageSize
 import com.example.looma.ui.components.LoomaIcon
+import com.example.looma.ui.components.rememberDelayedVisibility
 import com.example.looma.ui.image.rememberImageRequest
 import com.mikepenz.markdown.compose.LocalReferenceLinkHandler
 import com.mikepenz.markdown.compose.components.MarkdownComponentModel
@@ -112,5 +115,14 @@ internal fun ImageFailure(modifier: Modifier, onRetry: () -> Unit) {
 
 @Composable
 internal fun ImagePlaceholder(modifier: Modifier) {
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh))
+    val alpha by animateFloatAsState(
+        targetValue = if (rememberDelayedVisibility(active = true)) 1f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "image-placeholder",
+    )
+    Box(
+        modifier
+            .graphicsLayer { this.alpha = alpha }
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+    )
 }

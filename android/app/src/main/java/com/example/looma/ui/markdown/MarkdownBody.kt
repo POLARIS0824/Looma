@@ -17,6 +17,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.example.looma.domain.markdown.PreparedMarkdown
 import com.example.looma.domain.wiki.WikiContext
+import com.example.looma.ui.components.pageMargin
 import com.example.looma.ui.theme.LoomaTokens
 import com.mikepenz.markdown.compose.LocalMarkdownInlineContent
 import com.mikepenz.markdown.compose.Markdown
@@ -38,13 +39,13 @@ internal fun MarkdownBody(
     val theme = loomaMarkdownTheme(
         base = LoomaTokens.type.noteBody,
     )
-    val accent = LoomaTokens.colors.accent
-    val muted = LoomaTokens.colors.muted
+    val accent = MaterialTheme.colorScheme.primary
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val checkedText = MaterialTheme.colorScheme.onSurfaceVariant
     val math = rememberMathRenderState(
         spans = preview.mathSpans,
         fontSize = LoomaTokens.type.noteBody.fontSize,
-        color = LoomaTokens.colors.title,
+        color = MaterialTheme.colorScheme.onSurface,
     )
     val annotator = remember(math) { mathAnnotator(math) }
     val bodyStart = preview.index.bodyStart
@@ -77,7 +78,7 @@ internal fun MarkdownBody(
             LazyColumn(
                 modifier = bodyModifier,
                 state = scrollState,
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = pageMargin(), vertical = 8.dp),
             ) {
                 if (header != null) item(key = "header", contentType = "header") { header() }
                 items(state.node.children, key = { it.startOffset }, contentType = { it.type }) { node ->

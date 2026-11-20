@@ -28,7 +28,7 @@
 - `app/src/main/java/com/example/looma/`
   - `LoomaApp.kt`：手动注入的容器。所有 Repository、`NoteIndexDatabase` 和 `ImageUploader` 都是 `by lazy` 单例。它也是 Coil 的 `SingletonImageLoader.Factory`，图片磁盘缓存在 `cacheDir/image_cache`。
   - `MainActivity.kt`：一个 `AppCompatActivity`，应用内切换语言需要 AppCompat。它持有 Activity 级的 `VaultSetupViewModel`，读取 `SettingsRepository.settings` 后套上 `LoomaTheme`，再把依赖传给 `LoomaNavGraph`。
-  - `navigation/`：Navigation 3。`LoomaRoute` 是 `@Serializable` 的 `NavKey`，有 `VaultSetup`、`Home`、`Note`、`Trash` 和 `Settings`。`LoomaNavGraph` 在 vault 不可用时把返回栈重置为 `VaultSetup`。`rememberViewModelStoreNavEntryDecorator` 让每个 entry 有自己的 ViewModel，ViewModel 由各自的 `factory(...)` 创建。`LoomaDrawer` 是侧边抽屉，只在 Notes、Trash 和 Settings 三个页面能滑出。
+  - `navigation/`：Navigation 3。`LoomaRoute` 是 `@Serializable` 的 `NavKey`，有 `VaultSetup`、`Home`、`Note`、`Trash` 和 `Settings`。`LoomaNavGraph` 在 vault 不可用时把返回栈重置为 `VaultSetup`。`rememberViewModelStoreNavEntryDecorator` 让每个 entry 有自己的 ViewModel，ViewModel 由各自的 `factory(...)` 创建。`LoomaNavigationRail` 是侧边导航，只在 Notes、Trash 和 Settings 三个页面出现。紧凑窗口用 `ModalWideNavigationRail`，从首页菜单按钮打开；中等及以上窗口用常驻的 `WideNavigationRail`。
   - `domain/`：纯 Kotlin，没有 Android 依赖。除了简单的数据类，每个文件都有单测。
     - `model/`：`Vault`、`NoteId`、`NotePath` 和 `FolderPath` 等 value class。`NoteRevision` 是文件原始字节的 SHA-256。`NoteWriteMode` 的 `Checked` 和 `Overwrite` 用它做乐观并发。`NoteTextStats` 统计字数，每个 CJK 字算一个词。
     - `markdown/MarkdownIndex.kt`：去掉 frontmatter 后，用 `org.intellij.markdown` 的 GFM 解析正文，得到 `MarkdownDocument`。它包含一级标题、checkbox 位置和代码之外的 wiki link。所有偏移都相对原文 `source`，所以渲染层的任何变换都不能改变文本长度。
@@ -67,12 +67,12 @@
     - `settings/`：设置页。`SettingsViewModel` 用 `stateIn(WhileSubscribed(5_000))`。
     - `vault/`：选择 vault。`VaultSetupViewModel` 是 Activity 级的，设置页也用它。没有权限时，`VaultPicker` 跳到“所有文件访问权限”页面。有权限后，它打开 `OpenDocumentTree`。
   - `ui/`
-    - `theme/`：`LoomaTheme` 套用 `MaterialExpressiveTheme`。Dynamic Color 开启且 API 31+ 时使用壁纸配色，忽略主题预设。`Palettes.kt` 只按预设选浅色或深色，预设由 `tools/color/generate_preset_schemes.mjs` 用 `material-color-utilities` 的 `SchemeTonalSpot` 生成到 `PresetSchemes.kt`，`PalettesTest` 检查各角色配对的对比度和 surface container 的明暗顺序。`Type.kt` 给每个 M3 字体角色设置 Google Sans Flex 可变字体的 `wght`、`wdth`、`opsz` 和 `ROND`。`LoomaTokens` 把 M3 角色映射成语义名，例如 `page`、`card`、`muted` 和 `noteBody`。页面通过 `LoomaTokens.colors` 和 `LoomaTokens.type` 取用。
+    - `theme/`：`LoomaTheme` 套用 `MaterialExpressiveTheme`。Dynamic Color 开启且 API 31+ 时使用壁纸配色，忽略主题预设。`Palettes.kt` 只按预设选浅色或深色，预设由 `tools/color/generate_preset_schemes.mjs` 用 `material-color-utilities` 的 `SchemeTonalSpot` 生成到 `PresetSchemes.kt`，`PalettesTest` 检查各角色配对的对比度和 surface container 的明暗顺序。`Type.kt` 给每个 M3 字体角色设置 Google Sans Flex 可变字体的 `wght`、`wdth`、`opsz` 和 `ROND`。`LoomaTokens` 只放 M3 没有的角色，例如 `page`、`card` 和 `noteBody`，其余颜色和字体直接用 `MaterialTheme`。
     - `markdown/`：用 mikepenz 的 `multiplatform-markdown-renderer-m3` 渲染，公式用 RaTeX 渲染。
       `MarkdownBody` 是阅读视图，checkbox 和 wiki link 都能点，并显示图片和公式。`MarkdownPreview` 是卡片预览，不显示图片。`LoomaMarkdown` 定义主题和自定义组件。单个换行渲染为换行（`eolAsNewLine`），与 Obsidian 一致。
       `SynthItalic` 给斜体文字加 `skewX`，没有斜体字形的文字（例如中文）也会倾斜。`WikiLinkText` 在渲染后的文本里标出 wiki link，未解析的链接也能点。`MarkdownImage` 的 `LocalImageSourceResolver` 默认返回 null，页面提供它之后才显示图片。
     - `image/LoomaAsyncImage.kt`：用 Coil 3 加载本地 `File` 或远程 URL。
-    - `components/`：`LoomaIcon` 和加载指示器。图标只用 `R.drawable.ic_*`，不用 `Icons.*`。
+    - `components/`：`LoomaIcon`、延迟显示（`rememberDelayedVisibility`、`DelayedLoadingIndicator`、`DelayedContent`）、`ErrorBanner`、整页状态 `LoadingPage` 和 `MessagePage`，以及按窗口宽度取页边距的 `pageMargin()`。图标只用 `R.drawable.ic_*`，不用 `Icons.*`。
     - `format/Formatting.kt`：格式化文件大小和日期。
 - `app/src/main/res/`：`values/strings.xml` 是英文（默认语言），`values-zh/strings.xml` 是中文，两边的 key 一一对应。Key 按区域加前缀，例如 `home_`、`editor_` 和 `settings_`。`xml/locales_config.xml` 列出支持的语言。`drawable/ic_*.xml` 大多由 `tools/fetch_material_symbols.py` 生成。`raw/keep.xml` 防止 release 的资源压缩删掉字体。
 - `app/src/debug/`：debug 构建的网络安全配置，只允许对 `10.0.2.2` 和 `localhost` 发明文 HTTP 请求。

@@ -1,13 +1,9 @@
-@file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
-)
-
 package com.example.looma.feature.home.components
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Switch
@@ -17,12 +13,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.feature.home.HomeSemanticSearch
 import com.example.looma.ui.components.DelayedContent
-import com.example.looma.ui.theme.LoomaTokens
+import com.example.looma.ui.components.pageMargin
 
 @Composable
 internal fun HomeSemanticSearchControls(
@@ -33,14 +28,15 @@ internal fun HomeSemanticSearchControls(
 ) {
     val enabled = state != HomeSemanticSearch.Off
     ListItem(
-        modifier = Modifier.toggleable(value = enabled, role = Role.Switch, onValueChange = onToggle),
+        checked = enabled,
+        onCheckedChange = onToggle,
         trailingContent = { Switch(checked = enabled, onCheckedChange = null) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     ) {
         Text(
             text = stringResource(R.string.home_semantic_search),
-            style = LoomaTokens.type.body,
-            color = LoomaTokens.colors.title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
     val message = when (state) {
@@ -52,14 +48,17 @@ internal fun HomeSemanticSearchControls(
         HomeSemanticSearch.SearchFailed -> stringResource(R.string.home_semantic_search_failed)
     }
     DelayedContent {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(message, style = LoomaTokens.type.supporting, color = LoomaTokens.colors.muted)
+        Column(Modifier.padding(horizontal = pageMargin(), vertical = 8.dp)) {
+            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             when (state) {
-                HomeSemanticSearch.NeedsModel, HomeSemanticSearch.NeedsIndex -> TextButton(onClick = onManage) {
+                HomeSemanticSearch.NeedsModel, HomeSemanticSearch.NeedsIndex -> TextButton(
+                    onClick = onManage,
+                    shapes = ButtonDefaults.shapes(),
+                ) {
                     Text(stringResource(R.string.home_semantic_manage))
                 }
 
-                HomeSemanticSearch.SearchFailed -> TextButton(onClick = onRetry) {
+                HomeSemanticSearch.SearchFailed -> TextButton(onClick = onRetry, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.home_semantic_retry))
                 }
 

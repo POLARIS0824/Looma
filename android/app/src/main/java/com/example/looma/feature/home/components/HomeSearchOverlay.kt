@@ -1,14 +1,10 @@
-@file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
-)
-
 package com.example.looma.feature.home.components
 
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -233,7 +229,7 @@ internal fun HomeSearchField(
         searchBarState = searchBarState,
         modifier = Modifier.fillMaxWidth(),
         colors = homeSearchInputFieldColors(),
-        textStyle = LoomaTokens.type.body,
+        textStyle = MaterialTheme.typography.bodyLarge,
         onSearch = { search.submit(onSearchSubmit) },
         placeholder = {
             HomeSearchPlaceholder(
@@ -246,7 +242,7 @@ internal fun HomeSearchField(
                 enter = searchIconEnter(Alignment.Start),
                 exit = searchIconExit(Alignment.Start),
             ) {
-                IconButton(onClick = search.collapse) {
+                IconButton(onClick = search.collapse, shapes = IconButtonDefaults.shapes()) {
                     LoomaIcon(
                         iconRes = R.drawable.ic_arrow_back,
                         contentDescription = stringResource(R.string.home_close_search_description),
@@ -268,7 +264,7 @@ internal fun HomeSearchField(
                     enter = searchIconEnter(Alignment.End),
                     exit = searchIconExit(Alignment.End),
                 ) {
-                    IconButton(onClick = { textFieldState.setTextAndPlaceCursorAtEnd("") }) {
+                    IconButton(onClick = { textFieldState.setTextAndPlaceCursorAtEnd("") }, shapes = IconButtonDefaults.shapes()) {
                         LoomaIcon(
                             iconRes = R.drawable.ic_close,
                             contentDescription = stringResource(R.string.home_clear_search_description),
@@ -283,7 +279,7 @@ internal fun HomeSearchField(
 @Composable
 internal fun homeSearchBarColors(progress: Float) = SearchBarDefaults.colors(
     containerColor = lerp(LoomaTokens.colors.searchField, LoomaTokens.colors.page, progress.coerceIn(0f, 1f)),
-    dividerColor = LoomaTokens.colors.divider,
+    dividerColor = MaterialTheme.colorScheme.outlineVariant,
     inputFieldColors = homeSearchInputFieldColors(),
 )
 
@@ -299,8 +295,8 @@ private fun HomeSearchPlaceholder(text: String) {
     Text(
         text = text,
         modifier = Modifier.clearAndSetSemantics {},
-        style = LoomaTokens.type.body,
-        color = LoomaTokens.colors.muted,
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
     )
 }
@@ -323,8 +319,16 @@ private fun HomeSearchPanel(
     }
 }
 
-private fun searchIconEnter(align: Alignment.Horizontal): EnterTransition =
-    fadeIn(tween(120)) + expandHorizontally(expandFrom = align, animationSpec = tween(180))
+@Composable
+private fun searchIconEnter(align: Alignment.Horizontal): EnterTransition {
+    val motion = MaterialTheme.motionScheme
+    return fadeIn(motion.fastEffectsSpec()) +
+        expandHorizontally(expandFrom = align, animationSpec = motion.fastSpatialSpec())
+}
 
-private fun searchIconExit(align: Alignment.Horizontal): ExitTransition =
-    fadeOut(tween(90)) + shrinkHorizontally(shrinkTowards = align, animationSpec = tween(160))
+@Composable
+private fun searchIconExit(align: Alignment.Horizontal): ExitTransition {
+    val motion = MaterialTheme.motionScheme
+    return fadeOut(motion.fastEffectsSpec()) +
+        shrinkHorizontally(shrinkTowards = align, animationSpec = motion.fastSpatialSpec())
+}

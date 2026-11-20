@@ -1,10 +1,12 @@
 package com.example.looma.feature.home.components
 
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -13,12 +15,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -27,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.feature.home.HomeNoteItem
 import com.example.looma.feature.home.HomeRecentItem
-import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
 internal fun HomeRecentRow(
@@ -42,7 +40,7 @@ internal fun HomeRecentRow(
     LazyRow(
         state = listState,
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(items = items, key = { it.note.listKey }) { item ->
             HomeRecentCard(
@@ -63,38 +61,40 @@ private fun HomeRecentCard(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(20.dp)
     val selectLabel = stringResource(R.string.home_select_note_label)
     val colors = homeCardColors(isSelected)
-    Surface(
+    Card(
         modifier = modifier
             .width(RecentCardWidth)
-            .heightIn(min = RecentCardMinHeight)
-            .clip(shape)
-            .combinedClickable(
-                onLongClickLabel = selectLabel,
-                onLongClick = onLongClick,
-                onClick = onClick,
-            )
             .semantics { selected = isSelected },
-        shape = shape,
-        color = colors.container,
-        border = if (isSelected) BorderStroke(2.dp, LoomaTokens.colors.accent) else null,
+        shape = MaterialTheme.shapes.largeIncreased,
+        colors = CardDefaults.cardColors(containerColor = colors.container, contentColor = colors.title),
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = RecentCardMinHeight)
+                .combinedClickable(
+                    onLongClickLabel = selectLabel,
+                    onLongClick = onLongClick,
+                    onClick = onClick,
+                )
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(
                 text = item.note.summary.title,
-                style = LoomaTokens.type.cardTitle,
+                style = MaterialTheme.typography.titleMedium,
                 color = colors.title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(6.dp))
             HomeFadedMarkdownPreview(
                 markdown = item.markdown,
                 bodyColor = colors.body,
                 containerColor = colors.container,
-                emptyTextStyle = LoomaTokens.type.cardBody,
+                emptyTextStyle = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.fillMaxWidth().height(RecentPreviewHeight),
             )
         }

@@ -1,5 +1,6 @@
 package com.example.looma.feature.note.components
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldDecorator
@@ -27,7 +28,6 @@ import androidx.compose.ui.text.input.ImeAction
 import com.example.looma.R
 import com.example.looma.feature.note.NoteTitleError
 import com.example.looma.feature.note.titleEditFor
-import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
 internal fun NoteTitleField(
@@ -97,7 +97,7 @@ internal fun NoteTitleField(
     NoteTextField(
         state = buffer,
         active = true,
-        textStyle = textStyle.copy(color = LoomaTokens.colors.title),
+        textStyle = textStyle.copy(color = MaterialTheme.colorScheme.onSurface),
         modifier = modifier
             .focusRequester(focusRequester)
             .onFocusChanged { focusState ->
@@ -122,7 +122,7 @@ internal fun NoteTitleField(
                     Text(
                         text = stringResource(R.string.editor_title_hint),
                         style = textStyle,
-                        color = LoomaTokens.colors.muted,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 innerTextField()

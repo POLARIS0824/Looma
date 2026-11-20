@@ -1,5 +1,6 @@
 package com.example.looma.feature.home.components
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,7 +25,8 @@ import com.example.looma.feature.home.HomeSearchResult
 import com.example.looma.ui.components.DelayedContent
 import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.theme.LoomaTokens
+import com.example.looma.ui.components.pageMargin
+import com.example.looma.ui.components.SectionHeader
 
 @Composable
 internal fun HomeSearchResults(
@@ -37,17 +39,17 @@ internal fun HomeSearchResults(
     isSearching: Boolean = false,
     semanticSearch: Boolean = false,
 ) {
+    val margin = pageMargin()
     when {
         query.isBlank() && recentSearches.isNotEmpty() -> LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 24.dp),
         ) {
             item(key = "recent-searches-header") {
-                Text(
-                    text = stringResource(R.string.home_recent_searches),
-                    style = LoomaTokens.type.sectionTitle,
-                    color = LoomaTokens.colors.title,
-                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+                SectionHeader(
+                    title = stringResource(R.string.home_recent_searches),
+                    parentSpacing = RecentSearchItemInset,
+                    modifier = Modifier.padding(horizontal = margin).padding(top = 8.dp),
                 )
             }
             items(recentSearches) { search ->
@@ -60,8 +62,8 @@ internal fun HomeSearchResults(
                 ) {
                     Text(
                         text = search,
-                        style = LoomaTokens.type.cardTitle,
-                        color = LoomaTokens.colors.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -73,19 +75,15 @@ internal fun HomeSearchResults(
             stringResource(if (semanticSearch) R.string.home_semantic_hint else R.string.home_search_hint),
         )
         isSearching -> Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
-            DelayedLoadingIndicator(loading = true, size = 32.dp)
+            DelayedLoadingIndicator(loading = true)
         }
         results.isEmpty() -> DelayedContent {
             HomeSearchHint(stringResource(R.string.home_search_no_match))
         }
         else -> HomeNoteGrid(
             isGridMode = isGridMode,
-            contentPadding = PaddingValues(
-                start = LoomaTokens.spacing.pageMargin,
-                end = LoomaTokens.spacing.pageMargin,
-                top = 8.dp,
-                bottom = 24.dp,
-            ),
+            contentPadding = homeGridPadding(bottom = 24.dp),
+
         ) {
             gridItems(results, key = { "search:${it.listKey}" }) { result ->
                 HomeNoteCard(
@@ -99,9 +97,11 @@ internal fun HomeSearchResults(
     }
 }
 
+private val RecentSearchItemInset = 8.dp
+
 @Composable
 private fun HomeSearchHint(text: String) {
-    Box(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 24.dp)) {
-        Text(text, style = LoomaTokens.type.supporting, color = LoomaTokens.colors.muted)
+    Box(Modifier.fillMaxSize().padding(start = pageMargin(), end = pageMargin(), top = 24.dp)) {
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

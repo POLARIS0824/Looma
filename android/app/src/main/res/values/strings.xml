@@ -2,6 +2,10 @@
     <string name="app_name">Looma</string>
 
     <string name="nav_back">Back</string>
+    <string name="nav_expand_rail">Expand navigation</string>
+    <string name="nav_collapse_rail">Collapse navigation</string>
+    <string name="nav_rail_expanded">Expanded</string>
+    <string name="nav_rail_collapsed">Collapsed</string>
     <string name="drawer_notes">Notes</string>
     <string name="drawer_trash">Trash</string>
     <string name="drawer_settings">Settings</string>

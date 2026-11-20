@@ -1,10 +1,7 @@
-@file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
-)
-
 package com.example.looma.feature.home.components
 
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CircleShape
@@ -54,7 +51,7 @@ internal fun HomeFolderTopBar(
     val searchPlaceholder = stringResource(R.string.home_search_placeholder, vaultName)
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val bodyStyle = LoomaTokens.type.body
+    val bodyStyle = MaterialTheme.typography.bodyLarge
     val searchFieldPadding = TextFieldDefaults.contentPaddingWithoutLabel()
     val (searchFieldHeight, searchAppBarHeight) = remember(searchPlaceholder, bodyStyle, density, searchFieldPadding) {
         val searchLineHeight = textMeasurer.measure(
@@ -88,7 +85,7 @@ internal fun HomeFolderTopBar(
             )
         },
         navigationIcon = {
-            IconButton(onClick = onNavigateUp) {
+            IconButton(onClick = onNavigateUp, shapes = IconButtonDefaults.shapes()) {
                 LoomaIcon(
                     iconRes = R.drawable.ic_arrow_back,
                     contentDescription = stringResource(R.string.home_breadcrumb_back_description),
@@ -100,7 +97,7 @@ internal fun HomeFolderTopBar(
                 state = searchBarState,
                 inputField = {
                     Box(contentAlignment = Alignment.Center) {
-                        IconButton(onClick = { scope.launch { searchBarState.animateToExpanded() } }) {
+                        IconButton(onClick = { scope.launch { searchBarState.animateToExpanded() } }, shapes = IconButtonDefaults.shapes()) {
                             LoomaIcon(
                                 iconRes = R.drawable.ic_search,
                                 contentDescription = searchPlaceholder,
@@ -125,10 +122,10 @@ internal fun HomeFolderTopBar(
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = LoomaTokens.colors.page,
             scrolledContainerColor = LoomaTokens.colors.page,
-            navigationIconContentColor = LoomaTokens.colors.title,
-            titleContentColor = LoomaTokens.colors.title,
-            subtitleContentColor = LoomaTokens.colors.muted,
-            actionIconContentColor = LoomaTokens.colors.title,
+            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            subtitleContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            actionIconContentColor = MaterialTheme.colorScheme.onSurface,
         ),
         scrollBehavior = scrollBehavior,
     )

@@ -12,19 +12,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,8 +30,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
@@ -50,9 +46,10 @@ internal fun WikiLinkPanel(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
+    val query = rememberTextFieldState()
     val focusRequester = remember { FocusRequester() }
-    val matches = remember(query, candidates) { filterCandidates(candidates, query) }
+    val queryText = query.text.toString()
+    val matches = remember(queryText, candidates) { filterCandidates(candidates, queryText) }
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
@@ -68,29 +65,28 @@ internal fun WikiLinkPanel(
                     modifier = Modifier.size(18.dp),
                 )
                 BasicTextField(
-                    value = query,
-                    onValueChange = { query = it },
+                    state = query,
                     modifier = Modifier
                         .weight(1f)
                         .padding(horizontal = 8.dp)
                         .focusRequester(focusRequester),
-                    singleLine = true,
-                    textStyle = LoomaTokens.type.cardBody.copy(color = LoomaTokens.colors.title),
+                    lineLimits = TextFieldLineLimits.SingleLine,
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    decorationBox = { inner ->
+                    decorator = { inner ->
                         Box {
-                            if (query.isEmpty()) {
+                            if (query.text.isEmpty()) {
                                 Text(
                                     text = stringResource(R.string.editor_wikilink_search),
-                                    style = LoomaTokens.type.cardBody,
-                                    color = LoomaTokens.colors.muted,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             inner()
                         }
                     },
                 )
-                IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onDismiss, shapes = IconButtonDefaults.shapes()) {
                     LoomaIcon(
                         iconRes = R.drawable.ic_close,
                         contentDescription = stringResource(R.string.editor_cancel),
@@ -104,7 +100,7 @@ internal fun WikiLinkPanel(
                     text = stringResource(R.string.editor_wikilink_empty),
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
                     style = LoomaTokens.type.cardMeta,
-                    color = LoomaTokens.colors.muted,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 LazyColumn(modifier = Modifier.heightIn(max = 216.dp)) {
@@ -114,7 +110,7 @@ internal fun WikiLinkPanel(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 2.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(MaterialTheme.shapes.medium)
                                 .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                                 .clickable { onPick(note) }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -122,8 +118,8 @@ internal fun WikiLinkPanel(
                         ) {
                             Text(
                                 text = note.title,
-                                style = LoomaTokens.type.cardTitle,
-                                color = LoomaTokens.colors.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -131,7 +127,7 @@ internal fun WikiLinkPanel(
                                 Text(
                                     text = folder,
                                     style = LoomaTokens.type.cardMeta,
-                                    color = LoomaTokens.colors.muted,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )

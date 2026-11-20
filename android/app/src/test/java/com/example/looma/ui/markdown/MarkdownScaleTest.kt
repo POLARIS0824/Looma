@@ -7,12 +7,13 @@ import org.junit.Test
 
 class MarkdownScaleTest {
 
-    private val type = loomaTypography(Typography())
+    private val base = Typography()
+    private val type = loomaTypography(base)
 
     @Test
     fun `reading hierarchy stays distinct from compact card previews`() {
-        val reading = loomaMarkdownScale(type)
-        val preview = loomaMarkdownScale(type, compact = true)
+        val reading = loomaMarkdownScale(type, base)
+        val preview = loomaMarkdownScale(type, base, compact = true)
         org.junit.Assert.assertTrue(reading.h1.fontSize > preview.h1.fontSize)
         org.junit.Assert.assertTrue(reading.h1.fontSize > type.noteBody.fontSize)
         org.junit.Assert.assertTrue(reading.h2.fontSize >= reading.h3.fontSize)
@@ -21,7 +22,7 @@ class MarkdownScaleTest {
 
     @Test
     fun `code and prose have separate font families`() {
-        val scale = loomaMarkdownScale(type)
+        val scale = loomaMarkdownScale(type, base)
         org.junit.Assert.assertNotEquals(type.noteBody.fontFamily, scale.code.fontFamily)
     }
 }

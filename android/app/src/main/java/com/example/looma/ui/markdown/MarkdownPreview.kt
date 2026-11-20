@@ -1,5 +1,6 @@
 package com.example.looma.ui.markdown
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -12,7 +13,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
 import com.example.looma.domain.markdown.WikiImageFlavour
 import com.example.looma.ui.theme.LoomaPreviewTypography
-import com.example.looma.ui.theme.LoomaTokens
 import com.mikepenz.markdown.compose.Markdown
 import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.markdownAnnotator
@@ -26,7 +26,7 @@ internal fun MarkdownPreview(
     markdown: String,
     modifier: Modifier = Modifier,
     typography: LoomaPreviewTypography? = null,
-    textColor: Color = LoomaTokens.colors.title,
+    textColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     if (markdown.isBlank()) return
     val inspection = LocalInspectionMode.current
@@ -44,7 +44,7 @@ internal fun MarkdownPreview(
     }
 
     val theme = loomaMarkdownTheme(
-        base = typography?.body ?: LoomaTokens.type.cardBody,
+        base = typography?.body ?: MaterialTheme.typography.bodySmall,
         compact = true,
         preview = typography,
         textColor = textColor,

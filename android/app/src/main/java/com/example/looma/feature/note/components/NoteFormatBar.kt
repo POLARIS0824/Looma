@@ -1,4 +1,7 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
+)
 
 package com.example.looma.feature.note.components
 
@@ -11,8 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonColors
 import androidx.compose.material3.IconButtonDefaults
@@ -41,6 +42,7 @@ import com.example.looma.domain.markdown.MarkdownFormatState
 import com.example.looma.domain.markdown.MarkdownInlineStyle
 import com.example.looma.domain.markdown.ToolbarItem
 import com.example.looma.ui.components.LoomaIcon
+import com.example.looma.ui.components.rememberDelayedVisibility
 
 @Composable
 internal fun NoteFormatBar(
@@ -93,7 +95,7 @@ internal fun NoteFormatBar(
                         onCheckedChange = { onWikiLink() },
                     )
 
-                    ToolbarItem.InsertImage -> if (isUploadingImage) {
+                    ToolbarItem.InsertImage -> if (rememberDelayedVisibility(isUploadingImage)) {
                         val uploading = stringResource(R.string.editor_uploading_image)
                         LoadingIndicator(
                             modifier = Modifier
@@ -105,6 +107,7 @@ internal fun NoteFormatBar(
                             icon = R.drawable.ic_editor_image,
                             label = stringResource(R.string.editor_insert_image),
                             onClick = onInsertImage,
+                            enabled = !isUploadingImage,
                         )
                     }
 

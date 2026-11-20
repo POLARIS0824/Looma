@@ -1,5 +1,3 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.example.looma.feature.settings
 
 import android.Manifest
@@ -19,7 +17,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -46,6 +46,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.looma.R
 import com.example.looma.data.search.SemanticWorkState
 import com.example.looma.ui.components.LoomaIcon
+import com.example.looma.ui.components.PageMaxWidth
+import com.example.looma.ui.components.pageMargin
 import com.example.looma.ui.theme.LoomaTokens
 
 @Immutable
@@ -126,7 +128,7 @@ internal fun SemanticSearchSettingsScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.settings_semantic_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateUp) {
+                    IconButton(onClick = onNavigateUp, shapes = IconButtonDefaults.shapes()) {
                         LoomaIcon(
                             iconRes = R.drawable.ic_arrow_back,
                             contentDescription = stringResource(R.string.nav_back),
@@ -143,21 +145,21 @@ internal fun SemanticSearchSettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = pageMargin(), vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(
-                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                modifier = Modifier.widthIn(max = PageMaxWidth).fillMaxWidth().padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(SettingsGroupGap),
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Surface(
                         shape = MaterialTheme.shapes.extraLarge,
-                        color = LoomaTokens.colors.accentContainer,
+                        color = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         LoomaIcon(
                             iconRes = R.drawable.ic_sparkle,
@@ -168,15 +170,15 @@ internal fun SemanticSearchSettingsScreen(
                     }
                     Text(
                         text = stringResource(R.string.settings_semantic_intro_title),
-                        style = LoomaTokens.type.pageTitle,
-                        color = LoomaTokens.colors.title,
+                        style = MaterialTheme.typography.titleLargeEmphasized,
+                        color = MaterialTheme.colorScheme.onSurface,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.semantics { heading() },
                     )
                     Text(
                         text = stringResource(R.string.settings_semantic_intro),
-                        style = LoomaTokens.type.supporting,
-                        color = LoomaTokens.colors.muted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
                 }
@@ -192,9 +194,8 @@ internal fun SemanticSearchSettingsScreen(
                     )
                     Text(
                         text = stringResource(R.string.settings_semantic_background_work),
-                        style = LoomaTokens.type.supporting,
-                        color = LoomaTokens.colors.muted,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     SettingsRow(
@@ -232,10 +233,13 @@ private fun SemanticSearchOperations(
             ) {
                 Text(
                     text = stringResource(R.string.settings_semantic_model),
-                    style = LoomaTokens.type.cardTitle,
-                    color = LoomaTokens.colors.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-                TextButton(onClick = { modelDetailsExpanded = !modelDetailsExpanded }) {
+                TextButton(
+                    onClick = { modelDetailsExpanded = !modelDetailsExpanded },
+                    shapes = ButtonDefaults.shapes(),
+                ) {
                     Text(
                         stringResource(
                             if (modelDetailsExpanded) R.string.settings_semantic_hide_details
@@ -246,8 +250,8 @@ private fun SemanticSearchOperations(
                 if (modelDetailsExpanded) {
                     Text(
                         text = stringResource(R.string.settings_semantic_model_details),
-                        style = LoomaTokens.type.supporting,
-                        color = LoomaTokens.colors.body,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Surface(
@@ -294,8 +298,8 @@ private fun SemanticSearchOperations(
                 if (vaultName.isNotBlank()) {
                     Text(
                         text = stringResource(R.string.settings_semantic_vault, vaultName),
-                        style = LoomaTokens.type.cardTitle,
-                        color = LoomaTokens.colors.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
                 SemanticOperationStatus(
@@ -354,31 +358,40 @@ private fun SemanticOperationStatus(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = description,
-            style = LoomaTokens.type.supporting,
-            color = LoomaTokens.colors.body,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         when {
-            status is SemanticWorkState.Running && status.total > 0 -> LinearProgressIndicator(
+            status is SemanticWorkState.Running && status.total > 0 -> LinearWavyProgressIndicator(
                 progress = { (status.completed.toFloat() / status.total).coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth(),
             )
-            status is SemanticWorkState.Running -> LinearProgressIndicator(Modifier.fillMaxWidth())
+            status is SemanticWorkState.Running -> LinearWavyProgressIndicator(Modifier.fillMaxWidth())
             else -> Unit
         }
         if (active) {
             TextButton(
                 onClick = onCancel,
                 enabled = action != SemanticSettingsAction.Submitting,
+                shapes = ButtonDefaults.shapes(),
             ) { Text(stringResource(R.string.dialog_cancel)) }
         } else if (showStart) {
             val retry = status == SemanticWorkState.Cancelled || status == SemanticWorkState.Failed
             val label = if (retry) stringResource(R.string.settings_semantic_retry) else startLabel
             if (filledAction) {
-                Button(onClick = onStart, enabled = action != SemanticSettingsAction.Submitting) {
+                Button(
+                    onClick = onStart,
+                    enabled = action != SemanticSettingsAction.Submitting,
+                    shapes = ButtonDefaults.shapes(),
+                ) {
                     Text(label)
                 }
             } else {
-                FilledTonalButton(onClick = onStart, enabled = action != SemanticSettingsAction.Submitting) {
+                FilledTonalButton(
+                    onClick = onStart,
+                    enabled = action != SemanticSettingsAction.Submitting,
+                    shapes = ButtonDefaults.shapes(),
+                ) {
                     Text(label)
                 }
             }
@@ -386,8 +399,8 @@ private fun SemanticOperationStatus(
         if (action == SemanticSettingsAction.Failed) {
             Text(
                 text = stringResource(R.string.settings_semantic_action_failed),
-                style = LoomaTokens.type.supporting,
-                color = LoomaTokens.colors.error,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }

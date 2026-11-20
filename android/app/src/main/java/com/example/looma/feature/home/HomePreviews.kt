@@ -1,5 +1,6 @@
 package com.example.looma.feature.home
 
+import androidx.compose.material3.MaterialTheme
 import android.content.res.Configuration
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -160,7 +161,7 @@ private fun HomeSearchResultsPreview() {
                 Text(
                     text = "搜索 Java",
                     modifier = Modifier.padding(20.dp),
-                    style = LoomaTokens.type.pageTitle,
+                    style = MaterialTheme.typography.titleLargeEmphasized,
                 )
                 HomeSearchResults(
                     query = "Java",

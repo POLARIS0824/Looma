@@ -1,10 +1,11 @@
 @file:OptIn(
     androidx.compose.material3.ExperimentalMaterial3Api::class,
-    androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
 )
 
 package com.example.looma.feature.home.components
 
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -46,13 +47,13 @@ internal fun HomeRootTopBar(
             scrolledSearchBarContainerColor = LoomaTokens.colors.searchField,
             appBarContainerColor = pageColor,
             scrolledAppBarContainerColor = pageColor,
-            appBarNavigationIconColor = LoomaTokens.colors.title,
-            appBarActionIconColor = LoomaTokens.colors.title,
+            appBarNavigationIconColor = MaterialTheme.colorScheme.onSurface,
+            appBarActionIconColor = MaterialTheme.colorScheme.onSurface,
         ),
         inputField = inputField,
         navigationIcon = {
             Box(Modifier.graphicsLayer { alpha = 1f - searchBarState.progress }) {
-                IconButton(onClick = onMenuClick) {
+                IconButton(onClick = onMenuClick, shapes = IconButtonDefaults.shapes()) {
                     LoomaIcon(
                         iconRes = R.drawable.ic_menu,
                         contentDescription = stringResource(R.string.home_menu_description),
@@ -81,13 +82,13 @@ private fun HomeAvatarButton(onClick: () -> Unit) {
             .size(40.dp)
             .semantics { contentDescription = avatarDescription },
         shape = CircleShape,
-        color = LoomaTokens.colors.accentContainer,
-        border = BorderStroke(2.dp, LoomaTokens.colors.avatarRing),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 text = stringResource(R.string.home_avatar_letter),
-                style = LoomaTokens.type.avatar,
+                style = MaterialTheme.typography.titleMediumEmphasized,
             )
         }
     }

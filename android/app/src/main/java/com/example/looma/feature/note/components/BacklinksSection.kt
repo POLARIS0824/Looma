@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedListItem
@@ -18,7 +17,7 @@ import com.example.looma.R
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.wiki.Backlink
 import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.theme.LoomaTokens
+import com.example.looma.ui.components.SectionHeader
 
 @Composable
 fun BacklinksSection(
@@ -27,19 +26,11 @@ fun BacklinksSection(
     modifier: Modifier = Modifier,
 ) {
     if (backlinks.isEmpty()) return
-    val colors = LoomaTokens.colors
-    val type = LoomaTokens.type
 
     Column(modifier = modifier.fillMaxWidth()) {
-        HorizontalDivider(
-            color = colors.divider,
-            modifier = Modifier.padding(top = 24.dp),
-        )
-        Text(
-            text = stringResource(R.string.note_backlinks_title, backlinks.size),
-            style = type.sectionTitle,
-            color = colors.title,
-            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
+        SectionHeader(
+            title = stringResource(R.string.note_backlinks_title, backlinks.size),
+            first = false,
         )
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             backlinks.forEachIndexed { index, backlink ->
@@ -58,7 +49,7 @@ fun BacklinksSection(
                 ) {
                     Text(
                         text = backlink.title,
-                        style = type.body,
+                        style = MaterialTheme.typography.bodyLarge,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )

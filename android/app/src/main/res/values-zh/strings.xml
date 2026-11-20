@@ -2,6 +2,10 @@
     <string name="app_name">Looma</string>
 
     <string name="nav_back">返回</string>
+    <string name="nav_expand_rail">展开导航</string>
+    <string name="nav_collapse_rail">收起导航</string>
+    <string name="nav_rail_expanded">已展开</string>
+    <string name="nav_rail_collapsed">已收起</string>
     <string name="drawer_notes">笔记</string>
     <string name="drawer_trash">回收站</string>
     <string name="drawer_settings">设置</string>

@@ -1,5 +1,6 @@
 package com.example.looma.feature.settings
 
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,7 +29,6 @@ import com.example.looma.R
 import com.example.looma.data.settings.AppLanguage
 import com.example.looma.data.settings.ImageUploadTarget
 import com.example.looma.data.settings.ThemePreset
-import com.example.looma.ui.theme.LoomaTokens
 import com.example.looma.ui.theme.presetScheme
 
 @Composable
@@ -70,7 +70,7 @@ private fun <T> SettingsRadioDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_confirm)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.dialog_confirm)) }
         },
     )
 }
@@ -93,19 +93,19 @@ internal fun ImageTargetDialog(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = imageTargetName(target),
-                style = LoomaTokens.type.body,
-                color = if (enabled) LoomaTokens.colors.title else LoomaTokens.colors.muted,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = stringResource(target.descriptionRes()),
-                style = LoomaTokens.type.supporting,
-                color = LoomaTokens.colors.muted,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!enabled) {
                 Text(
                     text = stringResource(R.string.settings_image_destination_bed_unavailable),
-                    style = LoomaTokens.type.supporting,
-                    color = LoomaTokens.colors.muted,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -127,8 +127,8 @@ internal fun ThemePresetDialog(
     ) { preset, _ ->
         Text(
             text = themeName(preset),
-            style = LoomaTokens.type.body,
-            color = LoomaTokens.colors.title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
         ThemeSwatch(preset = preset, useWallpaper = false)
@@ -150,8 +150,8 @@ internal fun LanguageDialog(
     ) { language, _ ->
         Text(
             text = languageName(language),
-            style = LoomaTokens.type.body,
-            color = LoomaTokens.colors.title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
     }

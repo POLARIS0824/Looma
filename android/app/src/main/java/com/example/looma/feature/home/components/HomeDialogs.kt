@@ -1,5 +1,3 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.example.looma.feature.home.components
 
 import androidx.compose.foundation.layout.Arrangement
@@ -11,9 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -47,7 +47,6 @@ import com.example.looma.feature.home.HomeFileDialog
 import com.example.looma.feature.home.HomeFileError
 import com.example.looma.ui.format.formatDateTime
 import com.example.looma.ui.format.formatFileSize
-import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
 internal fun HomeFileDialogs(
@@ -132,7 +131,7 @@ internal fun HomeTextInputDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var value by rememberSaveable(initialValue) { mutableStateOf(initialValue) }
+    val value = rememberSaveable(initialValue, saver = TextFieldState.Saver) { TextFieldState(initialValue) }
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     val supporting: (@Composable () -> Unit)? = if (error != null) {
@@ -167,24 +166,27 @@ internal fun HomeTextInputDialog(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     OutlinedTextField(
-                        value = value,
-                        onValueChange = { value = it },
+                        state = value,
                         label = { Text(hint) },
-                        singleLine = true,
+                        lineLimits = TextFieldLineLimits.SingleLine,
                         isError = error != null,
                         supportingText = supporting,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { if (!busy) onConfirm(value) }),
+                        onKeyboardAction = { if (!busy) onConfirm(value.text.toString()) },
                         modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                     ) {
-                        TextButton(onClick = onDismiss) {
+                        TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
                             Text(stringResource(R.string.dialog_cancel))
                         }
-                        TextButton(onClick = { onConfirm(value) }, enabled = !busy) {
+                        TextButton(
+                            onClick = { onConfirm(value.text.toString()) },
+                            enabled = !busy,
+                            shapes = ButtonDefaults.shapes(),
+                        ) {
                             Text(confirmLabel)
                         }
                     }
@@ -238,7 +240,7 @@ internal fun HomePropertiesDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_confirm)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.dialog_confirm)) }
         },
     )
 }
@@ -251,14 +253,14 @@ private fun PropertyRow(label: String, value: String) {
     ) {
         Text(
             text = label,
-            style = LoomaTokens.type.cardBody,
-            color = LoomaTokens.colors.muted,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
         Text(
             text = value,
-            style = LoomaTokens.type.cardBody,
-            color = LoomaTokens.colors.title,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1.2f),
         )
     }
@@ -295,35 +297,35 @@ internal fun HomeDeleteFolderDialog(
                     } else {
                         stringResource(R.string.home_folder_delete_message_empty)
                     },
-                    style = LoomaTokens.type.cardBody,
-                    color = LoomaTokens.colors.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (noteCount > 0) {
                     Text(
                         text = stringResource(R.string.home_folder_delete_retains_files),
-                        style = LoomaTokens.type.cardBody,
-                        color = LoomaTokens.colors.title,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
                 if (error != null) {
                     Text(
                         text = fileErrorText(error),
-                        style = LoomaTokens.type.cardBody,
-                        color = LoomaTokens.colors.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm, enabled = !busy) {
+            TextButton(onClick = onConfirm, enabled = !busy, shapes = ButtonDefaults.shapes()) {
                 Text(
                     text = stringResource(R.string.home_folder_delete_confirm),
-                    color = LoomaTokens.colors.error,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.dialog_cancel)) }
         },
     )
 }
@@ -353,28 +355,28 @@ internal fun HomeAbandonStalledRelocationDialog(
                         stalled.destinationPath,
                         stalled.journalId,
                     ),
-                    style = LoomaTokens.type.cardBody,
-                    color = LoomaTokens.colors.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (error != null) {
                     Text(
                         text = fileErrorText(error),
-                        style = LoomaTokens.type.cardBody,
-                        color = LoomaTokens.colors.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm, enabled = !busy) {
+            TextButton(onClick = onConfirm, enabled = !busy, shapes = ButtonDefaults.shapes()) {
                 Text(
                     text = stringResource(R.string.home_stalled_relocation_abandon),
-                    color = LoomaTokens.colors.error,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.dialog_cancel)) }
         },
     )
 }

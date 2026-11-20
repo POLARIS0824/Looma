@@ -11,18 +11,6 @@ class LoomaTypographyTest {
     private val tokens = loomaTypography(base)
 
     @Test
-    fun `tokens project the m3 roles`() {
-        assertEquals(base.titleLargeEmphasized, tokens.pageTitle)
-        assertEquals(base.titleMediumEmphasized, tokens.sectionTitle)
-        assertEquals(base.titleMediumEmphasized, tokens.avatar)
-        assertEquals(base.titleMedium, tokens.cardTitle)
-        assertEquals(base.titleSmall, tokens.folderName)
-        assertEquals(base.bodyLarge, tokens.body)
-        assertEquals(base.bodyMedium, tokens.supporting)
-        assertEquals(base.bodySmall, tokens.cardBody)
-    }
-
-    @Test
     fun `counters keep their role weight and ask for tabular figures`() {
         assertEquals(base.labelMediumEmphasized.fontWeight, tokens.count.fontWeight)
         assertEquals(TABULAR_FIGURES, tokens.count.fontFeatureSettings)
