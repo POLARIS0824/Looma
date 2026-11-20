@@ -1,7 +1,3 @@
-@file:OptIn(
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
-)
-
 package com.example.looma.feature.note
 
 import android.content.res.Resources

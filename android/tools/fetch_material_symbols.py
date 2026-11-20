@@ -43,6 +43,7 @@ ICONS = {
     "folder": "ic_folder",
     "arrow_upward": "ic_arrow_up",
     "arrow_downward": "ic_arrow_down",
+    "dehaze": "ic_drag_handle",
     "history": "ic_history",
     "add_photo_alternate": "ic_editor_image",
 

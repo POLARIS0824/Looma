@@ -1,5 +1,4 @@
 @file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class,
 )
 
@@ -351,6 +350,7 @@ private fun ToolbarToggleButton(
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun ToolbarTooltip(label: String, content: @Composable () -> Unit) {
     TooltipBox(

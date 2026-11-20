@@ -1,7 +1,5 @@
 package com.example.looma.feature.note.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,13 +9,16 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,11 +26,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
@@ -69,8 +75,25 @@ internal fun WikiLinkPanel(
                     modifier = Modifier
                         .weight(1f)
                         .padding(horizontal = 8.dp)
-                        .focusRequester(focusRequester),
+                        .focusRequester(focusRequester)
+                        .onPreviewKeyEvent { event ->
+                            when (event.key) {
+                                Key.Enter, Key.NumPadEnter -> {
+                                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
+                                        matches.firstOrNull()?.let(onPick)
+                                    }
+                                    true
+                                }
+                                Key.Escape -> {
+                                    if (event.type == KeyEventType.KeyDown) onDismiss()
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
                     lineLimits = TextFieldLineLimits.SingleLine,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    onKeyboardAction = { matches.firstOrNull()?.let(onPick) },
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     decorator = { inner ->
@@ -103,18 +126,31 @@ internal fun WikiLinkPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                LazyColumn(modifier = Modifier.heightIn(max = 216.dp)) {
-                    items(matches, key = { it.id.path.relativePath }) { note ->
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 216.dp).padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                ) {
+                    itemsIndexed(matches, key = { _, it -> it.id.path.relativePath }) { index, note ->
                         val folder = note.id.path.relativePath.substringBeforeLast('/', "")
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp)
-                                .clip(MaterialTheme.shapes.medium)
-                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                                .clickable { onPick(note) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        SegmentedListItem(
+                            onClick = { onPick(note) },
+                            shapes = ListItemDefaults.segmentedShapes(index, matches.size),
+                            colors = ListItemDefaults.segmentedColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            ),
+                            supportingContent = if (folder.isNotEmpty()) {
+                                {
+                                    Text(
+                                        text = folder,
+                                        style = LoomaTokens.type.cardMeta,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            } else {
+                                null
+                            },
                         ) {
                             Text(
                                 text = note.title,
@@ -123,15 +159,6 @@ internal fun WikiLinkPanel(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            if (folder.isNotEmpty()) {
-                                Text(
-                                    text = folder,
-                                    style = LoomaTokens.type.cardMeta,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
                         }
                     }
                 }

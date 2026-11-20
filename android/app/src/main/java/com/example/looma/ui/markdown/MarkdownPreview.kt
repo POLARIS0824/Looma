@@ -27,6 +27,7 @@ internal fun MarkdownPreview(
     modifier: Modifier = Modifier,
     typography: LoomaPreviewTypography? = null,
     textColor: Color = MaterialTheme.colorScheme.onSurface,
+    onSelectedContainer: Boolean = false,
 ) {
     if (markdown.isBlank()) return
     val inspection = LocalInspectionMode.current
@@ -48,6 +49,7 @@ internal fun MarkdownPreview(
         compact = true,
         preview = typography,
         textColor = textColor,
+        onSelectedContainer = onSelectedContainer,
     )
     val components = remember(theme) {
         loomaMarkdownComponents(

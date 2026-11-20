@@ -115,14 +115,14 @@ internal fun ImageFailure(modifier: Modifier, onRetry: () -> Unit) {
 
 @Composable
 internal fun ImagePlaceholder(modifier: Modifier) {
-    val alpha by animateFloatAsState(
+    val alpha = animateFloatAsState(
         targetValue = if (rememberDelayedVisibility(active = true)) 1f else 0f,
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "image-placeholder",
     )
     Box(
         modifier
-            .graphicsLayer { this.alpha = alpha }
+            .graphicsLayer { this.alpha = alpha.value }
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
     )
 }
