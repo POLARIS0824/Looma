@@ -30,6 +30,13 @@ android {
                 packageScope = setOf("androidx.**")
             }
         }
+        create("devRelease") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            optimization {
+                enable = false
+            }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -131,3 +138,9 @@ val verifyTypography = tasks.register("verifyTypography") {
 }
 
 tasks.matching { it.name == "check" }.configureEach { dependsOn(verifyTypography) }
+
+tasks.matching {
+    it.name.contains("DevRelease") && it.name.contains("LintVital", ignoreCase = true)
+}.configureEach {
+    enabled = false
+}
