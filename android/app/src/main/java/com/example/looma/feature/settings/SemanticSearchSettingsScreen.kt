@@ -49,6 +49,7 @@ import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.PageMaxWidth
 import com.example.looma.ui.components.pageMargin
 import com.example.looma.ui.theme.LoomaTokens
+import com.example.looma.ui.theme.TABULAR_FIGURES
 
 @Immutable
 internal data class SemanticOperationUiState(
@@ -358,7 +359,11 @@ private fun SemanticOperationStatus(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = description,
-            style = MaterialTheme.typography.bodyMedium,
+            style = if (description.any(Char::isDigit)) {
+                MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = TABULAR_FIGURES)
+            } else {
+                MaterialTheme.typography.bodyMedium
+            },
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         when {

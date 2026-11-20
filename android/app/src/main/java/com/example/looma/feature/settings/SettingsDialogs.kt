@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -53,13 +54,14 @@ private fun <T> SettingsRadioDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 52.dp)
+                            .clip(MaterialTheme.shapes.medium)
                             .selectable(
                                 selected = optionSelected,
                                 enabled = enabled,
                                 onClick = { onSelect(option) },
                                 role = Role.RadioButton,
                             )
-                            .padding(horizontal = 4.dp),
+                            .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
