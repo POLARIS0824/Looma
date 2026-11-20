@@ -6,6 +6,7 @@
 - 不用迁移数据库，还在个人开发阶段
 - 如果 /verify 没有更新，就不要使用 /verify 验证和 avd 验证
 - 只有在单独说明要写 test 和 androidTest 的时候才能写测试
+- 写或改 UI 前，先读 `DESIGN.md`，按其中的规范实现
 - 每次用完 AVD 都要关闭模拟器进程。用 verify skill 时执行 `v cleanup`，再确认 `adb devices` 里没有 `emulator-*`。
 
 ## 技术选型

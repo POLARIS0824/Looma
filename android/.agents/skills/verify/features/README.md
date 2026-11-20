@@ -1,6 +1,6 @@
 # Looma Android verification map
 
-This is the maintained Android user-journey index. Every feature file below was checked against source and driven live on `looma36` (API 36) during the 2026-11-09 maintenance pass, except the stalled-relocation banner, which no user path can create. Consult each run's `coverage.md` for that run's actual coverage.
+This is the maintained Android user-journey index. Every feature file below was checked against source and driven live on `looma36` (API 36) during the 2026-11-19 maintenance pass, except prerequisite-gated items (`browse-stalled` has no user path; full 157 MiB EmbeddingGemma 2 download, vector indexing and semantic passage search require external Hugging Face network access; real S3 uploads require a reachable endpoint; `vault-unavailable` requires revoking storage access or deleting the folder externally). Consult each run's `coverage.md` for that run's actual coverage.
 
 ## Baseline preconditions
 
@@ -23,9 +23,9 @@ This is the maintained Android user-journey index. Every feature file below was 
 | --- | --- |
 | [Vault connection](vault.md) | First launch, all-files access, primary folder picker, pending confirmation, relaunch, change vault, unavailable vault |
 | [Notes](notes.md) | New note, single-field Markdown editing, autosave, Read/Edit, toolbar and its scrolling, checklists, wiki links and backlinks, image insert, math, conflict copies and Overwrite |
-| [Browse, files and search](browse-search.md) | Root and folders, Recent/Notes, layout and sort, rename/move with link rewriting, file info, batch actions, Undo, search and history, stalled relocation (source-only) |
+| [Browse, files and search](browse-search.md) | Root and folder top bar, Recent/Notes, layout and sort, rename/move with link rewriting, file info, batch actions, Undo, keyword/tag search and history, semantic search controls, stalled relocation (source-only) |
 | [Trash](trash.md) | Delete and Undo, folder delete, restore and its Undo, delete permanently, restore all, empty trash |
-| [Settings](settings.md) | Avatar and drawer entries, vault and access, theme presets and Dynamic color, language, toolbar order, keep empty notes, inline title, image destination and S3 image bed |
+| [Settings](settings.md) | Avatar and drawer entries, vault and access, theme presets and Dynamic color, language, toolbar order, keep empty notes, inline title, semantic search model and index, image destination and S3 image bed |
 
 ## Proof and skip reporting
 

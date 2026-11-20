@@ -129,14 +129,20 @@ class Control:
 
     def dump(self):
         self.owned()
+        xml = ""
         for attempt in range(6):
             self.device("shell", "rm", "-f", "/data/local/tmp/looma-verify-ui.xml", check=False)
-            self.device("shell", "uiautomator", "dump", "/data/local/tmp/looma-verify-ui.xml", timeout=25)
+            self.device("shell", "uiautomator", "dump", "/data/local/tmp/looma-verify-ui.xml",
+                        timeout=25, check=False)
             listed = self.device("shell", "ls", "/data/local/tmp/looma-verify-ui.xml", check=False)
-            if listed.endswith("looma-verify-ui.xml") or attempt == 5:
-                break
-            time.sleep(2)
-        xml = self.device("shell", "cat", "/data/local/tmp/looma-verify-ui.xml")
+            if listed.endswith("looma-verify-ui.xml"):
+                xml = self.device("shell", "cat", "/data/local/tmp/looma-verify-ui.xml", check=False)
+                if xml.strip():
+                    break
+            if attempt < 5:
+                time.sleep(2)
+        if not xml.strip():
+            raise RuntimeError("uiautomator dump did not produce a UI hierarchy XML")
         tree = ET.fromstring(xml)
         self.log(ui=xml)
         return tree, xml
@@ -174,7 +180,7 @@ class Control:
                             if "mResumedActivity" in line or "topResumedActivity" in line)
         allowed = (APP,) if not system else (APP, "com.android.settings", "com.android.documentsui",
                                                            "com.google.android.documentsui", "com.android.permissioncontroller",
-                                                           "com.android.providers.media.module",
+                                                           "com.google.android.permissioncontroller",
                                                            "com.google.android.providers.media.module")
         if not any(package + "/" in resumed for package in allowed):
             raise RuntimeError("Unexpected foreground; inspect/reset before driving: " + resumed)

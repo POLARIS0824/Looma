@@ -39,19 +39,19 @@ v doctor
 
 This observer checks guest ownership, completed boot, a running Looma process, the installed APK's SHA-256 against the APK launched by this run, the resumed app activity and a nonempty UI hierarchy. It records `doctor.json` and `doctor.xml`. It does not grant permissions or change app data. UI observation writes a temporary hierarchy file in the guest and artifacts on the host.
 
-During an expected system permission/folder-picker transition use `v doctor --system`; it additionally accepts Android Settings, DocumentsUI and PermissionController. This option is not permission to dismiss an unexpected system screen blindly. Doctor cannot establish that a particular feature is usable: also inspect `v ui` and assert the expected screen.
+During an expected system permission/folder-picker/photo-picker transition use `v doctor --system`; it additionally accepts Android Settings, DocumentsUI, PermissionController and the Photo Picker (`com.android.providers.media.module`). This option is not permission to dismiss an unexpected system screen blindly. Doctor cannot establish that a particular feature is usable: also inspect `v ui` and assert the expected screen.
 
 Run doctor before the first drive, after relaunch, and after any failure/surprising transition. If doctor passes but the UI is wedged, capture evidence, reset to a known screen with Back or `v relaunch`, then doctor again. If the app cannot resume safely, `v cleanup` and start a new run. Never keep clicking after a failed assertion. Fix harness drift under this directory, clean failed-iteration residue, and re-drive the affected journey before claiming the fix works.
 
 ## Drive
 
-The standard-library ADB helper resolves **current** accessibility text, description, resource ID or widget class from UIAutomator before tapping. It does not cache coordinates. Compose lacks test tags here. The note editor is a single `android.widget.EditText` holding the whole Markdown file. Always inspect the hierarchy before using positional indices or ambiguous text.
+The standard-library ADB helper resolves **current** accessibility text, description, resource ID or widget class from UIAutomator before tapping. It does not cache coordinates. Compose lacks test tags here. In Edit mode the editor has **two** `android.widget.EditText` nodes: with `Show inline title` on (default), index `0` is the single-line file name and index `1` is the Markdown body; with `Show inline title` off, index `0` is the body and index `1` is the top-bar file name. On `New note`, the file name opens focused and selected, so `v key KEYCODE_ENTER` (Done) commits/keeps it and moves focus to the body. Always inspect the hierarchy before using positional indices or ambiguous text.
 
 ```nu
 v ui
 v tap --desc 'Create new'
 v tap --text 'New note'
-v tap --class android.widget.EditText
+v key KEYCODE_ENTER
 v text '# Verification note'
 v key KEYCODE_ENTER
 v text 'Persistence marker #verify'
@@ -75,7 +75,7 @@ Use `v assert --text 'exact text'`, `--desc`, `--id` or `--class`; `--absent` as
 
 Read the matching feature recipe. Do not treat this short example as coverage of the entire map. Launch creates **no sample notes**: recipes requiring notes, backlinks, trash or attachments must create the stated fixtures through user paths. `v fixture` covers only what lies outside Looma (a gallery photo, another editor's write). A missing prerequisite is a failed/unreached journey, not a pass through an easier entry point.
 
-On Windows PowerShell 5 instead of Nushell, wrap the helper the same way (`function v { python .agents/skills/verify/scripts/control.py --run $run @args; if ($LASTEXITCODE) { throw "v $args failed" } }`). Set `[Console]::OutputEncoding` and `$env:PYTHONIOENCODING` to UTF-8 before reading `v ui`. Escape embedded double quotes as `\"`, because PowerShell 5 strips them when it calls a native program.
+On Windows PowerShell 5 instead of Nushell, wrap the helper the same way (`function v { python .agents/skills/verify/scripts/control.py --run $run @args; if ($LASTEXITCODE) { throw "v $args failed" } }`). Set `[Console]::OutputEncoding` and `$env:PYTHONIOENCODING` to UTF-8 before reading `v ui`. Quote `--at '0.4,0.75'` so PowerShell does not split the comma as an array, and escape embedded double quotes as `\"`, because PowerShell 5 strips them when it calls a native program.
 
 ## Evidence
 
