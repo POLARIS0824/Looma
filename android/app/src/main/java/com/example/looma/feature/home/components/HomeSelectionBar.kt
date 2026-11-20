@@ -14,6 +14,7 @@ import com.example.looma.feature.home.HomeSelection
 import com.example.looma.feature.home.HomeSelectionActions
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
+import com.example.looma.ui.theme.TABULAR_FIGURES
 
 @Composable
 internal fun HomeSelectionBar(
@@ -39,7 +40,11 @@ internal fun HomeSelectionBar(
         title = {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleLargeEmphasized,
+                style = if (selection is HomeSelection.Notes) {
+                    MaterialTheme.typography.titleLargeEmphasized.copy(fontFeatureSettings = TABULAR_FIGURES)
+                } else {
+                    MaterialTheme.typography.titleLargeEmphasized
+                },
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

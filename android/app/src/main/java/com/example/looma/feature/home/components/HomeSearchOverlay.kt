@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -47,17 +46,21 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.offset
 import com.example.looma.R
 import com.example.looma.feature.home.HomeSearchActions
 import com.example.looma.feature.home.HomeSearchUiState
 import com.example.looma.feature.home.HomeSemanticSearch
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
@@ -156,7 +159,14 @@ internal fun HomeSearchOverlay(
                 }
                 Box(
                     Modifier
-                        .padding(horizontal = 8.dp * searchBarState.progress)
+                        .layout { measurable, constraints ->
+                            val pad = (8.dp.toPx() * searchBarState.progress).roundToInt()
+                            val horizontal = pad * 2
+                            val placeable = measurable.measure(constraints.offset(horizontal = -horizontal))
+                            layout(constraints.constrainWidth(placeable.width + horizontal), placeable.height) {
+                                placeable.placeRelative(pad, 0)
+                            }
+                        }
                         .focusProperties {
                             onEnter = {
                                 if (blockMountAutoFocus) {
@@ -176,7 +186,7 @@ internal fun HomeSearchOverlay(
             colors = homeSearchBarColors(searchBarState.progress),
         ) {
             HomeSearchPanel(
-                progress = searchBarState.progress,
+                progress = { searchBarState.progress },
                 focusRequester = resultsFocusRequester,
             ) {
                 Column(Modifier.fillMaxSize()) {
@@ -277,7 +287,7 @@ internal fun HomeSearchField(
 }
 
 @Composable
-internal fun homeSearchBarColors(progress: Float) = SearchBarDefaults.colors(
+internal fun homeSearchBarColors(progress: Float = 0f) = SearchBarDefaults.colors(
     containerColor = lerp(LoomaTokens.colors.searchField, LoomaTokens.colors.page, progress.coerceIn(0f, 1f)),
     dividerColor = MaterialTheme.colorScheme.outlineVariant,
     inputFieldColors = homeSearchInputFieldColors(),
@@ -303,17 +313,19 @@ private fun HomeSearchPlaceholder(text: String) {
 
 @Composable
 private fun HomeSearchPanel(
-    progress: Float,
+    progress: () -> Float,
     focusRequester: FocusRequester,
     content: @Composable () -> Unit,
 ) {
-    val lift = ((progress - 0.5f) / 0.5f).coerceIn(0f, 1f)
     Box(
         Modifier
             .fillMaxSize()
             .focusRequester(focusRequester)
             .focusable()
-            .graphicsLayer { translationY = (1f - lift) * 12.dp.toPx() },
+            .graphicsLayer {
+                val lift = ((progress() - 0.5f) / 0.5f).coerceIn(0f, 1f)
+                translationY = (1f - lift) * 12.dp.toPx()
+            },
     ) {
         content()
     }

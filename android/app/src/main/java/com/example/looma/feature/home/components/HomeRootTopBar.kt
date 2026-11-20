@@ -43,7 +43,7 @@ internal fun HomeRootTopBar(
         state = searchBarState,
         scrollBehavior = scrollBehavior,
         colors = SearchBarDefaults.appBarWithSearchColors(
-            searchBarColors = homeSearchBarColors(searchBarState.progress),
+            searchBarColors = homeSearchBarColors(),
             scrolledSearchBarContainerColor = LoomaTokens.colors.searchField,
             appBarContainerColor = pageColor,
             scrolledAppBarContainerColor = pageColor,

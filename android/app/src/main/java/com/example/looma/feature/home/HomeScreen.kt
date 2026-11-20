@@ -16,8 +16,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,54 +23,49 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.FloatingActionButtonMenu
 import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.material3.ToggleFloatingActionButtonDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -429,6 +422,10 @@ fun HomeScreen(
     if (sortSheetVisible) {
         ModalBottomSheet(
             onDismissRequest = { sortSheetVisible = false },
+            sheetState = rememberBottomSheetState(
+                initialValue = SheetValue.Hidden,
+                enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+            ),
             containerColor = LoomaTokens.colors.sheet,
         ) {
             HomeSortSheet(
@@ -493,20 +490,32 @@ private fun HomeSortSheet(current: HomeSort, onSelect: (HomeSort) -> Unit) {
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
         )
-        Column(Modifier.selectableGroup()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+        ) {
             HomeSortOption(
                 label = stringResource(R.string.home_sort_last_modified),
                 selected = current == HomeSort.LAST_MODIFIED,
+                index = 0,
+                count = 3,
                 onClick = { onSelect(HomeSort.LAST_MODIFIED) },
             )
             HomeSortOption(
                 label = stringResource(R.string.home_sort_title),
                 selected = current == HomeSort.TITLE,
+                index = 1,
+                count = 3,
                 onClick = { onSelect(HomeSort.TITLE) },
             )
             HomeSortOption(
                 label = stringResource(R.string.home_sort_title_descending),
                 selected = current == HomeSort.TITLE_DESCENDING,
+                index = 2,
+                count = 3,
                 onClick = { onSelect(HomeSort.TITLE_DESCENDING) },
             )
         }
@@ -514,33 +523,38 @@ private fun HomeSortSheet(current: HomeSort, onSelect: (HomeSort) -> Unit) {
 }
 
 @Composable
-private fun HomeSortOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    val shape = MaterialTheme.shapes.extraLarge
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 2.dp)
-            .clip(shape)
-            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (selected) {
-            LoomaIcon(
-                iconRes = R.drawable.ic_check,
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
+private fun HomeSortOption(
+    label: String,
+    selected: Boolean,
+    index: Int,
+    count: Int,
+    onClick: () -> Unit,
+) {
+    SegmentedListItem(
+        checked = selected,
+        onCheckedChange = { onClick() },
+        shapes = ListItemDefaults.segmentedShapes(index, count),
+        colors = ListItemDefaults.segmentedColors(
+            containerColor = LoomaTokens.colors.card,
+            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+            selectedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            selectedLeadingContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+        leadingContent = if (selected) {
+            {
+                LoomaIcon(
+                    iconRes = R.drawable.ic_check,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         } else {
-            Spacer(Modifier.width(22.dp))
-        }
-        Spacer(Modifier.width(16.dp))
+            null
+        },
+    ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyLarge,
-            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         )
     }
 }

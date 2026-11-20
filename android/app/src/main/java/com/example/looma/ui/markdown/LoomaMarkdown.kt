@@ -133,13 +133,23 @@ fun loomaMarkdownTheme(
     compact: Boolean = false,
     preview: LoomaPreviewTypography? = null,
     textColor: Color = MaterialTheme.colorScheme.onSurface,
+    onSelectedContainer: Boolean = false,
 ): LoomaMarkdownTheme {
     val colors = LoomaTokens.colors
     val scheme = MaterialTheme.colorScheme
     val shapes = MaterialTheme.shapes
     val inlineCorner = shapes.extraSmall.topStart
-    val inset = if (compact) colors.cardInset else scheme.surfaceContainer
-    val inlineBackground = if (compact) colors.cardInset else scheme.surfaceContainerHigh
+    val selectedCompact = compact && onSelectedContainer
+    val inset = when {
+        selectedCompact -> colors.card
+        compact -> colors.cardInset
+        else -> scheme.surfaceContainer
+    }
+    val inlineBackground = when {
+        selectedCompact -> colors.card
+        compact -> colors.cardInset
+        else -> scheme.surfaceContainerHigh
+    }
     val type = LoomaTokens.type
     val baseType = MaterialTheme.typography
     val scale = remember(type, baseType, compact, preview) { loomaMarkdownScale(type, baseType, compact, preview) }
@@ -155,8 +165,8 @@ fun loomaMarkdownTheme(
             inlineCodeBackground = inlineBackground,
             dividerColor = scheme.outlineVariant,
             tableBackground = Color.Transparent,
-            highlightText = scheme.onSecondaryContainer,
-            highlightBackground = scheme.secondaryContainer,
+            highlightText = if (selectedCompact) scheme.onPrimaryContainer else scheme.onSecondaryContainer,
+            highlightBackground = if (selectedCompact) scheme.primaryContainer else scheme.secondaryContainer,
         ),
         typography = markdownTypography(
             text = base.copy(color = textColor),

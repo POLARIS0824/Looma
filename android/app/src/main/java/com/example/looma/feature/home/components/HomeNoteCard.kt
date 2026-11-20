@@ -147,6 +147,7 @@ internal fun HomeNoteCard(
                         containerColor = colors.container,
                         emptyTextStyle = LoomaTokens.type.homeNotePreview.body,
                         previewTypography = LoomaTokens.type.homeNotePreview,
+                        onSelectedContainer = isSelected,
                         modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp),
                     )
                 }
@@ -178,6 +179,7 @@ internal fun HomeFadedMarkdownPreview(
     emptyTextStyle: TextStyle,
     modifier: Modifier = Modifier,
     previewTypography: LoomaPreviewTypography? = null,
+    onSelectedContainer: Boolean = false,
 ) {
     if (markdown.isBlank()) {
         Box(modifier) {
@@ -194,11 +196,13 @@ internal fun HomeFadedMarkdownPreview(
                     markdown = markdown,
                     typography = previewTypography,
                     textColor = bodyColor,
+                    onSelectedContainer = onSelectedContainer,
                 )
             } else {
                 MarkdownPreview(
                     markdown = markdown,
                     textColor = bodyColor,
+                    onSelectedContainer = onSelectedContainer,
                 )
             }
             Box(

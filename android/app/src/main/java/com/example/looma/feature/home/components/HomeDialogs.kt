@@ -1,14 +1,9 @@
 package com.example.looma.feature.home.components
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
@@ -16,29 +11,28 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.example.looma.R
 import com.example.looma.domain.model.NoteProperties
 import com.example.looma.domain.model.StalledRelocation
@@ -47,6 +41,7 @@ import com.example.looma.feature.home.HomeFileDialog
 import com.example.looma.feature.home.HomeFileError
 import com.example.looma.ui.format.formatDateTime
 import com.example.looma.ui.format.formatFileSize
+import com.example.looma.ui.theme.TABULAR_FIGURES
 
 @Composable
 internal fun HomeFileDialogs(
@@ -133,67 +128,65 @@ internal fun HomeTextInputDialog(
 ) {
     val value = rememberSaveable(initialValue, saver = TextFieldState.Saver) { TextFieldState(initialValue) }
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        if (initialValue.isNotEmpty()) {
+            value.edit { selection = TextRange(0, length) }
+        }
+    }
     val supporting: (@Composable () -> Unit)? = if (error != null) {
         { Text(fileErrorText(error)) }
     } else {
         null
     }
 
-    Dialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-        ),
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize().imePadding().padding(24.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp),
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+            )
+        },
+        text = {
+            OutlinedTextField(
+                state = value,
+                label = { Text(hint) },
+                lineLimits = TextFieldLineLimits.SingleLine,
+                isError = error != null,
+                supportingText = supporting,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                onKeyboardAction = { if (!busy) onConfirm(value.text.toString()) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .onPreviewKeyEvent { event ->
+                        if (event.key == Key.Enter || event.key == Key.NumPadEnter) {
+                            if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0 && !busy) {
+                                onConfirm(value.text.toString())
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(value.text.toString()) },
+                enabled = !busy,
+                shapes = ButtonDefaults.shapes(),
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    OutlinedTextField(
-                        state = value,
-                        label = { Text(hint) },
-                        lineLimits = TextFieldLineLimits.SingleLine,
-                        isError = error != null,
-                        supportingText = supporting,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        onKeyboardAction = { if (!busy) onConfirm(value.text.toString()) },
-                        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                    ) {
-                        TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
-                            Text(stringResource(R.string.dialog_cancel))
-                        }
-                        TextButton(
-                            onClick = { onConfirm(value.text.toString()) },
-                            enabled = !busy,
-                            shapes = ButtonDefaults.shapes(),
-                        ) {
-                            Text(confirmLabel)
-                        }
-                    }
-                }
+                Text(confirmLabel)
             }
-        }
-    }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.dialog_cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -259,7 +252,11 @@ private fun PropertyRow(label: String, value: String) {
         )
         Text(
             text = value,
-            style = MaterialTheme.typography.bodySmall,
+            style = if (value.any(Char::isDigit)) {
+                MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TABULAR_FIGURES)
+            } else {
+                MaterialTheme.typography.bodySmall
+            },
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1.2f),
         )
