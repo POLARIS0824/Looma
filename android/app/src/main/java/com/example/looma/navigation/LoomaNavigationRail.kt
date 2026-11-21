@@ -36,6 +36,7 @@ enum class LoomaDestination(
     @DrawableRes val icon: Int,
 ) {
     Notes(R.string.drawer_notes, R.drawable.ic_note),
+    Ask(R.string.ask_title, R.drawable.ic_sparkle),
     Trash(R.string.drawer_trash, R.drawable.ic_delete),
     Settings(R.string.drawer_settings, R.drawable.ic_settings),
 }

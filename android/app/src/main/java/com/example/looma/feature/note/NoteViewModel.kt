@@ -1,5 +1,9 @@
 package com.example.looma.feature.note
 
+import com.example.looma.data.assistant.Connection
+import com.example.looma.data.assistant.VaultEvidence
+import com.example.looma.data.assistant.linkAddition
+import com.example.looma.domain.model.Vault
 import android.net.Uri
 import android.os.Bundle
 import androidx.compose.runtime.getValue
@@ -348,6 +352,20 @@ class NoteViewModel(
         if (state.isRenaming || state.rename != null || state.leave == NoteLeave.Saving) return false
         onEnterBackground()
         return true
+    }
+
+    internal suspend fun confirmWeave(
+        vault: Vault,
+        suggestion: Connection,
+        evidence: VaultEvidence,
+    ): Boolean = editorWrites.withLock {
+        val source = draft.content
+        val generation = operationGeneration
+        if (currentId != suggestion.source || uiState.value.saveProblem != null ||
+            !evidence.linkStillValid(vault, suggestion, source)) return@withLock false
+        if (source != draft.content || generation != operationGeneration || currentId != suggestion.source) return@withLock false
+        editor.edit { replace(length, length, linkAddition(source, suggestion.reference)) }
+        saveCurrent(generation).also { if (it) refreshWiki() }
     }
 
     fun retrySave() {
