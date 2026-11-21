@@ -24,4 +24,6 @@
     <string name="weave_diff">将在本笔记末尾追加\n+ [[%1$s]]</string>
     <string name="weave_insert">确认插入</string>
     <string name="weave_retry">刷新推荐</string>
+    <string name="weave_similarity">段落余弦相似度 · %1$.2f</string>
+    <string name="weave_keywords">共同词语 · %1$s</string>
 </resources>

@@ -16,12 +16,14 @@ import java.io.IOException
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import com.example.looma.data.search.SemanticWorkState
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-internal data class Evidence(val id: NoteId, val anchor: PassageAnchor, val text: String, val section: String)
+internal data class Evidence(val id: NoteId, val anchor: PassageAnchor, val text: String, val section: String, val similarity: Double? = null)
 internal data class EvidenceSet(val hits: List<Evidence>, val semantic: Boolean, val partial: Boolean)
-internal data class Connection(val source: NoteId, val evidence: Evidence, val reference: String, val tags: Set<String>)
+internal data class Connection(val source: NoteId, val evidence: Evidence, val reference: String, val tags: Set<String>, val keywords: List<String>)
 internal data class EvidenceScope(val vault: Vault, val notes: List<NoteListEntry>, val partial: Boolean)
 
 internal class VaultEvidence(
@@ -39,14 +41,19 @@ internal class VaultEvidence(
         check(current.id == vault.id && current.rootPath == vault.rootPath)
     }
 
-    suspend fun search(scope: EvidenceScope, query: String, limit: Int = 6): EvidenceSet = withContext(Dispatchers.IO) {
+    suspend fun search(
+        scope: EvidenceScope,
+        query: String,
+        limit: Int = 6,
+        relatedDocumentTitle: String? = null,
+    ): EvidenceSet = withContext(Dispatchers.IO) {
         checkVault(scope.vault)
         val question = query.trim().take(1024)
         if (question.isEmpty()) return@withContext EvidenceSet(emptyList(), false, scope.partial)
         val terms = terms(question)
         val candidates = scope.notes.map { SearchableNote(it.summary.id, it.summary.title, it.summary.tags) }
         val semantic = try {
-            if (vectors.supported) vectors.search(question, candidates) else null
+            if (vectors.supported) vectors.search(question, candidates, relatedDocumentTitle) else null
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {
@@ -54,8 +61,9 @@ internal class VaultEvidence(
         } catch (_: LinkageError) {
             null
         }
-        val dense = semantic.orEmpty().map { Evidence(it.id, it.anchor, it.excerpt, it.section) }
-        val exact = notes.search(candidates, question).map { it.id }.toSet()
+        val dense = semantic.orEmpty().map { Evidence(it.id, it.anchor, it.excerpt, it.section, it.similarity) }
+        val exact = if (dense.isEmpty()) emptySet() else notes.search(candidates, question).map { it.id }.toSet()
+        val shortlist = mutableListOf<Pair<Int, NoteListEntry>>()
         val lexical = mutableListOf<Pair<Int, Evidence>>()
         var skipped = false
         val checkActive = coroutineContext::ensureActive
@@ -65,14 +73,29 @@ internal class VaultEvidence(
             val meta = score(summary.title + " " + summary.tags.joinToString(" "), terms)
             if (!semantic.isNullOrEmpty() && summary.id !in exact && meta == 0 &&
                 score(entry.markdownSnippet, terms) == 0) continue
+            val hint = score(entry.markdownSnippet, terms) + meta
+            val rank = if (dense.isEmpty()) {
+                val note = try {
+                    notes.readSearchSource(summary.id, scope.vault.rootPath, requireUtf8 = true)
+                } catch (_: IOException) {
+                    skipped = true
+                    continue
+                }
+                score(note.content, terms) + meta + if (note.content.contains(question, true)) 1000 else 0
+            } else hint + if (summary.id in exact) 1000 else 0
+            if (rank > 0) shortlist += rank to entry
+        }
+        for ((_, entry) in shortlist.sortedByDescending { it.first }.take(limit * 3)) {
+            checkActive()
+            val summary = entry.summary
+            val meta = score(summary.title + " " + summary.tags.joinToString(" "), terms)
             val note = try {
-                notes.readSearchSource(summary.id, scope.vault.rootPath)
+                notes.readSearchSource(summary.id, scope.vault.rootPath, requireUtf8 = true)
             } catch (_: IOException) {
                 skipped = true
                 continue
             }
             val revision = note.revision as? NoteRevision.Known ?: continue
-            if (meta == 0 && score(note.content, terms) == 0 && summary.id !in exact) continue
             val passages = semanticChunks(note.content, checkActive).mapNotNull { chunk ->
                 val text = note.content.substring(chunk.start, chunk.end)
                 val direct = text.contains(question, ignoreCase = true)
@@ -96,13 +119,14 @@ internal class VaultEvidence(
             count < 2
         }.take(limit)
         checkVault(scope.vault)
-        EvidenceSet(hits, semantic != null, scope.partial || skipped)
+        val partialIndex = semantic != null && vectors.indexState.first() != SemanticWorkState.Ready
+        EvidenceSet(hits, semantic != null, scope.partial || skipped || partialIndex)
     }
 
     suspend fun resolve(vault: Vault, hit: Evidence, expand: Boolean = false): Evidence? = withContext(Dispatchers.IO) {
         if (hit.id.vaultId != vault.id) return@withContext null
         val note = try {
-            notes.readSearchSource(hit.id, vault.rootPath)
+            notes.readSearchSource(hit.id, vault.rootPath, requireUtf8 = true)
         } catch (_: IOException) {
             return@withContext null
         }
@@ -127,10 +151,14 @@ internal class VaultEvidence(
         val eligible = scope.notes.filter { it.summary.id !in linked }
         val metadata = eligible.associate { it.summary.id to it.summary }
         val query = (current.title + " " + current.tags.joinToString(" ") + " " + buffer.take(640)).trim()
-        search(scope.copy(notes = eligible), query, 12).hits.distinctBy { it.id }.mapNotNull { hit ->
+        val sourceTerms = terms(query)
+        search(scope.copy(notes = eligible), query, 12, relatedDocumentTitle = current.title).hits.distinctBy { it.id }.mapNotNull { hit ->
             val path = wikiPathOf(hit.id.path)
             if (wiki.resolve(path) != hit.id || path.any { it in "[]#|\r\n" }) return@mapNotNull null
-            Connection(source, hit, path, current.tags.intersect(metadata.getValue(hit.id).tags))
+            val target = metadata.getValue(hit.id)
+            val sharedTerms = sourceTerms.filter { hit.text.contains(it, true) || target.title.contains(it, true) }
+                .sortedByDescending { it.length }.take(3)
+            Connection(source, hit, path, current.tags.intersect(target.tags), sharedTerms)
         }.take(5)
     }
 
@@ -148,13 +176,19 @@ internal class VaultEvidence(
         if (text.contains(term, ignoreCase = true)) minOf(term.length, 12) else 0
     }
 
-    private fun terms(text: String): List<String> = Regex("""[\p{IsHan}]+|[\p{L}\p{N}_#./-]+""")
+    private fun terms(text: String): List<String> = WORDS
         .findAll(text).flatMap { match ->
             val word = match.value
             if (word.length > 2 && Character.UnicodeScript.of(word.codePointAt(0)) == Character.UnicodeScript.HAN) {
                 sequenceOf(word) + word.windowedSequence(2)
             } else sequenceOf(word)
-        }.filter { it.length > 1 || text.trim().length == 1 }.distinct().take(32).toList()
+        }.filter { (it.length > 1 && it.lowercase() !in STOPWORDS) || text.trim().length == 1 }
+        .distinct().take(32).toList()
+
+    private companion object {
+        val STOPWORDS = setOf("the", "and", "for", "from", "with", "this", "that", "what", "how", "在这", "什么", "如何", "这个", "的是")
+        val WORDS = Regex("""[\p{IsHan}]+|[\p{L}\p{N}_#./-]+""")
+    }
 }
 
 internal fun linkAddition(buffer: String, path: String): String {

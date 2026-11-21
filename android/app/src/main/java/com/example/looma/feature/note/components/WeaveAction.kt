@@ -1,7 +1,6 @@
 package com.example.looma.feature.note.components
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -80,6 +79,8 @@ internal fun WeaveAction(
                                 catch (_: Exception) { failed = true }
                             }
                         }) { Text(item.evidence.id.path.relativePath) }
+                        item.evidence.similarity?.let { Text(stringResource(R.string.weave_similarity, it)) }
+                        if (item.keywords.isNotEmpty()) Text(stringResource(R.string.weave_keywords, item.keywords.joinToString(" · ")))
                         if (item.tags.isNotEmpty()) Text(item.tags.joinToString(" ") { "#$it" })
                         Text(item.evidence.text, style = MaterialTheme.typography.bodyMedium)
                         TextButton(onClick = { selected = item }) { Text(stringResource(R.string.weave_preview)) }

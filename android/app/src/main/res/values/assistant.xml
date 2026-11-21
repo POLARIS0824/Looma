@@ -24,4 +24,6 @@
     <string name="weave_diff">Append to this note\n+ [[%1$s]]</string>
     <string name="weave_insert">Insert link</string>
     <string name="weave_retry">Refresh suggestions</string>
+    <string name="weave_similarity">Passage similarity · %1$.2f</string>
+    <string name="weave_keywords">Shared terms · %1$s</string>
 </resources>
