@@ -21,6 +21,7 @@ data class MarkdownAstMetadata(
     val tags: Set<String>,
     val imageReferences: List<String>,
     val blockCodeRanges: List<IntRange>,
+    val indexedLinks: List<MarkdownLinkSpan> = emptyList(),
 )
 
 object MarkdownIndex {
@@ -88,7 +89,7 @@ object MarkdownIndex {
         return destinations.values.toList()
     }
 
-    fun extractMetadata(source: String): MarkdownAstMetadata {
+    fun extractMetadata(source: String, forIndex: Boolean = false): MarkdownAstMetadata {
         val span = frontmatterSpan(source)
         val body = source.substring(span.bodyStart)
         val tree = MarkdownParser(WikiImageFlavour(), cancellationToken = CancellationToken.NonCancellable)
@@ -111,9 +112,19 @@ object MarkdownIndex {
             parseFrontmatterTags(source.subSequence(range.first, range.last + 1))
         }.orEmpty()
         val inlineTags = findInlineTags(body, excludedRanges).map { it.tag }
+        val links = when {
+            !forIndex || "[[" !in body -> emptyList()
+            '$' in body || "![[" in body -> index(source, "").links
+            else -> {
+                val facts = Facts(code = mutableListOf())
+                walk(tree, body, span.bodyStart, facts)
+                WikiLinks.occurrences(body, span.bodyStart, facts.code.orEmpty())
+            }
+        }
         return MarkdownAstMetadata(
             bodyStart = span.bodyStart,
             tags = fmTags + inlineTags,
+            indexedLinks = links,
             imageReferences = imageReferences,
             blockCodeRanges = blockCodeRanges,
         )

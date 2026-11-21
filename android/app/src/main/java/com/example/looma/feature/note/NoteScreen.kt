@@ -88,6 +88,7 @@ import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.domain.wiki.WikiNote
 import com.example.looma.feature.note.components.BacklinksSection
+import com.example.looma.feature.note.components.NoteNavigator
 import com.example.looma.feature.note.components.NoteFormatBar
 import com.example.looma.feature.note.components.NoteLeaveDialog
 import com.example.looma.feature.note.components.NoteSaveBanner
@@ -110,7 +111,8 @@ import com.example.looma.ui.theme.LoomaTokens
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.text.input.InputTransformation
 import kotlin.math.roundToInt
 
 @Composable
@@ -123,7 +125,7 @@ fun NoteRoute(
     onNavigateUp: () -> Unit,
     onOpenNote: (NoteId) -> Unit,
     onRenameNavigate: (NoteId, NoteId) -> Unit,
-    weaveAction: @Composable () -> Unit = {},
+    weaveAction: @Composable (() -> TextRange?) -> Unit = {},
     modifier: Modifier = Modifier,
     passage: PassageAnchor? = null,
 ) {
@@ -256,7 +258,7 @@ private fun NoteWorkspace(
     onPickImage: () -> Unit,
     onImageInserted: () -> Unit,
     onImageErrorShown: () -> Unit,
-    weaveAction: @Composable () -> Unit = {},
+    weaveAction: @Composable (() -> TextRange?) -> Unit = {},
     onTitleFocusChange: (Boolean) -> Unit = {},
     editorActive: Boolean = true,
     modifier: Modifier = Modifier,
@@ -264,18 +266,26 @@ private fun NoteWorkspace(
     matchesPassage: (PassageAnchor) -> Boolean = { false },
 ) {
     var formatState by remember(contentBuffer) { mutableStateOf(MarkdownFormatState()) }
-    LaunchedEffect(contentBuffer) {
-        val fences = FenceIndex()
+    var mode by rememberSaveable {
+        mutableStateOf(
+            if (passage != null || contentBuffer.text.length >= LARGE_NOTE_READ_THRESHOLD) NoteMode.Read else NoteMode.Edit,
+        )
+    }
+    val fences = remember(contentBuffer) { FenceIndex() }
+    val trackChanges = remember(fences) {
+        InputTransformation {
+            if (changes.changeCount > 0) {
+                fences.noteEdit(originalText, toString(), changes.getOriginalRange(0).min)
+            }
+        }
+    }
+    LaunchedEffect(contentBuffer, mode, editorActive) {
+        if (mode != NoteMode.Edit || !editorActive) return@LaunchedEffect
         snapshotFlow { contentBuffer.text to contentBuffer.selection }.collectLatest { (text, selection) ->
             formatState = withContext(Dispatchers.Default) {
                 MarkdownEditing.formatState(text, TextSelection(selection.start, selection.end), fences)
             }
         }
-    }
-    var mode by rememberSaveable {
-        mutableStateOf(
-            if (passage != null || contentBuffer.text.length >= LARGE_NOTE_READ_THRESHOLD) NoteMode.Read else NoteMode.Edit,
-        )
     }
     var passageOpened by rememberSaveable(passage) { mutableStateOf(false) }
     var linkPanelOpen by rememberSaveable { mutableStateOf(false) }
@@ -353,15 +363,18 @@ private fun NoteWorkspace(
     }
 
     var preview by remember(contentBuffer) { mutableStateOf<PreparedMarkdown?>(null) }
-    LaunchedEffect(contentBuffer, editorActive) {
+    LaunchedEffect(contentBuffer, editorActive, mode) {
         if (!editorActive) return@LaunchedEffect
-        snapshotFlow { contentBuffer.text.toString() }.collectLatest { source ->
-            if (preview?.source == source && preview !is PreparedMarkdown.Opening) return@collectLatest
-            if (mode == NoteMode.Edit) {
-                withTimeoutOrNull(READ_PREVIEW_IDLE_MILLIS) {
-                    snapshotFlow { mode }.first { it == NoteMode.Read }
-                }
+        snapshotFlow {
+            val text = contentBuffer.text
+            if (mode == NoteMode.Edit && text.length >= LARGE_NOTE_READ_THRESHOLD) null else text.toString()
+        }.collectLatest { source ->
+            if (source == null) {
+                preview = null
+                return@collectLatest
             }
+            if (preview?.source == source && preview !is PreparedMarkdown.Opening) return@collectLatest
+            if (mode == NoteMode.Edit) delay(READ_PREVIEW_IDLE_MILLIS)
             if (source.length >= LARGE_NOTE_READ_THRESHOLD && preview?.source != source) {
                 prepareMarkdownOpening(source)?.let { preview = it }
             }
@@ -394,7 +407,7 @@ private fun NoteWorkspace(
     }
 
     val request = pendingModeScroll
-    val readRequest = request is ModeScrollRequest.Read || request is ModeScrollRequest.ReadOffset
+    val readRequest = request is ModeScrollRequest.Read || request is ModeScrollRequest.ReadOffset || request is ModeScrollRequest.ReadPassage
     val requestedPreview = if (readRequest) preview else null
     val editRestoreSource = when (request) {
         is ModeScrollRequest.Edit, is ModeScrollRequest.EditOffset -> contentBuffer.text.toString()
@@ -405,6 +418,11 @@ private fun NoteWorkspace(
             it.source == contentBuffer.text.toString()
         }
         when (request) {
+            is ModeScrollRequest.ReadPassage -> {
+                currentPreview ?: return@LaunchedEffect
+                if (currentPreview.source == request.source) modeScroll.openPassage(
+                    request.offset, currentPreview.blocks, currentPreview.index.bodyStart, state.showInlineTitle)
+            }
             is ModeScrollRequest.Read -> {
                 currentPreview ?: return@LaunchedEffect
                 modeScroll.restoreRead(
@@ -479,7 +497,27 @@ private fun NoteWorkspace(
             NoteTopBar(
                 mode = mode,
                 onNavigateUp = leaveWorkspace,
-                weaveAction = weaveAction,
+                weaveAction = {
+                    NoteNavigator(snapshot = { contentBuffer.text.toString() }, prepared = preview as? PreparedMarkdown.Ready) { source, range ->
+                        if (source == contentBuffer.text.toString()) {
+                            modeScrollReturn = null
+                            if (mode == NoteMode.Edit) {
+                                contentBuffer.edit { selection = range }
+                                pendingModeScroll = ModeScrollRequest.Edit(ReadingAnchor.edit(range.min, null, 0f, false))
+                            } else {
+                                pendingModeScroll = ModeScrollRequest.ReadPassage(source, range.min)
+                            }
+                        }
+                    }
+                    weaveAction {
+                        if (mode == NoteMode.Edit) contentBuffer.selection
+                        else preview?.visibleBlocks()?.let {
+                            modeScroll.captureRead(it.blocks, it.index.bodyStart, state.showInlineTitle)?.let { anchor ->
+                                TextRange(anchor.sourceOffset)
+                            }
+                        }
+                    }
+                },
                 onToggleMode = {
                     val next = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
                     if (next == NoteMode.Read) {
@@ -657,6 +695,7 @@ private fun NoteWorkspace(
                             NoteBodyEditor(
                                 active = editorActive,
                                 buffer = contentBuffer,
+                                trackChanges = trackChanges,
                                 focusRequester = bodyFocus,
                                 onTextLayout = { modeScroll.editLayout = it },
                                 onTextTopInContent = { modeScroll.editTextOffset = it },
@@ -718,6 +757,7 @@ private fun NoteWorkspace(
 
 @Composable
 private fun NoteBodyEditor(
+    trackChanges: InputTransformation,
     active: Boolean,
     buffer: TextFieldState,
     focusRequester: FocusRequester,
@@ -728,6 +768,7 @@ private fun NoteBodyEditor(
     val placeholder = stringResource(R.string.editor_placeholder)
     NoteTextField(
         state = buffer,
+        inputTransformation = trackChanges,
         active = active,
         modifier = modifier
             .fillMaxWidth()
@@ -855,6 +896,7 @@ private fun imageErrorText(resources: Resources, error: NoteImageError): String 
 }
 
 private sealed interface ModeScrollRequest {
+    data class ReadPassage(val source: String, val offset: Int) : ModeScrollRequest
     data class Read(val position: EditScrollPosition) : ModeScrollRequest
     data class ReadOffset(val itemIndex: Int, val offset: Int) : ModeScrollRequest
     data class Edit(val anchor: ReadingAnchor) : ModeScrollRequest

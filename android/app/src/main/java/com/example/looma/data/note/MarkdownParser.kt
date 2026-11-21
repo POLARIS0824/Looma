@@ -36,9 +36,9 @@ internal class MarkdownParser {
     fun tags(text: String): Set<String> = MarkdownIndex.extractMetadata(text).tags
 
     fun parseForIndex(text: String, fallbackTitle: String): MarkdownMetadata {
-        val ast = MarkdownIndex.extractMetadata(text)
+        val ast = MarkdownIndex.extractMetadata(text, forIndex = true)
         val visibleLines = nonCodeLines(text.substring(ast.bodyStart), ast.blockCodeRanges)
-        val links = MarkdownIndex.index(text, fallbackTitle).links
+        val links = ast.indexedLinks
             .map { MarkdownLink(target = it.target, embedded = it.embedded) }
         return MarkdownMetadata(
             title = extractTitle(visibleLines.asSequence(), fallbackTitle),

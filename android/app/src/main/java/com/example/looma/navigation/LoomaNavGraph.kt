@@ -308,9 +308,9 @@ internal fun LoomaNavGraph(
                         titleBuffer = titleBuffer,
                         onTitleFocusChange = { titleFocused.value = it },
                         noteId = noteId,
-                        weaveAction = {
+                        weaveAction = { focus ->
                             if (vault != null) WeaveAction(
-                                vault, noteId, evidence, noteViewModel,
+                                vault, noteId, evidence, noteViewModel, focus,
                                 open = { backStack.add(LoomaRoute.Note.from(it.id, passage = it.anchor)) },
                             )
                         },
