@@ -13,11 +13,14 @@ class MarkdownNavigation private constructor(
 ) {
     fun passage(source: String, start: Int, end: Int): NotePassage? {
         if (start !in 0..source.length || end !in start..source.length) return null
-        val last = if (end > start) end - 1 else start
+        if (start == end) {
+            val block = blocks.lastOrNull { it.first <= start } ?: return null
+            return NotePassage(source, block, block.last + 1)
+        }
+        val last = end - 1
         val firstBlock = blocks.firstOrNull { it.last >= start } ?: return null
         val lastBlock = blocks.lastOrNull { it.first <= last } ?: return null
         if (lastBlock.last < firstBlock.first) return null
-        if (start == end) return NotePassage(source, firstBlock, firstBlock.last + 1)
         val range = maxOf(start, firstBlock.first)..minOf(last, lastBlock.last)
         if (range.isEmpty() || range.all { source[it].isWhitespace() }) return null
         return NotePassage(source, range, lastBlock.last + 1)
@@ -27,20 +30,44 @@ class MarkdownNavigation private constructor(
         fun scan(source: String, prepared: PreparedMarkdown.Ready? = null): MarkdownNavigation {
             val ready = prepared?.takeIf { it.source == source }
             val base = ready?.index?.bodyStart ?: frontmatterEnd(source)
-            val tree = ready?.state?.node ?: MarkdownParser(WikiImageFlavour())
-                .buildMarkdownTreeFromString(source.substring(base) as CharSequence)
+            // The parser treats CR as content on Setext underlines and fence delimiters.
+            // Parse LF and translate node boundaries back to the original editor offsets.
+            val crlf = source.indexOf("\r\n", base) >= 0
+            val lineEnds = if (crlf) {
+                val offsets = mutableListOf<Int>()
+                var at = source.indexOf("\r\n", base)
+                while (at >= 0) {
+                    offsets += at - base - offsets.size + 1
+                    at = source.indexOf("\r\n", at + 2)
+                }
+                offsets.toIntArray()
+            } else intArrayOf()
+            fun offset(position: Int): Int {
+                val found = lineEnds.binarySearch(position)
+                return base + position + if (found >= 0) found + 1 else found.inv()
+            }
+            val tree = try {
+                ready?.state?.node?.takeUnless { crlf } ?: run {
+                    val body = source.substring(base)
+                    MarkdownParser(WikiImageFlavour()).buildMarkdownTreeFromString(
+                        (if (crlf) body.replace("\r\n", "\n") else body) as CharSequence,
+                    )
+                }
+            } catch (_: StackOverflowError) {
+                return MarkdownNavigation(emptyList(), emptyList())
+            }
             val headings = mutableListOf<OutlineHeading>()
             val blocks = mutableListOf<IntRange>()
             for (node in tree.children) {
                 if (node.endOffset <= node.startOffset || node.type == MarkdownTokenTypes.EOL ||
                     node.type == MarkdownTokenTypes.WHITE_SPACE) continue
-                blocks += (base + node.startOffset) until (base + node.endOffset)
-                heading(node, source, base)?.let(headings::add)
+                blocks += offset(node.startOffset) until offset(node.endOffset)
+                heading(node, source, ::offset)?.let(headings::add)
             }
             return MarkdownNavigation(headings, blocks)
         }
 
-        private fun heading(node: ASTNode, source: String, base: Int): OutlineHeading? {
+        private fun heading(node: ASTNode, source: String, offset: (Int) -> Int): OutlineHeading? {
             val level = when (node.type) {
                 MarkdownElementTypes.ATX_1, MarkdownElementTypes.SETEXT_1 -> 1
                 MarkdownElementTypes.ATX_2, MarkdownElementTypes.SETEXT_2 -> 2
@@ -53,8 +80,8 @@ class MarkdownNavigation private constructor(
             val title = node.children.firstOrNull {
                 it.type == MarkdownTokenTypes.ATX_CONTENT || it.type == MarkdownTokenTypes.SETEXT_CONTENT
             } ?: return null
-            return OutlineHeading(source.substring(base + title.startOffset, base + title.endOffset).trim(),
-                level, base + node.startOffset)
+            return OutlineHeading(source.substring(offset(title.startOffset), offset(title.endOffset)).trim(),
+                level, offset(node.startOffset))
         }
     }
 }
