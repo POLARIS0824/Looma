@@ -1,6 +1,6 @@
 package com.example.looma
 
-import com.example.looma.data.assistant.LocalModelSession
+import com.example.looma.data.inference.LocalModelSession
 import com.example.looma.data.assistant.LocalGenerator
 import com.example.looma.data.assistant.VaultAgent
 import com.example.looma.data.assistant.VaultEvidence

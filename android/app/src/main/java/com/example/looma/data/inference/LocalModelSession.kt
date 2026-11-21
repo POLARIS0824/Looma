@@ -1,4 +1,4 @@
-package com.example.looma.data.assistant
+package com.example.looma.data.inference
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

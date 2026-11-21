@@ -1,7 +1,7 @@
 package com.example.looma.data.search
 
 import android.content.Context
-import com.example.looma.data.assistant.LocalModelSession
+import com.example.looma.data.inference.LocalModelSession
 import com.example.looma.data.note.NoteTooLargeException
 import com.example.looma.data.note.VaultFileException
 import com.example.looma.data.note.VaultFileFailure
@@ -261,6 +261,7 @@ class SemanticSearchRepository internal constructor(
         null
     } catch (error: VaultFileException) {
         if (error.failure != VaultFileFailure.NOT_FOUND) throw error
+        if (!SemanticVaultTarget(vault).matches(vaults.getCurrentVault())) throw SemanticVaultChangedException()
         null
     }
 

@@ -2,6 +2,7 @@ package com.example.looma.data.assistant
 
 import android.content.Context
 import android.net.Uri
+import com.example.looma.data.inference.LocalModelSession
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
