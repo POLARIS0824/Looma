@@ -56,7 +56,7 @@ class SemanticSearchRepository internal constructor(
     }
 
     internal suspend fun resumeUpdates(vault: Vault) {
-        if (supported && cache.pending(vault.id).isNotEmpty()) work.resumeUpdates(vault)
+        if (supported && cache.hasPending(vault.id)) work.enqueueUpdates(vault)
     }
 
     internal suspend fun downloadModel(onProgress: suspend (Int) -> Unit) = withContext(Dispatchers.IO) {
@@ -112,6 +112,7 @@ class SemanticSearchRepository internal constructor(
         checkActive()
         if (scan.complete && scan.stalledRelocation == null) cache.prune(vault.id, candidates.toSet(), checkActive)
         cache.markScanPartial(vault.id, !scan.complete || scan.unreadableCount > 0 || scan.stalledRelocation != null)
+        updatePending(vault, onProgress)
         cache.complete(vault.id, checkActive)
     }
 
@@ -170,12 +171,16 @@ class SemanticSearchRepository internal constructor(
             val passage = cache.forNote(id).rank(queryVector, checkActive) ?: continue
             ranked += RankedHit(id, passage)
         }
+        val stale = mutableListOf<NoteId>()
         val results = buildList {
             for ((id, passage) in ranked.sortedWith(RANKING)) {
                 if (size == MAX_RESULTS) break
                 checkActive()
                 val note = read(id, vault) ?: continue
-                if (!passage.anchor.matches(note.revision, note.content)) continue
+                if (!passage.anchor.matches(note.revision, note.content)) {
+                    stale += id
+                    continue
+                }
                 add(SemanticSearchHit(
                     id = id,
                     anchor = passage.anchor,
@@ -184,7 +189,12 @@ class SemanticSearchRepository internal constructor(
                 ))
             }
         }
-        if (SemanticVaultTarget(vault).matches(vaults.getCurrentVault())) results else emptyList()
+        if (!SemanticVaultTarget(vault).matches(vaults.getCurrentVault())) return@withContext emptyList()
+        if (stale.isNotEmpty()) {
+            stale.forEach(cache::markDirty)
+            work.enqueueUpdates(vault)
+        }
+        results
     }
 
     private suspend fun <T> withModel(block: (EmbeddingGemma) -> T): T = modelMutex.withLock {

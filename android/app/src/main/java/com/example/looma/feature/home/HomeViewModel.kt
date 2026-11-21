@@ -729,13 +729,8 @@ class HomeViewModel(
         }
 
         is HomeUndo.MoveNotes -> {
-            val result = processNotes(action.moves) { move ->
-                noteRepository.moveNoteToOriginalPath(move.id, move.originalPath)
-            }
-            val stalled = result.failure as? RelocationStalledException
-            if (stalled != null && result.completed.isEmpty()) throw stalled
-            if (stalled != null) _uiState.update { it.copy(stalledRelocation = stalled.stalled) }
-            undoNotice(result.completed.size, result.failed)
+            val succeeded = noteRepository.restoreLocations(action.moves.associate { it.id to it.originalPath })
+            undoNotice(succeeded, action.moves.size - succeeded)
         }
 
         is HomeUndo.RenameFolder -> {

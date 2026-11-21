@@ -33,7 +33,6 @@ import com.example.looma.domain.wiki.WikiContext
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
-import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
@@ -52,6 +51,11 @@ class NoteRepository internal constructor(
 ) {
     private val parser = MarkdownParser()
     private val indexUpdater = NoteIndexUpdater(index, onFilesChanged)
+    private data class SignatureStamp(val inode: Long, val changed: java.nio.file.attribute.FileTime, val size: Long)
+    private data class VerifiedSignature(val stamp: SignatureStamp, val bytes: ByteArray)
+    private val verifiedSignatures = object : LinkedHashMap<File, VerifiedSignature>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<File, VerifiedSignature>?) = size > 4096
+    }
     private val searchDispatcher = Dispatchers.IO.limitedParallelism(SEARCH_IO_PARALLELISM)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
@@ -103,7 +107,7 @@ class NoteRepository internal constructor(
         suspend fun searchCandidate(candidate: SearchableNote): NoteSearchMatch? {
             val signature = signatures[candidate.id.path]
                 ?.takeIf { querySignature?.mayContain(it.bytes) == false }
-            return searchCandidateOnDisk(ops, candidate, keyword, signature?.fingerprint)
+            return searchCandidateOnDisk(ops, candidate, keyword, querySignature, signature?.fingerprint)
         }
 
         val workerCount = minOf(SEARCH_IO_PARALLELISM, distinctCandidates.size)
@@ -131,28 +135,53 @@ class NoteRepository internal constructor(
         ops: VaultFileOps,
         candidate: SearchableNote,
         keyword: String,
+        query: SearchSignature.Query?,
         rejectingFingerprint: FileFingerprint?,
     ): NoteSearchMatch? {
         val context = coroutineContext
         try {
             val file = ops.noteFile(candidate.id.path)
-            val signatureIsCurrent = rejectingFingerprint != null &&
-                Files.readAttributes(file.toPath(), BasicFileAttributes::class.java).let {
-                    it.isRegularFile && it.fingerprint() == rejectingFingerprint
+            if (query != null && rejectingFingerprint != null && file.fingerprint() == rejectingFingerprint) {
+                val stamp = signatureStamp(file)
+                if (stamp != null) {
+                    val known = synchronized(verifiedSignatures) { verifiedSignatures[file] }
+                    if (known?.stamp == stamp) {
+                        if (!query.mayContain(known.bytes)) return metadataMatch(candidate, keyword)
+                    } else {
+                        val text = readMarkdown(file)
+                        val verified = SearchSignature.fromBody(text)
+                        if (stamp == signatureStamp(file)) {
+                            synchronized(verifiedSignatures) { verifiedSignatures[file] = VerifiedSignature(stamp, verified) }
+                        }
+                        val hit = searchNote(candidate.title, candidate.tags, text, keyword)
+                        return hit?.let { NoteSearchMatch(candidate.id, it) }
+                    }
                 }
-            if (!signatureIsCurrent) {
-                return openMarkdownReader(file).use { reader ->
-                    searchNote(
-                        title = candidate.title,
-                        tags = candidate.tags,
-                        reader = reader,
-                        query = keyword,
-                        checkActive = context::ensureActive,
-                    )?.let { NoteSearchMatch(candidate.id, it) }
-                }
+            }
+            return openMarkdownReader(file).use { reader ->
+                searchNote(candidate.title, candidate.tags, reader, keyword, checkActive = context::ensureActive)
+                    ?.let { NoteSearchMatch(candidate.id, it) }
             }
         } catch (_: IOException) {
         }
+        return metadataMatch(candidate, keyword)
+    }
+
+    private fun signatureStamp(file: File): SignatureStamp? = try {
+        val attrs = Files.readAttributes(file.toPath(), "unix:ino,ctime,size")
+        val changed = attrs["ctime"] as java.nio.file.attribute.FileTime
+        // Coarse shared-storage clocks cannot distinguish equal-size edits within a tick.
+        if (changed.to(java.util.concurrent.TimeUnit.NANOSECONDS) % 1_000_000L == 0L) null
+        else SignatureStamp(attrs["ino"] as Long, changed, attrs["size"] as Long)
+    } catch (_: UnsupportedOperationException) {
+        null
+    } catch (_: IllegalArgumentException) {
+        null
+    } catch (_: IOException) {
+        null
+    }
+
+    private fun metadataMatch(candidate: SearchableNote, keyword: String): NoteSearchMatch? {
         val hit = searchNote(candidate.title, candidate.tags, text = "", query = keyword)
         return hit?.let { NoteSearchMatch(candidate.id, it) }
     }
@@ -220,6 +249,9 @@ class NoteRepository internal constructor(
 
     internal suspend fun relocateNotes(ids: List<NoteId>, target: FolderPath): Map<NoteId, NotePath> =
         write(ids.first().vaultId) { vault, _ -> runRelocation(vault) { it.moveNotes(ids, target) }.path }
+
+    internal suspend fun restoreLocations(originals: Map<NoteId, NotePath>): Int =
+        write(originals.keys.first().vaultId) { vault, _ -> runRelocation(vault) { it.restoreLocations(originals) }.path }
 
     internal suspend fun moveNoteToOriginalPath(id: NoteId, originalPath: NotePath): Unit = write(id.vaultId) { vault, _ ->
         runRelocation(vault) { it.moveNoteToOriginalPath(id, originalPath) }

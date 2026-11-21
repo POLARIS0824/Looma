@@ -290,6 +290,24 @@ internal class VaultRelocation(private val vault: Vault) {
         return RelocationResult(moved, result.linksUpdated, result.linksFailed, result.changes)
     }
 
+    fun restoreLocations(originals: Map<NoteId, NotePath>): RelocationResult<Int> {
+        val recovered = recoverOrThrow()
+        val files = linkedMapOf<File, File>()
+        for ((id, original) in originals) {
+            validateNotePath(original.relativePath)
+            val destination = safeFile(original.relativePath)
+            val source = try {
+                noteFile(id)
+            } catch (error: VaultFileException) {
+                if (error.failure == VaultFileFailure.NOT_FOUND) continue else throw error
+            }
+            if (source != destination && exists(destination)) continue
+            files[source] = destination
+        }
+        val result = relocateFiles(files, recovered)
+        return RelocationResult(files.size, result.linksUpdated, result.linksFailed, result.changes)
+    }
+
     private fun relocateFiles(files: Map<File, File>, recovered: RelocationChanges): RelocationResult<Unit> {
         val moving = files.filter { it.key != it.value }
         if (moving.isEmpty()) return RelocationResult(Unit, 0, 0, recovered)
@@ -534,8 +552,9 @@ internal class VaultRelocation(private val vault: Vault) {
     private fun replay(journal: File, plan: Plan, manifest: ByteArray) {
         plan.writes.forEachIndexed { index, write ->
             val before = readBytes(File(journal, "$index.before"), MAX_MARKDOWN_BYTES)
+            if (hash(before) != write.beforeHash) conflict(journal)
             val after = readBytes(File(journal, "$index.after"), MAX_MARKDOWN_BYTES)
-            if (hash(before) != write.beforeHash || hash(after) != write.afterHash) conflict(journal)
+            if (hash(after) != write.afterHash) conflict(journal)
         }
         checkState(plan, journal.name)
         var progress = 0

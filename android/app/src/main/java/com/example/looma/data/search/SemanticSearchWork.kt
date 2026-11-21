@@ -19,8 +19,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal sealed interface SemanticWorkState {
@@ -47,6 +49,7 @@ internal class SemanticSearchWork(
     private val model: EmbeddingModelFile,
     private val cache: SemanticVectorCache,
 ) {
+    private val scheduling = kotlinx.coroutines.sync.Mutex()
     private val manager by lazy { WorkManager.getInstance(context) }
     val supported get() = Process.is64Bit()
 
@@ -90,18 +93,18 @@ internal class SemanticSearchWork(
         val request = OneTimeWorkRequestBuilder<SemanticVaultIndexWorker>()
             .setInputData(workDataOf(VAULT_ID to vault.id.value, VAULT_PATH to vault.rootPath))
             .build()
-        manager.enqueueUniqueWork(indexName(vault), ExistingWorkPolicy.KEEP, request).await()
+        manager.enqueueUniqueWork(indexName(vault), ExistingWorkPolicy.APPEND_OR_REPLACE, request).await()
     }
 
-    suspend fun enqueueUpdates(vault: Vault) = scheduleUpdates(vault, ExistingWorkPolicy.APPEND_OR_REPLACE)
-
-    suspend fun resumeUpdates(vault: Vault) = scheduleUpdates(vault, ExistingWorkPolicy.KEEP)
-
-    private suspend fun scheduleUpdates(vault: Vault, policy: ExistingWorkPolicy) {
+    suspend fun enqueueUpdates(vault: Vault) = scheduling.withLock {
+        val name = indexName(vault)
+        val jobs = manager.getWorkInfosForUniqueWorkFlow(name).first()
+        if (jobs.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }) return@withLock
         val request = OneTimeWorkRequestBuilder<SemanticVaultIndexWorker>()
             .setInputData(workDataOf(VAULT_ID to vault.id.value, VAULT_PATH to vault.rootPath, INCREMENTAL to true))
             .build()
-        manager.enqueueUniqueWork(indexName(vault), policy, request).await()
+        manager.enqueueUniqueWork(name, ExistingWorkPolicy.APPEND_OR_REPLACE, request).await()
+        Unit
     }
 
     suspend fun cancelIndex() {

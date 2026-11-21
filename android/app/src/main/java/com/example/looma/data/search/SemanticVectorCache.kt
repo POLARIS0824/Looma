@@ -57,6 +57,12 @@ internal class SemanticVectorCache(private val root: File) {
         writeBytesAtomically(file, value.toByteArray())
     }
 
+    fun hasPending(vaultId: VaultId): Boolean = try {
+        Files.newDirectoryStream(directory(vaultId).toPath(), "*.dirty").use { it.iterator().hasNext() }
+    } catch (_: java.nio.file.NoSuchFileException) {
+        false
+    }
+
     fun pending(vaultId: VaultId): Map<File, String> =
         markers(vaultId, "*.dirty").mapNotNull { file ->
             try { file to file.readText() } catch (_: java.io.FileNotFoundException) { null }
@@ -84,6 +90,7 @@ internal class SemanticVectorCache(private val root: File) {
         directory(vaultId).listFiles().orEmpty().forEach { file ->
             checkActive()
             if (file.extension == "vec" && file.name !in known) file.delete()
+            if (file.extension == "skipped" && "${file.nameWithoutExtension}.vec" !in known) file.delete()
         }
     }
 
