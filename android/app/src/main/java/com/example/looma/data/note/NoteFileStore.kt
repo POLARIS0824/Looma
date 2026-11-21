@@ -49,10 +49,11 @@ internal data class ConflictCopy(val id: NoteId, val revision: NoteRevision)
 internal class NoteFileStore(
     private val vault: Vault,
 ) {
-    suspend fun readNote(id: NoteId): StoredMarkdown = withContext(Dispatchers.IO) {
+    suspend fun readNote(id: NoteId, requireUtf8: Boolean = false): StoredMarkdown = withContext(Dispatchers.IO) {
         val (vault, ops) = currentVault(id.vaultId)
         val file = ops.noteFile(id.path)
-        storedMarkdown(vault, ops.rootDir, file, readMarkdownBytes(file))
+        val bytes = readMarkdownBytes(file)
+        storedMarkdown(vault, ops.rootDir, file, bytes, content = if (requireUtf8) editableText(bytes) else bytes.toString(Charsets.UTF_8))
     }
 
     suspend fun imageContext(id: NoteId): ImageContext? = withContext(Dispatchers.IO) {
@@ -105,7 +106,7 @@ internal class NoteFileStore(
         }
         if (actualRevision != expectedRevision) throw NoteChangedExternallyException(actualRevision)
         val bytes = markdownBytes(content)
-        if (mode is NoteWriteMode.Checked && content == current.toString(Charsets.UTF_8)) {
+        if (mode is NoteWriteMode.Checked && content == editableText(current)) {
             return@withContext storedMarkdown(vault, ops.rootDir, file, current, verifiedFingerprint(file, before, current))
         }
         if (mode is NoteWriteMode.Overwrite) backupConflictBytes(ops.rootDir, id.path, current)
@@ -123,15 +124,15 @@ internal class NoteFileStore(
     ): StoredMarkdown = withContext(Dispatchers.IO) {
         val (vault, ops) = currentVault(id.vaultId)
         val root = ops.rootDir
-        val bytes = markdownBytes(content)
+        val bytes = content.toByteArray(Charsets.UTF_8)
         val folder = conflictCopyDirectory(id, ops)
         val target = previous?.let { conflictCopyFile(id, it, root, folder) }
         val current = target?.let(::readConflictCopy)
-        if (previous != null && target != null && current != null && NoteRevision.of(current) == previous.revision) {
-            if (bytes.contentEquals(current)) return@withContext storedMarkdown(vault, root, target, current)
+        if (previous != null && target != null && current == previous.revision) {
+            if (NoteRevision.of(bytes) == current) return@withContext storedMarkdown(vault, root, target, bytes)
             try {
                 val fingerprint = writeBytesAtomically(target, bytes) {
-                    val observed = readConflictCopy(target)?.let(NoteRevision::of) ?: NoteRevision.Unknown
+                    val observed = readConflictCopy(target) ?: NoteRevision.Unknown
                     if (observed != previous.revision) throw NoteChangedExternallyException(observed)
                 }
                 return@withContext storedMarkdown(vault, root, target, bytes, fingerprint)
@@ -148,7 +149,7 @@ internal class NoteFileStore(
         val folder = conflictCopyDirectory(id, ops)
         val target = conflictCopyFile(id, copy, ops.rootDir, folder) ?: return@withContext false
         val current = readConflictCopy(target) ?: return@withContext false
-        NoteRevision.of(current) == copy.revision && Files.deleteIfExists(target.toPath())
+        current == copy.revision && Files.deleteIfExists(target.toPath())
     }
 
     private fun conflictCopyDirectory(id: NoteId, ops: VaultFileOps): File {
@@ -162,9 +163,18 @@ internal class NoteFileStore(
         return file.takeIf { it.parentFile == folder && it.extension.equals("md", ignoreCase = true) }
     }
 
-    private fun readConflictCopy(file: File): ByteArray? = try {
+    private fun readConflictCopy(file: File): NoteRevision? = try {
         if (file.canonicalFile == file && Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS)) {
-            readMarkdownBytes(file)
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().buffered().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            NoteRevision.Known(digest.digest().joinToString("") { "%02x".format(it) })
         } else {
             null
         }
@@ -205,14 +215,14 @@ internal class NoteFileStore(
         VaultFileOps(File(vault.rootPath)).deletePermanently(trashId)
     }
 
-    suspend fun restoreNote(trashId: String): StoredMarkdown = withContext(Dispatchers.IO) {
+    suspend fun restoreNote(trashId: String): NoteId = withContext(Dispatchers.IO) {
         val ops = VaultFileOps(File(vault.rootPath))
         val record = ops.trashed().firstOrNull { it.trashId == trashId }
             ?: throw VaultFileException(VaultFileFailure.NOT_FOUND)
         restore(ops, record)
     }
 
-    suspend fun restoreNotes(trashIds: List<String>): Pair<List<StoredMarkdown>, TrashBulkOutcome> =
+    suspend fun restoreNotes(trashIds: List<String>): Pair<List<NoteId>, TrashBulkOutcome> =
         withContext(Dispatchers.IO) {
             val ops = VaultFileOps(File(vault.rootPath))
             bulkOverTrash(ops, trashIds) { record ->
@@ -302,11 +312,9 @@ internal class NoteFileStore(
         return vault to VaultFileOps(File(vault.rootPath))
     }
 
-    private fun restore(ops: VaultFileOps, record: TrashRecord): StoredMarkdown {
-        val before = record.file.fingerprint()
-        val bytes = readMarkdownBytes(record.file)
-        val file = ops.restore(record)
-        return storedMarkdown(vault, ops.rootDir, file, bytes, verifiedFingerprint(file, before, bytes))
+    private fun restore(ops: VaultFileOps, record: TrashRecord): NoteId {
+        ops.restore(record)
+        return NoteId(vault.id, record.originalPath)
     }
 
     private fun verifiedFingerprint(file: File, before: FileFingerprint, bytes: ByteArray): FileFingerprint? =
@@ -318,10 +326,11 @@ internal class NoteFileStore(
         file: File,
         bytes: ByteArray,
         fingerprint: FileFingerprint? = null,
+        content: String = bytes.toString(Charsets.UTF_8),
     ): StoredMarkdown =
         StoredMarkdown(
             id = NoteId(vault.id, NotePath(file.relativeTo(root).invariantSeparatorsPath)),
-            content = bytes.toString(Charsets.UTF_8),
+            content = content,
             modifiedAt = Instant.ofEpochMilli(fingerprint?.modifiedAtMillis ?: file.lastModified()),
             root = root,
             file = file,
@@ -372,6 +381,14 @@ internal fun <T> bulkOverTrash(
 
 private fun NotePath.displayName(): String =
     relativePath.substringAfterLast('/').removeMarkdownSuffix().ifBlank { relativePath }
+
+internal class UnsupportedNoteEncoding(val preview: String) : IOException("Invalid UTF-8")
+
+private fun editableText(bytes: ByteArray): String = try {
+    Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString()
+} catch (_: java.nio.charset.CharacterCodingException) {
+    throw UnsupportedNoteEncoding(bytes.toString(Charsets.UTF_8))
+}
 
 class NoteChangedExternallyException(val actualRevision: NoteRevision) : IOException("note changed outside the app")
 

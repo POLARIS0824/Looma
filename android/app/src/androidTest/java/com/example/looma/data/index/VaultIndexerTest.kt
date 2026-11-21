@@ -205,7 +205,8 @@ class VaultIndexerTest {
         withTimeout(10_000) { scanReady.await() }
         try {
             VaultWriteCoordinator.write(vault) {
-                val restored = NoteFileStore(vault).restoreNote(trash.trashId)
+                val store = NoteFileStore(vault)
+                val restored = store.readNote(store.restoreNote(trash.trashId))
                 val note = MarkdownParser().savedNote(restored).toIndexedNote()
                 NoteIndexUpdater(index).apply(vault, IndexDelta(vaultId, upserts = listOf(note)))
             }

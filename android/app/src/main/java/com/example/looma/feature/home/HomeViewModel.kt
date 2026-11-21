@@ -49,7 +49,9 @@ class HomeViewModel(
     private var dialogGeneration = 0L
     private var index: HomeVaultIndex = HomeVaultIndex.Empty
 
-    fun refresh(): Job {
+    fun refresh(): Job = refresh(force = false)
+
+    private fun refresh(force: Boolean): Job {
         refreshJob?.cancel()
         clearSearch()
         refreshJob = viewModelScope.launch {
@@ -59,7 +61,7 @@ class HomeViewModel(
             val previousSort = previousState.sort
             val previousNotes = previousState.notes
             try {
-                val result = noteRepository.listNotes()
+                val result = noteRepository.listNotes(force = force)
                 val vault = result.vault
                 val notes = result.items.map { it.toHomeItem() }
                 index = HomeVaultIndex.build(result.folders, notes)
@@ -77,7 +79,7 @@ class HomeViewModel(
                         newFiles.isAtRoot -> newFiles.recents
                         else -> index.recents()
                     }
-                    preserveSearch = previousVaultId == vault.id &&
+                    preserveSearch = !force && previousVaultId == vault.id &&
                         previousSort == current.sort &&
                         previousNotes == orderedNotes &&
                         !current.search.isSearching &&
@@ -153,7 +155,7 @@ class HomeViewModel(
     fun refreshFromUser() {
         if (_uiState.value.isBusy) return
         _uiState.update { it.copy(isRefreshing = true) }
-        refresh()
+        refresh(force = true)
     }
 
     fun openFolder(path: FolderPath) {
@@ -231,7 +233,13 @@ class HomeViewModel(
                 semanticSearchRepository.hasIndex,
                 semanticSearchRepository.indexState,
             ) { model, hasIndex, indexState ->
-                semanticAvailability(model, hasIndex) to (indexState == SemanticWorkState.Ready)
+                val availability = semanticAvailability(model, hasIndex)
+                val status = if (availability != HomeSemanticSearch.Ready) availability else when (indexState) {
+                    SemanticWorkState.Queued, is SemanticWorkState.Running -> HomeSemanticSearch.Updating
+                    SemanticWorkState.Ready -> HomeSemanticSearch.Ready
+                    else -> HomeSemanticSearch.Partial
+                }
+                status to (indexState == SemanticWorkState.Ready)
             }.distinctUntilChanged().collect { (availability, isIndexReady) ->
                 val finishedIndexing = availability == HomeSemanticSearch.Ready && isIndexReady && !wasIndexReady
                 if (availability != previousAvailability || finishedIndexing) {
@@ -296,7 +304,7 @@ class HomeViewModel(
         if (keyword.isEmpty()) return
         val semantic = _uiState.value.search.semanticSearch
         if (semantic != HomeSemanticSearch.Off) {
-            val canSearch = semantic == HomeSemanticSearch.Ready ||
+            val canSearch = semantic.showsResults ||
                 (retryFailedSemantic && semantic == HomeSemanticSearch.SearchFailed)
             if (canSearch) scheduleSemanticSearch(value, keyword, debounce)
             return
@@ -342,10 +350,12 @@ class HomeViewModel(
     }
 
     private fun scheduleSemanticSearch(value: String, keyword: String, debounce: Boolean) {
+        val available = _uiState.value.search.semanticSearch.takeIf { it.canSearch && it != HomeSemanticSearch.SearchFailed }
+            ?: HomeSemanticSearch.Ready
         _uiState.update {
             it.copy(
                 search = it.search.copy(
-                    semanticSearch = HomeSemanticSearch.Ready,
+                    semanticSearch = available,
                     isSearching = true,
                 ),
             )
@@ -364,7 +374,7 @@ class HomeViewModel(
                         passage = hit.anchor,
                         section = hit.section,
                     )
-                } to HomeSemanticSearch.Ready
+                } to available
             } catch (e: CancellationException) {
                 throw e
             } catch (_: SemanticModelMissingException) {
@@ -553,15 +563,19 @@ class HomeViewModel(
         val current = _uiState.value
         if (current.isBusy) return
         val folder = current.selectedFolder ?: return
-        _uiState.update {
-            it.copy(
-                dialog = HomeFileDialog.DeleteFolder(
-                    path = folder.path,
-                    folderName = folder.name,
-                    noteCount = index.noteCountUnder(folder.path),
-                    id = nextDialogId(),
-                ),
-            )
+        val vaultId = current.vaultId ?: return
+        runBusyAction {
+            try {
+                val paths = folderRepository.folderNotePaths(folder.path, vaultId)
+                _uiState.update { state ->
+                    if (state.vaultId != vaultId || state.selectedFolder != folder) state
+                    else state.copy(dialog = HomeFileDialog.DeleteFolder(folder.path, folder.name, paths, id = nextDialogId()))
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _uiState.update { it.copy(message = homeMessage(HomeNotice.ActionFailed)) }
+            }
         }
     }
 
@@ -582,7 +596,7 @@ class HomeViewModel(
         val dialog = _uiState.value.dialog as? HomeFileDialog.DeleteFolder ?: return
         val vaultId = _uiState.value.vaultId ?: return
         runDialogAction(dialog.id) {
-            val result = folderRepository.deleteFolderWithOutcome(dialog.path, vaultId)
+            val result = folderRepository.deleteFolderWithOutcome(dialog.path, vaultId, dialog.paths)
             homeMessage(
                 notice = if (result.directoryRemoved) {
                     HomeNotice.FolderDeleted(result.trashIds.size)
@@ -611,8 +625,14 @@ class HomeViewModel(
     private fun moveNotesTo(notes: List<HomeNoteItem>, target: FolderPath) {
         if (notes.isEmpty()) return
         runBusyAction {
-            val result = processNotes(notes) { note ->
-                MovedNote(noteRepository.relocateNote(note.id, target), note.id.path)
+            val result = try {
+                val moved = noteRepository.relocateNotes(notes.map { it.id }, target)
+                    .map { (id, destination) -> MovedNote(id.copy(path = destination), id.path) }
+                NoteBatchResult(moved, notes.size - moved.size, null)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                NoteBatchResult(emptyList(), notes.size, error)
             }
             val count = result.completed.size
             val notice = when {
@@ -709,13 +729,8 @@ class HomeViewModel(
         }
 
         is HomeUndo.MoveNotes -> {
-            val result = processNotes(action.moves) { move ->
-                noteRepository.moveNoteToOriginalPath(move.id, move.originalPath)
-            }
-            val stalled = result.failure as? RelocationStalledException
-            if (stalled != null && result.completed.isEmpty()) throw stalled
-            if (stalled != null) _uiState.update { it.copy(stalledRelocation = stalled.stalled) }
-            undoNotice(result.completed.size, result.failed)
+            val succeeded = noteRepository.restoreLocations(action.moves.associate { it.id to it.originalPath })
+            undoNotice(succeeded, action.moves.size - succeeded)
         }
 
         is HomeUndo.RenameFolder -> {

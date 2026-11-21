@@ -30,6 +30,7 @@ import com.example.looma.ui.components.pageMargin
 internal fun NoteSaveBanner(
     state: NoteUiState,
     onRetry: () -> Unit,
+    onExport: () -> Unit,
     onReload: () -> Unit,
     onOverwrite: () -> Unit,
 ) {
@@ -44,6 +45,7 @@ internal fun NoteSaveBanner(
         SaveBannerContent(
             state = shown,
             onRetry = onRetry,
+            onExport = onExport,
             onReload = onReload,
             onOverwrite = onOverwrite,
         )
@@ -54,12 +56,15 @@ internal fun NoteSaveBanner(
 private fun SaveBannerContent(
     state: NoteUiState,
     onRetry: () -> Unit,
+    onExport: () -> Unit,
     onReload: () -> Unit,
     onOverwrite: () -> Unit,
 ) {
     val copy = state.conflictCopy
     val copyName = copy?.relativePath?.substringAfterLast('/')
     val message = when {
+        state.exceedsSizeLimit && copyName != null -> stringResource(R.string.editor_too_large_recovered, copyName)
+        state.exceedsSizeLimit -> stringResource(R.string.editor_too_large)
         state.isConflict && copyName != null -> stringResource(R.string.editor_conflict_conflict_copy, copyName)
         state.isConflict -> stringResource(R.string.editor_conflict)
         copyName != null -> stringResource(R.string.editor_save_failed_conflict_copy, copyName)
@@ -69,6 +74,9 @@ private fun SaveBannerContent(
         message = message,
         modifier = Modifier.padding(horizontal = pageMargin(), vertical = 4.dp),
     ) {
+        if (state.exceedsSizeLimit) {
+            ErrorBannerAction(label = stringResource(R.string.editor_export), onClick = onExport)
+        }
         if (state.isConflict) {
             ErrorBannerAction(
                 label = stringResource(R.string.editor_reload_from_disk),

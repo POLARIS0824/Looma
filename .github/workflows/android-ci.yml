@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - main
+      - dev
     paths:
       - 'android/**'
       - '.github/workflows/android-ci.yml'
   pull_request:
     branches:
       - main
+      - dev
     paths:
       - 'android/**'
       - '.github/workflows/android-ci.yml'
@@ -54,7 +56,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin --stacktrace
 
       - name: Run unit tests
         run: ./gradlew :markdown-core:test :app:testDebugUnitTest --stacktrace

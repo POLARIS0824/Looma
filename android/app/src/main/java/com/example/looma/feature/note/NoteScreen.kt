@@ -1,5 +1,9 @@
 package com.example.looma.feature.note
 
+import com.example.looma.domain.markdown.FenceIndex
+import com.example.looma.domain.markdown.MarkdownFormatState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.content.res.Resources
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -156,6 +160,15 @@ fun NoteRoute(
             modifier = modifier,
         )
 
+        state.readOnlyPreview != null -> NoteStatusScaffold(onNavigateUp, modifier) { padding ->
+            Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = pageMargin())) {
+                Text(stringResource(R.string.editor_encoding_readonly), style = MaterialTheme.typography.titleMedium)
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(state.readOnlyPreview.orEmpty())
+                }
+            }
+        }
+
         state.loadFailed -> NoteLoadErrorScreen(
             onNavigateUp = onNavigateUp,
             onRetry = viewModel::load,
@@ -247,13 +260,13 @@ private fun NoteWorkspace(
     passage: PassageAnchor? = null,
     matchesPassage: (PassageAnchor) -> Boolean = { false },
 ) {
-    val formatState by remember(contentBuffer) {
-        derivedStateOf {
-            val selection = contentBuffer.selection
-            MarkdownEditing.formatState(
-                text = contentBuffer.text,
-                selection = TextSelection(selection.start, selection.end),
-            )
+    var formatState by remember(contentBuffer) { mutableStateOf(MarkdownFormatState()) }
+    LaunchedEffect(contentBuffer) {
+        val fences = FenceIndex()
+        snapshotFlow { contentBuffer.text to contentBuffer.selection }.collectLatest { (text, selection) ->
+            formatState = withContext(Dispatchers.Default) {
+                MarkdownEditing.formatState(text, TextSelection(selection.start, selection.end), fences)
+            }
         }
     }
     var mode by rememberSaveable {
@@ -295,6 +308,27 @@ private fun NoteWorkspace(
     )
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
+    val resolver = androidx.compose.ui.platform.LocalContext.current.contentResolver
+    var exportText by remember { mutableStateOf<String?>(null) }
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+        val snapshot = exportText
+        exportText = null
+        if (uri != null) scope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                if (snapshot == null) return@withContext false
+                try {
+                    val output = resolver.openOutputStream(uri, "wt") ?: return@withContext false
+                    output.bufferedWriter(Charsets.UTF_8).use { it.write(snapshot) }
+                    true
+                } catch (_: java.io.IOException) {
+                    false
+                } catch (_: SecurityException) {
+                    false
+                }
+            }
+            snackbarHostState.showSnackbar(resources.getString(if (saved) R.string.editor_exported else R.string.editor_export_failed))
+        }
+    }
     val leaveWorkspace = {
         onRequestLeave {
             focusManager.clearFocus(force = true)
@@ -521,6 +555,10 @@ private fun NoteWorkspace(
             NoteSaveBanner(
                 state = state,
                 onRetry = onRetrySave,
+                onExport = {
+                    exportText = contentBuffer.text.toString()
+                    export.launch("${state.fileName} (copy).md")
+                },
                 onReload = onReloadFromDisk,
                 onOverwrite = onOverwrite,
             )

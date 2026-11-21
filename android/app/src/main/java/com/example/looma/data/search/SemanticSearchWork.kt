@@ -19,8 +19,13 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal sealed interface SemanticWorkState {
@@ -28,6 +33,7 @@ internal sealed interface SemanticWorkState {
     data object Idle : SemanticWorkState
     data object Queued : SemanticWorkState
     data class Running(val completed: Int, val total: Int) : SemanticWorkState
+    data object Partial : SemanticWorkState
     data object Ready : SemanticWorkState
     data object Cancelled : SemanticWorkState
     data object Failed : SemanticWorkState
@@ -46,7 +52,11 @@ internal class SemanticSearchWork(
     private val model: EmbeddingModelFile,
     private val cache: SemanticVectorCache,
 ) {
+    private val scheduling = kotlinx.coroutines.sync.Mutex()
     private val manager by lazy { WorkManager.getInstance(context) }
+    private val cacheVersion = MutableStateFlow(0L)
+    fun cacheChanged() = cacheVersion.update { it + 1 }
+
     val supported get() = Process.is64Bit()
 
     val modelState: Flow<SemanticWorkState>
@@ -60,7 +70,10 @@ internal class SemanticSearchWork(
         }
 
     val indexState: Flow<SemanticWorkState> = currentVaultWork(SemanticWorkState.Unavailable) { vault, info ->
-        info.state(cache.hasCompletedIndex(vault.id))
+        val state = info.state(cache.hasCompletedIndex(vault.id))
+        if (state == SemanticWorkState.Ready && (cache.hasPending(vault.id) || cache.partial(vault.id))) {
+            SemanticWorkState.Partial
+        } else state
     }
 
     val hasIndex: Flow<Boolean> = currentVaultWork(false) { vault, _ ->
@@ -84,10 +97,22 @@ internal class SemanticSearchWork(
         check(supported)
         val vault = vaults.requireCurrentVault()
         if (!modelIsReady()) throw SemanticModelMissingException()
+        withContext(Dispatchers.IO) { cache.enable(vault.id) }
         val request = OneTimeWorkRequestBuilder<SemanticVaultIndexWorker>()
             .setInputData(workDataOf(VAULT_ID to vault.id.value, VAULT_PATH to vault.rootPath))
             .build()
-        manager.enqueueUniqueWork(indexName(vault), ExistingWorkPolicy.KEEP, request).await()
+        manager.enqueueUniqueWork(indexName(vault), ExistingWorkPolicy.APPEND_OR_REPLACE, request).await()
+    }
+
+    suspend fun enqueueUpdates(vault: Vault) = scheduling.withLock {
+        val name = indexName(vault)
+        val jobs = manager.getWorkInfosForUniqueWorkFlow(name).first()
+        if (jobs.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }) return@withLock
+        val request = OneTimeWorkRequestBuilder<SemanticVaultIndexWorker>()
+            .setInputData(workDataOf(VAULT_ID to vault.id.value, VAULT_PATH to vault.rootPath, INCREMENTAL to true))
+            .build()
+        manager.enqueueUniqueWork(name, ExistingWorkPolicy.APPEND_OR_REPLACE, request).await()
+        Unit
     }
 
     suspend fun cancelIndex() {
@@ -106,12 +131,14 @@ internal class SemanticSearchWork(
     private fun <T> currentVaultWork(empty: T, read: (Vault, WorkInfo?) -> T): Flow<T> =
         vaults.currentVaultFlow.distinctUntilChanged().flatMapLatest { vault ->
             if (!supported || vault == null) return@flatMapLatest flowOf(empty)
-            observe(indexName(vault)).map { info -> withContext(Dispatchers.IO) { read(vault, info) } }
+            combine(observe(indexName(vault)), cacheVersion) { info, _ ->
+                withContext(Dispatchers.IO) { read(vault, info) }
+            }
         }.distinctUntilChanged()
 
     private fun observe(name: String): Flow<WorkInfo?> =
         manager.getWorkInfosForUniqueWorkFlow(name).map { jobs ->
-            jobs.firstOrNull { !it.state.isFinished } ?: jobs.singleOrNull()
+            jobs.firstOrNull { it.state == WorkInfo.State.RUNNING } ?: jobs.firstOrNull { !it.state.isFinished } ?: jobs.singleOrNull()
         }
 
     private fun WorkInfo?.state(ready: Boolean): SemanticWorkState = when (this?.state) {
@@ -133,6 +160,7 @@ internal class SemanticSearchWork(
 
     companion object {
         private const val MODEL_WORK_NAME = "semantic-embedding-model"
+        const val INCREMENTAL = "incremental"
         const val VAULT_ID = "vault_id"
         const val VAULT_PATH = "vault_path"
         const val VAULT_CHANGED = "vault_changed"

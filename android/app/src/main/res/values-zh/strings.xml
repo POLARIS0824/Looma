@@ -168,7 +168,7 @@
     <string name="settings_semantic_index_queued">已排队等待建立索引</string>
     <string name="settings_semantic_index_preparing">正在准备索引笔记…</string>
     <string name="settings_semantic_indexing">正在索引笔记… %1$d / %2$d</string>
-    <string name="settings_semantic_index_ready">索引已就绪。新增或编辑笔记后，请更新索引。</string>
+    <string name="settings_semantic_index_ready">索引已更新</string>
     <string name="settings_semantic_index_failed">未能为此笔记库建立索引。</string>
     <string name="settings_semantic_index_cancelled">已取消建立索引</string>
     <string name="settings_semantic_build_index">建立索引</string>
@@ -339,4 +339,12 @@
     <string name="note_image_error_network">无法连接图床</string>
     <string name="note_image_error_rejected">图床拒绝了上传：%1$s</string>
     <string name="note_image_error_unknown">图片上传失败</string>
+    <string name="editor_encoding_readonly">文件含有无效的 UTF-8 字节，当前为只读预览</string>
+    <string name="editor_too_large">正文的 UTF-8 大小超过 2 MiB，请缩短后保存</string>
+    <string name="editor_too_large_recovered">正文超过 2 MiB，完整内容已另存为 %1$s</string>
+    <string name="semantic_index_partial">部分笔记尚未编入索引，可以搜索已索引的笔记</string>
+    <string name="semantic_index_updating">正在更新已变更的笔记，当前结果可能不完整</string>
+    <string name="editor_export">导出副本</string>
+    <string name="editor_exported">已导出副本</string>
+    <string name="editor_export_failed">未能导出副本</string>
 </resources>

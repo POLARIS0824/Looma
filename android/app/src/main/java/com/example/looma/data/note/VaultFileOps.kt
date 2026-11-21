@@ -150,17 +150,27 @@ internal class VaultFileOps(root: File) {
 
     fun deleteFolder(path: FolderPath): List<TrashRecord> = trashFolder(path, continueOnFailure = false).records
 
-    fun deleteFolderWithOutcome(path: FolderPath): FolderTrashResult = trashFolder(path, continueOnFailure = true)
+    fun folderNotePaths(path: FolderPath): List<NotePath> {
+        val files = mutableListOf<File>()
+        collectNotes(directoryForDeletion(path), files)
+        return files.map { NotePath(it.relativeTo(root).invariantSeparatorsPath) }
+    }
+
+    fun deleteFolderWithOutcome(path: FolderPath, expected: List<NotePath>? = null): FolderTrashResult =
+        trashFolder(path, continueOnFailure = true, expected = expected)
 
     fun deleteEmptyFolder(path: FolderPath): Boolean {
         val directory = directoryForDeletion(path)
         return directory.list()?.isEmpty() == true && directory.delete()
     }
 
-    private fun trashFolder(path: FolderPath, continueOnFailure: Boolean): FolderTrashResult {
+    private fun trashFolder(path: FolderPath, continueOnFailure: Boolean, expected: List<NotePath>? = null): FolderTrashResult {
         val directory = directoryForDeletion(path)
         val notes = mutableListOf<File>()
         collectNotes(directory, notes)
+        if (expected != null && notes.map { NotePath(it.relativeTo(root).invariantSeparatorsPath) } != expected) {
+            throw VaultFileException(VaultFileFailure.IO)
+        }
         val records = mutableListOf<TrashRecord>()
         var failed = 0
         for (note in notes) {
@@ -247,11 +257,11 @@ internal class VaultFileOps(root: File) {
         return destination
     }
 
-    fun moveDestination(note: File, target: FolderPath): File {
+    fun moveDestination(note: File, target: FolderPath, reserved: Set<String> = emptySet()): File {
         val directory = folderDirectory(target)
         if (directory.exists() && !directory.isDirectory) throw VaultFileException(VaultFileFailure.INVALID_PATH)
         if (directory.path == note.parentFile?.path) return note
-        return uniqueIn(directory, note.name)
+        return uniqueIn(directory, note.name, reserved)
     }
 
     fun trash(note: File, deletedAt: Instant = Instant.now()): TrashRecord {
@@ -361,13 +371,13 @@ internal class VaultFileOps(root: File) {
         if (remaining.isEmpty()) directory.delete()
     }
 
-    private fun uniqueIn(directory: File, filename: String): File {
+    private fun uniqueIn(directory: File, filename: String, reserved: Set<String> = emptySet()): File {
         val base = filename.removeMarkdownSuffix()
         for (index in 0..MAX_DUPLICATES) {
             val name = if (index == 0) "$base$MARKDOWN_SUFFIX" else "$base ($index)$MARKDOWN_SUFFIX"
             val candidate = File(directory, name).canonicalFile
             if (!isInside(candidate)) throw VaultFileException(VaultFileFailure.INVALID_PATH)
-            if (!candidate.exists()) return candidate
+            if (!candidate.exists() && name.lowercase() !in reserved) return candidate
         }
         throw VaultFileException(VaultFileFailure.NAME_TAKEN)
     }
