@@ -41,7 +41,12 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, open: (Evide
             item {
                 Column(Modifier.widthIn(max = PageMaxWidth).fillMaxWidth().padding(horizontal = pageMargin())) {
                     OutlinedTextField(state = question, label = { Text(stringResource(R.string.ask_question)) },
-                        modifier = Modifier.fillMaxWidth(), enabled = !state.busy)
+                        modifier = Modifier.fillMaxWidth(), enabled = !state.busy,
+                        isError = question.text.length > 1000,
+                        supportingText = if (question.text.length > 1000) {
+                            { Text(stringResource(R.string.ask_length)) }
+                        } else null,
+                    )
                     ListItem(trailingContent = { Switch(checked = investigate, enabled = !state.busy && state.hasModel,
                         onCheckedChange = { investigate = it }) }) { Text(stringResource(R.string.ask_investigate)) }
                     if (!state.busy) {

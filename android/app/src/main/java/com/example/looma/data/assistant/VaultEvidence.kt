@@ -62,7 +62,9 @@ internal class VaultEvidence(
             null
         }
         val dense = semantic.orEmpty().map { Evidence(it.id, it.anchor, it.excerpt, it.section, it.similarity) }
-        val exact = if (dense.isEmpty()) emptySet() else notes.search(candidates, question).map { it.id }.toSet()
+        val exact = if (dense.isEmpty()) emptySet() else {
+            notes.search(candidates, question).mapTo(mutableSetOf()) { it.id }
+        }
         val shortlist = mutableListOf<Pair<Int, NoteListEntry>>()
         val lexical = mutableListOf<Pair<Int, Evidence>>()
         var skipped = false
@@ -70,7 +72,7 @@ internal class VaultEvidence(
         for (entry in scope.notes) {
             checkActive()
             val summary = entry.summary
-            val meta = score(summary.title + " " + summary.tags.joinToString(" "), terms)
+            val meta = score(summary.title + " " + summary.id.path.relativePath + " " + summary.tags.joinToString(" "), terms)
             if (!semantic.isNullOrEmpty() && summary.id !in exact && meta == 0 &&
                 score(entry.markdownSnippet, terms) == 0) continue
             val hint = score(entry.markdownSnippet, terms) + meta
@@ -88,7 +90,7 @@ internal class VaultEvidence(
         for ((_, entry) in shortlist.sortedByDescending { it.first }.take(limit * 3)) {
             checkActive()
             val summary = entry.summary
-            val meta = score(summary.title + " " + summary.tags.joinToString(" "), terms)
+            val meta = score(summary.title + " " + summary.id.path.relativePath + " " + summary.tags.joinToString(" "), terms)
             val note = try {
                 notes.readSearchSource(summary.id, scope.vault.rootPath, requireUtf8 = true)
             } catch (_: IOException) {
@@ -119,7 +121,7 @@ internal class VaultEvidence(
             count < 2
         }.take(limit)
         checkVault(scope.vault)
-        val partialIndex = semantic != null && vectors.indexState.first() != SemanticWorkState.Ready
+        val partialIndex = dense.isNotEmpty() && vectors.indexState.first() != SemanticWorkState.Ready
         EvidenceSet(hits, semantic != null, scope.partial || skipped || partialIndex)
     }
 

@@ -365,7 +365,7 @@ class NoteViewModel(
             !evidence.linkStillValid(vault, suggestion, source)) return@withLock false
         if (source != draft.content || generation != operationGeneration || currentId != suggestion.source) return@withLock false
         editor.edit { replace(length, length, linkAddition(source, suggestion.reference)) }
-        saveCurrent(generation).also { if (it) refreshWiki() }
+        saveCurrent(generation)
     }
 
     fun retrySave() {

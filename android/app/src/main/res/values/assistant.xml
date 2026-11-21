@@ -26,4 +26,5 @@
     <string name="weave_retry">Refresh suggestions</string>
     <string name="weave_similarity">Passage similarity · %1$.2f</string>
     <string name="weave_keywords">Shared terms · %1$s</string>
+    <string name="ask_length">Use a question of 1,000 characters or fewer</string>
 </resources>

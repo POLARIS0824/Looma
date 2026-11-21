@@ -57,10 +57,15 @@ internal class LocalGenerator(private val context: Context) {
                 block { instruction, payload ->
                     engine.createConversation(ConversationConfig(systemInstruction = Contents.of(instruction))).use { conversation ->
                         val text = StringBuilder()
-                        conversation.sendMessageAsync(payload).collect { part ->
-                            coroutineContext.ensureActive()
-                            text.append(part.toString())
-                            check(text.length <= 12000)
+                        try {
+                            conversation.sendMessageAsync(payload).collect { part ->
+                                coroutineContext.ensureActive()
+                                text.append(part.toString())
+                                check(text.length <= 12000)
+                            }
+                        } catch (error: Exception) {
+                            runCatching { conversation.cancelProcess() }.exceptionOrNull()?.let(error::addSuppressed)
+                            throw error
                         }
                         text.toString().trim()
                     }
