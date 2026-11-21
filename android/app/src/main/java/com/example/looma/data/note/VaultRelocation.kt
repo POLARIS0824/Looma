@@ -336,6 +336,7 @@ internal class VaultRelocation(private val vault: Vault) {
         staging: File,
         recovered: RelocationChanges,
     ): RelocationResult<Unit> {
+        val folderMove = if (folder == null) null else moving.entries.single()
         val notePaths = paths.keys.toList()
         val before = graph(notePaths)
         val after = graph(paths.values.toList())
@@ -348,8 +349,8 @@ internal class VaultRelocation(private val vault: Vault) {
             val referrer = readReferrer(path) ?: continue
             val content = referrer.content
             val movedNote = folder == null && path.substringBeforeLast('/', "") != newPath.substringBeforeLast('/', "")
-            if ("[[" !in content && !(movedNote && "![" in content)) continue
-            val relinked = relink(content, path, newPath, paths, before, after, movedNote)
+            if ("[[" !in content && !((movedNote || folderMove != null) && "![" in content)) continue
+            val relinked = relink(content, path, newPath, paths, before, after, movedNote, folderMove)
             linksFailed += relinked.failed
             val rewrittenContent = relinked.content ?: continue
             val afterBytes = markdownBytes(rewrittenContent)
@@ -392,12 +393,14 @@ internal class VaultRelocation(private val vault: Vault) {
         before: WikiGraph,
         after: WikiGraph,
         movedNote: Boolean,
+        folderMove: Map.Entry<File, File>?,
     ): Relinked {
         val bom = if (content.startsWith('\uFEFF')) "\uFEFF" else ""
         val body = content.removePrefix(bom)
         val wikiLinks = MarkdownIndex.index(body, oldPath).links
-        val images = if (movedNote && "![[" in body) MarkdownIndex.wikiImageLinks(body) else emptyList()
-        val standardImages = if (movedNote && "![" in body) MarkdownIndex.markdownImageLinks(body) else emptyList()
+        val checkImages = movedNote || folderMove != null
+        val images = if (checkImages && "![[" in body) MarkdownIndex.wikiImageLinks(body) else emptyList()
+        val standardImages = if (checkImages && "![" in body) MarkdownIndex.markdownImageLinks(body) else emptyList()
         val standardOffsets = standardImages.mapTo(hashSetOf()) { it.range.first }
         val imageOffsets = images.mapTo(hashSetOf()) { it.range.first }
         var imageIndex = 0
@@ -409,37 +412,40 @@ internal class VaultRelocation(private val vault: Vault) {
         var failed = 0
         val rewritten = WikiLinks.retargetSpans(body, spans) { span ->
             val target = span.target
-            if (span.range.first in standardOffsets) {
-                val original = resolveImageSource(root.path, File(root, oldPath).path, target) as? ImageSource.Local
-                    ?: return@retargetSpans null
-                val destination = File(root, newPath)
-                val current = resolveImageSource(root.path, destination.path, target) as? ImageSource.Local
-                if (current?.path == original.path) return@retargetSpans null
-                val relative = File(original.path).relativeTo(destination.parentFile ?: root).invariantSeparatorsPath
-                val encoded = relative.split('/').joinToString("/") {
-                    java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20")
-                }
-                updated++
-                return@retargetSpans encoded + target.substringAfter('#', "").let { if (it.isEmpty()) "" else "#$it" }
-            }
-            if (span.range.first in imageOffsets) {
-                val imageTarget = EntityConverter.replaceEntities(target, processEntities = false, processEscapes = true)
-                val originalImage = resolveImageSource(root.path, File(root, oldPath).path, imageTarget) as? ImageSource.Local
-                if (originalImage != null) {
+            val standard = span.range.first in standardOffsets
+            if (standard || span.range.first in imageOffsets) {
+                val imageTarget = if (standard) target else EntityConverter.replaceEntities(
+                    target, processEntities = false, processEscapes = true,
+                )
+                val original = resolveImageSource(root.path, File(root, oldPath).path, imageTarget) as? ImageSource.Local
+                if (original != null) {
+                    val oldImage = File(original.path)
+                    val newImage = if (folderMove != null && oldImage.toPath().startsWith(folderMove.key.toPath())) {
+                        folderMove.value.resolve(oldImage.relativeTo(folderMove.key))
+                    } else oldImage
+                    if (newPath == oldPath && newImage == oldImage) return@retargetSpans null
                     val newNote = File(root, newPath)
-                    val current = resolveImageSource(root.path, newNote.path, imageTarget) as? ImageSource.Local
-                    if (current?.path == originalImage.path) return@retargetSpans null
-                    val parent = (newNote.parentFile ?: root).toPath()
-                    val path = parent.relativize(File(originalImage.path).toPath()).toString().replace(File.separatorChar, '/')
-                    val replacement = encodeWikiImagePath(if (path.startsWith("../")) path else "./$path")
-                    val resolved = resolveImageSource(root.path, newNote.path, replacement) as? ImageSource.Local
-                    if (resolved?.path != originalImage.path) {
-                        failed++
-                        return@retargetSpans null
+                    val parent = newNote.parentFile ?: root
+                    if (folderMove == null) {
+                        val current = resolveImageSource(root.path, newNote.path, imageTarget) as? ImageSource.Local
+                        if (current?.path == newImage.path) return@retargetSpans null
+                    } else {
+                        val raw = imageTarget.substringBefore('#').replace("+", "%2B")
+                        val direct = File(parent, java.net.URLDecoder.decode(raw, "UTF-8")).canonicalFile
+                        if (direct == newImage) return@retargetSpans null
                     }
+                    val path = newImage.relativeTo(parent).invariantSeparatorsPath
+                    val replacement = if (standard) {
+                        path.split('/').joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") } +
+                            imageTarget.substringAfter('#', "").let { if (it.isEmpty()) "" else "#$it" }
+                    } else {
+                        encodeWikiImagePath(if (path.startsWith("../")) path else "./$path")
+                    }
+                    if (replacement == span.target) return@retargetSpans null
                     updated++
                     return@retargetSpans replacement
                 }
+                if (standard) return@retargetSpans null
             }
             val original = before.resolve(target, NotePath(oldPath)) ?: return@retargetSpans null
             val intended = NoteId(vault.id, NotePath(paths.getValue(original.path.relativePath)))

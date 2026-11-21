@@ -19,6 +19,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -51,6 +54,9 @@ internal class SemanticSearchWork(
 ) {
     private val scheduling = kotlinx.coroutines.sync.Mutex()
     private val manager by lazy { WorkManager.getInstance(context) }
+    private val cacheVersion = MutableStateFlow(0L)
+    fun cacheChanged() = cacheVersion.update { it + 1 }
+
     val supported get() = Process.is64Bit()
 
     val modelState: Flow<SemanticWorkState>
@@ -65,7 +71,9 @@ internal class SemanticSearchWork(
 
     val indexState: Flow<SemanticWorkState> = currentVaultWork(SemanticWorkState.Unavailable) { vault, info ->
         val state = info.state(cache.hasCompletedIndex(vault.id))
-        if (state == SemanticWorkState.Ready && cache.partial(vault.id)) SemanticWorkState.Partial else state
+        if (state == SemanticWorkState.Ready && (cache.hasPending(vault.id) || cache.partial(vault.id))) {
+            SemanticWorkState.Partial
+        } else state
     }
 
     val hasIndex: Flow<Boolean> = currentVaultWork(false) { vault, _ ->
@@ -123,12 +131,14 @@ internal class SemanticSearchWork(
     private fun <T> currentVaultWork(empty: T, read: (Vault, WorkInfo?) -> T): Flow<T> =
         vaults.currentVaultFlow.distinctUntilChanged().flatMapLatest { vault ->
             if (!supported || vault == null) return@flatMapLatest flowOf(empty)
-            observe(indexName(vault)).map { info -> withContext(Dispatchers.IO) { read(vault, info) } }
+            combine(observe(indexName(vault)), cacheVersion) { info, _ ->
+                withContext(Dispatchers.IO) { read(vault, info) }
+            }
         }.distinctUntilChanged()
 
     private fun observe(name: String): Flow<WorkInfo?> =
         manager.getWorkInfosForUniqueWorkFlow(name).map { jobs ->
-            jobs.firstOrNull { !it.state.isFinished } ?: jobs.singleOrNull()
+            jobs.firstOrNull { it.state == WorkInfo.State.RUNNING } ?: jobs.firstOrNull { !it.state.isFinished } ?: jobs.singleOrNull()
         }
 
     private fun WorkInfo?.state(ready: Boolean): SemanticWorkState = when (this?.state) {

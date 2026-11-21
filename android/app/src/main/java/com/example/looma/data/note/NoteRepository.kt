@@ -47,7 +47,7 @@ class NoteRepository internal constructor(
     private val vaultRepository: VaultRepository,
     private val index: NoteIndex,
     onFilesChanged: suspend (Vault, IndexDelta) -> Unit = { _, _ -> },
-    private val onVaultScanned: suspend (Vault) -> Unit = {},
+    private val onVaultScanned: suspend (Vault, Boolean) -> Unit = { _, _ -> },
 ) {
     private val parser = MarkdownParser()
     private val indexUpdater = NoteIndexUpdater(index, onFilesChanged)
@@ -70,7 +70,7 @@ class NoteRepository internal constructor(
         return read(current.id) { vault, _ ->
             if (vault.rootPath != current.rootPath) throw VaultFileException(VaultFileFailure.NOT_FOUND)
             val scan = indexUpdater.scan(vault, force)
-            if (expected == null) onVaultScanned(vault)
+            if (expected == null) onVaultScanned(vault, !scan.complete || scan.unreadableCount > 0 || stalled != null)
             NoteListResult(
                 vault = vault,
                 items = scan.notes

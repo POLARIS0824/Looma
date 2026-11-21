@@ -304,7 +304,7 @@ class HomeViewModel(
         if (keyword.isEmpty()) return
         val semantic = _uiState.value.search.semanticSearch
         if (semantic != HomeSemanticSearch.Off) {
-            val canSearch = (semantic.canSearch && semantic != HomeSemanticSearch.SearchFailed) ||
+            val canSearch = semantic.showsResults ||
                 (retryFailedSemantic && semantic == HomeSemanticSearch.SearchFailed)
             if (canSearch) scheduleSemanticSearch(value, keyword, debounce)
             return

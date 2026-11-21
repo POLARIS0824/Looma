@@ -308,6 +308,27 @@ private fun NoteWorkspace(
     )
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
+    val resolver = androidx.compose.ui.platform.LocalContext.current.contentResolver
+    var exportText by remember { mutableStateOf<String?>(null) }
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+        val snapshot = exportText
+        exportText = null
+        if (uri != null) scope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                if (snapshot == null) return@withContext false
+                try {
+                    val output = resolver.openOutputStream(uri, "wt") ?: return@withContext false
+                    output.bufferedWriter(Charsets.UTF_8).use { it.write(snapshot) }
+                    true
+                } catch (_: java.io.IOException) {
+                    false
+                } catch (_: SecurityException) {
+                    false
+                }
+            }
+            snackbarHostState.showSnackbar(resources.getString(if (saved) R.string.editor_exported else R.string.editor_export_failed))
+        }
+    }
     val leaveWorkspace = {
         onRequestLeave {
             focusManager.clearFocus(force = true)
@@ -534,6 +555,10 @@ private fun NoteWorkspace(
             NoteSaveBanner(
                 state = state,
                 onRetry = onRetrySave,
+                onExport = {
+                    exportText = contentBuffer.text.toString()
+                    export.launch("${state.fileName} (copy).md")
+                },
                 onReload = onReloadFromDisk,
                 onOverwrite = onOverwrite,
             )

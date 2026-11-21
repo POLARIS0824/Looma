@@ -55,8 +55,10 @@ class SemanticSearchRepository internal constructor(
         if (paths.isNotEmpty()) work.enqueueUpdates(vault)
     }
 
-    internal suspend fun resumeUpdates(vault: Vault) {
-        if (supported && cache.hasPending(vault.id)) work.enqueueUpdates(vault)
+    internal suspend fun resumeUpdates(vault: Vault, partial: Boolean) {
+        if (!supported || !cache.enabled(vault.id)) return
+        if (cache.markScanPartial(vault.id, partial)) work.cacheChanged()
+        if (cache.hasPending(vault.id)) work.enqueueUpdates(vault)
     }
 
     internal suspend fun downloadModel(onProgress: suspend (Int) -> Unit) = withContext(Dispatchers.IO) {

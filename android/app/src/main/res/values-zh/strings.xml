@@ -344,4 +344,7 @@
     <string name="editor_too_large_recovered">正文超过 2 MiB，完整内容已另存为 %1$s</string>
     <string name="semantic_index_partial">部分笔记尚未编入索引，可以搜索已索引的笔记</string>
     <string name="semantic_index_updating">正在更新已变更的笔记，当前结果可能不完整</string>
+    <string name="editor_export">导出副本</string>
+    <string name="editor_exported">已导出副本</string>
+    <string name="editor_export_failed">未能导出副本</string>
 </resources>

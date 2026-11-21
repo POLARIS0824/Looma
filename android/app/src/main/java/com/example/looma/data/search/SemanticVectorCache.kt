@@ -40,9 +40,9 @@ internal class SemanticVectorCache(private val root: File) {
     fun partial(vaultId: VaultId): Boolean =
         directory(vaultId).resolve("partial-index").isFile || markers(vaultId, "*.skipped").isNotEmpty()
 
-    fun markScanPartial(vaultId: VaultId, partial: Boolean) {
+    fun markScanPartial(vaultId: VaultId, partial: Boolean): Boolean {
         val marker = directory(vaultId).resolve("partial-index")
-        if (partial) marker.createNewFile() else Files.deleteIfExists(marker.toPath())
+        return if (partial) marker.createNewFile() else Files.deleteIfExists(marker.toPath())
     }
 
     fun markSkipped(id: NoteId, skipped: Boolean) {

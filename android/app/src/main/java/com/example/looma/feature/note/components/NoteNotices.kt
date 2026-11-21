@@ -30,6 +30,7 @@ import com.example.looma.ui.components.pageMargin
 internal fun NoteSaveBanner(
     state: NoteUiState,
     onRetry: () -> Unit,
+    onExport: () -> Unit,
     onReload: () -> Unit,
     onOverwrite: () -> Unit,
 ) {
@@ -44,6 +45,7 @@ internal fun NoteSaveBanner(
         SaveBannerContent(
             state = shown,
             onRetry = onRetry,
+            onExport = onExport,
             onReload = onReload,
             onOverwrite = onOverwrite,
         )
@@ -54,6 +56,7 @@ internal fun NoteSaveBanner(
 private fun SaveBannerContent(
     state: NoteUiState,
     onRetry: () -> Unit,
+    onExport: () -> Unit,
     onReload: () -> Unit,
     onOverwrite: () -> Unit,
 ) {
@@ -71,6 +74,9 @@ private fun SaveBannerContent(
         message = message,
         modifier = Modifier.padding(horizontal = pageMargin(), vertical = 4.dp),
     ) {
+        if (state.exceedsSizeLimit) {
+            ErrorBannerAction(label = stringResource(R.string.editor_export), onClick = onExport)
+        }
         if (state.isConflict) {
             ErrorBannerAction(
                 label = stringResource(R.string.editor_reload_from_disk),

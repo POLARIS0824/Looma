@@ -350,4 +350,7 @@
     <string name="editor_too_large_recovered">The note exceeds 2 MiB. Your full text was exported to %1$s.</string>
     <string name="semantic_index_partial">Some notes are missing from this index. You can search the indexed notes.</string>
     <string name="semantic_index_updating">Updating changed notes. Results may be incomplete.</string>
+    <string name="editor_export">Export a copy</string>
+    <string name="editor_exported">Copy exported</string>
+    <string name="editor_export_failed">Could not export the copy</string>
 </resources>

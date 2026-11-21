@@ -200,14 +200,14 @@ internal fun HomeSearchOverlay(
                         },
                         onRetry = actions.onRetrySemanticSearch,
                     )
-                    if (semantic == HomeSemanticSearch.Off || semantic == HomeSemanticSearch.Ready) {
+                    if (semantic == HomeSemanticSearch.Off || semantic.showsResults) {
                         HomeSearchResults(
                             query = searchState.query,
                             results = searchState.results,
                             isGridMode = isGridMode,
                             isSearching = searchState.isSearching,
                             recentSearches = searchState.recentSearches,
-                            semanticSearch = semantic == HomeSemanticSearch.Ready,
+                            semanticSearch = semantic.showsResults,
                             onNoteClick = { result ->
                                 keyboard?.hide()
                                 actions.onSearchResultClick(result)

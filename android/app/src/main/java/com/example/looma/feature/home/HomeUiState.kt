@@ -198,7 +198,8 @@ sealed interface HomeSemanticSearch {
     data object Ready : HomeSemanticSearch
     data object SearchFailed : HomeSemanticSearch
 
-    val canSearch: Boolean get() = this == Ready || this == Updating || this == Partial || this == SearchFailed
+    val showsResults: Boolean get() = this == Ready || this == Updating || this == Partial
+    val canSearch: Boolean get() = showsResults || this == SearchFailed
 }
 
 data class HomeUiState(

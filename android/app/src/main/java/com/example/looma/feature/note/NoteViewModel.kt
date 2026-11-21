@@ -189,6 +189,10 @@ class NoteViewModel(
                 }
             } catch (e: CancellationException) {
                 throw e
+            } catch (error: UnsupportedNoteEncoding) {
+                if (canRefreshDraft()) {
+                    _uiState.update { it.copy(loadFailed = true, readOnlyPreview = error.preview) }
+                }
             } catch (_: Exception) {
             }
             refreshWiki()
