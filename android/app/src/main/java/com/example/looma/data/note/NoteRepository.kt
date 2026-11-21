@@ -190,9 +190,9 @@ class NoteRepository internal constructor(
         parser.note(store.readNote(id, requireUtf8 = true))
     }
 
-    internal suspend fun readSearchSource(id: NoteId, expectedRoot: String): StoredMarkdown = read(id.vaultId) { vault, store ->
+    internal suspend fun readSearchSource(id: NoteId, expectedRoot: String, requireUtf8: Boolean = false): StoredMarkdown = read(id.vaultId) { vault, store ->
         if (vault.rootPath != expectedRoot) throw VaultFileException(VaultFileFailure.NOT_FOUND)
-        store.readNote(id)
+        store.readNote(id, requireUtf8 = requireUtf8)
     }
 
     suspend fun imageContext(id: NoteId): ImageContext? = read(id.vaultId) { _, store -> store.imageContext(id) }

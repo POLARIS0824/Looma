@@ -158,12 +158,17 @@ class SemanticSearchRepository internal constructor(
     internal suspend fun search(
         query: String,
         candidates: List<SearchableNote>,
+        relatedDocumentTitle: String? = null,
     ): List<SemanticSearchHit> = withContext(Dispatchers.IO) {
         if (candidates.isEmpty()) return@withContext emptyList()
         val vault = vaults.requireCurrentVault()
         if (!cache.hasSearchableIndex(vault.id)) throw SemanticIndexMissingException()
         val ids = candidates.asSequence().map { it.id }.filter { it.vaultId == vault.id }.distinct()
-        val queryVector = withModel { it.query(query.cappedForModel(1024)) }
+        val queryVector = withModel { embedder ->
+            val text = query.cappedForModel(1024)
+            if (relatedDocumentTitle == null) embedder.query(text)
+            else embedder.document(text, relatedDocumentTitle.cappedForModel(128))
+        }
         check(queryVector.size == EmbeddingGemma.DIMENSIONS && queryVector.all { it.isFinite() })
 
         val ranked = mutableListOf<RankedHit>()
@@ -187,6 +192,7 @@ class SemanticSearchRepository internal constructor(
                     id = id,
                     anchor = passage.anchor,
                     section = passage.section,
+                    similarity = passage.score,
                     excerpt = note.content.substring(passage.anchor.start, passage.anchor.end),
                 ))
             }
@@ -227,6 +233,7 @@ internal data class SemanticSearchHit(
     val anchor: PassageAnchor,
     val section: String,
     val excerpt: String,
+    val similarity: Double = 0.0,
 )
 
 internal class SemanticModelMissingException : IOException()

@@ -123,6 +123,7 @@ fun NoteRoute(
     onNavigateUp: () -> Unit,
     onOpenNote: (NoteId) -> Unit,
     onRenameNavigate: (NoteId, NoteId) -> Unit,
+    weaveAction: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
     passage: PassageAnchor? = null,
 ) {
@@ -212,6 +213,7 @@ fun NoteRoute(
                     onOpenNote = { id ->
                         if (viewModel.prepareToOpenLinkedNote()) onOpenNote(id)
                     },
+                    weaveAction = weaveAction,
                     onPickImage = pickImage,
                     onImageInserted = viewModel::onImageInserted,
                     onImageErrorShown = viewModel::onImageErrorShown,
@@ -254,6 +256,7 @@ private fun NoteWorkspace(
     onPickImage: () -> Unit,
     onImageInserted: () -> Unit,
     onImageErrorShown: () -> Unit,
+    weaveAction: @Composable () -> Unit = {},
     onTitleFocusChange: (Boolean) -> Unit = {},
     editorActive: Boolean = true,
     modifier: Modifier = Modifier,
@@ -476,6 +479,7 @@ private fun NoteWorkspace(
             NoteTopBar(
                 mode = mode,
                 onNavigateUp = leaveWorkspace,
+                weaveAction = weaveAction,
                 onToggleMode = {
                     val next = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
                     if (next == NoteMode.Read) {

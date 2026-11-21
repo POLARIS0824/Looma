@@ -1,5 +1,11 @@
 package com.example.looma.navigation
 
+import com.example.looma.data.assistant.LocalGenerator
+import com.example.looma.data.assistant.VaultAgent
+import com.example.looma.data.assistant.VaultEvidence
+import com.example.looma.feature.ask.AskScreen
+import com.example.looma.feature.ask.AskViewModel
+import com.example.looma.feature.note.components.WeaveAction
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -80,7 +86,10 @@ private val LocalSceneBackState = compositionLocalOf<NavigationEventState<SceneI
 }
 
 @Composable
-fun LoomaNavGraph(
+internal fun LoomaNavGraph(
+    evidence: VaultEvidence,
+    generator: LocalGenerator,
+    agent: VaultAgent,
     noteRepository: NoteRepository,
     folderRepository: FolderRepository,
     searchHistoryRepository: SearchHistoryRepository,
@@ -205,6 +214,17 @@ fun LoomaNavGraph(
                     )
                 }
 
+                entry<LoomaRoute.Ask>(clazzContentKey = { "ask/${vault?.id?.value.orEmpty()}" }) {
+                    val active = vault ?: return@entry
+                    val model = viewModel<AskViewModel> {
+                        AskViewModel(active, agent, evidence, generator)
+                    }
+                    AskScreen(model,
+                        navigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                        open = { backStack.add(LoomaRoute.Note.from(it.id, passage = it.anchor)) },
+                    )
+                }
+
                 entry<LoomaRoute.Trash> {
                     val trashViewModel: TrashViewModel = viewModel(
                         factory = TrashViewModel.factory(noteRepository),
@@ -288,6 +308,12 @@ fun LoomaNavGraph(
                         titleBuffer = titleBuffer,
                         onTitleFocusChange = { titleFocused.value = it },
                         noteId = noteId,
+                        weaveAction = {
+                            if (vault != null) WeaveAction(
+                                vault, noteId, evidence, noteViewModel,
+                                open = { backStack.add(LoomaRoute.Note.from(it.id, passage = it.anchor)) },
+                            )
+                        },
                         retargetVersion = route.retargetVersion,
                         passage = route.passage,
                         onNavigateUp = navigateUp,
@@ -375,6 +401,7 @@ private fun NoteBackHandler(
 
 private fun NavKey?.toDestination(): LoomaDestination? = when (this) {
     LoomaRoute.Home -> LoomaDestination.Notes
+    LoomaRoute.Ask -> LoomaDestination.Ask
     LoomaRoute.Trash -> LoomaDestination.Trash
     LoomaRoute.Settings -> LoomaDestination.Settings
     else -> null
@@ -386,10 +413,15 @@ internal fun selectDrawerDestination(backStack: MutableList<NavKey>, target: Loo
             backStack.clear()
             backStack.add(LoomaRoute.Home)
         }
+        LoomaDestination.Ask,
         LoomaDestination.Trash,
         LoomaDestination.Settings,
         -> {
-            val route = if (target == LoomaDestination.Trash) LoomaRoute.Trash else LoomaRoute.Settings
+            val route = when (target) {
+                LoomaDestination.Ask -> LoomaRoute.Ask
+                LoomaDestination.Trash -> LoomaRoute.Trash
+                else -> LoomaRoute.Settings
+            }
             if (backStack.lastOrNull() == route) return
             backStack.clear()
             backStack.add(LoomaRoute.Home)

@@ -1,0 +1,30 @@
+<resources>
+    <string name="ask_title">Ask this vault</string>
+    <string name="ask_question">Question about your notes</string>
+    <string name="ask_investigate">Let the agent search further</string>
+    <string name="ask_submit">Find an answer</string>
+    <string name="ask_import">Import local generation model (.litertlm)</string>
+    <string name="ask_replace">Replace local generation model</string>
+    <string name="ask_tool">Investigating · %1$s</string>
+    <string name="ask_import_failed">Could not import this model. Check free space and choose a compatible LiteRT-LM instruction model.</string>
+    <string name="ask_run_failed">Could not read this vault. Check access and try again.</string>
+    <string name="ask_timeout">The investigation timed out. Try a narrower question.</string>
+    <string name="ask_changed">This passage has changed or moved. Search again to update the citation.</string>
+    <string name="ask_none">No matching evidence found.</string>
+    <string name="ask_needs_model">Import a local instruction model to generate an answer from these passages.</string>
+    <string name="ask_insufficient">The model could not support an answer with valid citations.</string>
+    <string name="ask_model_failed">Local generation failed. The retrieved passages are available below.</string>
+    <string name="ask_lexical">Using keyword evidence</string>
+    <string name="ask_partial">Some notes could not be searched</string>
+    <string name="weave_title">Weave connections</string>
+    <string name="weave_confirm">Add this connection?</string>
+    <string name="weave_changed">The connection could not be applied or loaded. Check the note and refresh suggestions.</string>
+    <string name="weave_empty">No new connections found for this note.</string>
+    <string name="weave_preview">Preview link</string>
+    <string name="weave_diff">Append to this note\n+ [[%1$s]]</string>
+    <string name="weave_insert">Insert link</string>
+    <string name="weave_retry">Refresh suggestions</string>
+    <string name="weave_similarity">Passage similarity · %1$.2f</string>
+    <string name="weave_keywords">Shared terms · %1$s</string>
+    <string name="ask_length">Use a question of 1,000 characters or fewer</string>
+</resources>
