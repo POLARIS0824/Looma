@@ -395,10 +395,10 @@ class NoteViewModel(
         _uiState.update { it.copy(isLoading = true, leave = NoteLeave.Idle) }
         loadJob = enqueue { generation ->
             try {
-                val note = repository.reloadNote(currentId)
+                val note = repository.editorDocument(currentId, recover = true)
                 if (generation != operationGeneration) return@enqueue
                 lastConflictCopy = null
-                draft.replaceFromDisk(note)
+                draft.replaceFromDisk(note.content, note.revision)
                 _uiState.update {
                     it.copy(
                         isLoading = false,

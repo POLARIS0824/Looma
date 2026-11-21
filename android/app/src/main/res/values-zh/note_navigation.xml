@@ -7,5 +7,4 @@
     <string name="note_next">下一个</string>
     <string name="note_locate">定位到结果</string>
     <string name="weave_focus">围绕当前段落推荐</string>
-    <string name="weave_focus_diff">将在当前段落之后插入\n+ [[%1$s]]</string>
 </resources>

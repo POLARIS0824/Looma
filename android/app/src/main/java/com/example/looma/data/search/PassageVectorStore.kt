@@ -53,17 +53,33 @@ internal class PassageVectorStore(context: Context, private val file: File) :
         }
     }
 
-    fun mark(vault: VaultId, paths: Collection<NotePath>) {
+    fun mark(vault: VaultId, paths: Collection<NotePath>, replaceTicket: Boolean = true) {
         if (paths.isEmpty()) return
         val ticket = UUID.randomUUID().toString()
+        val sql = if (replaceTicket) "INSERT OR REPLACE INTO dirty VALUES(?,?,?)"
+            else "INSERT OR IGNORE INTO dirty VALUES(?,?,?)"
         transaction { db ->
-            for (path in paths) db.execSQL("INSERT OR REPLACE INTO dirty VALUES(?,?,?)", arrayOf(vault.value, path.relativePath, ticket))
+            for (path in paths) db.execSQL(sql, arrayOf(vault.value, path.relativePath, ticket))
         }
     }
 
     fun pending(vault: VaultId): Map<NotePath, String> = buildMap {
         readableDatabase.rawQuery("SELECT path,ticket FROM dirty WHERE vault=?", arrayOf(vault.value)).use {
             while (it.moveToNext()) put(NotePath(it.getString(0)), it.getString(1))
+        }
+    }
+
+    fun missing(vault: VaultId, ids: Set<NoteId>, checkActive: () -> Unit): List<NoteId> = buildList {
+        for (group in ids.chunked(400)) {
+            checkActive()
+            val paths = group.map { it.path.relativePath }
+            val slots = paths.joinToString(",") { "?" }
+            val args = (listOf(vault.value) + paths).toTypedArray()
+            val absent = paths.toMutableSet()
+            readableDatabase.rawQuery("SELECT path FROM documents WHERE vault=? AND path IN ($slots)", args).use {
+                while (it.moveToNext()) absent.remove(it.getString(0))
+            }
+            group.filterTo(this) { it.path.relativePath in absent }
         }
     }
 

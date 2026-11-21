@@ -591,8 +591,7 @@ private fun NoteWorkspace(
                                     is ModeScrollRequest.ReadOffset -> request.itemIndex == 0
                                     else -> readScroll.firstVisibleItemIndex == 0
                                 }
-                            readRequest -> previewIsCurrent
-                            else -> true
+                            else -> previewIsCurrent
                         }
                         NoteReadBody(
                             preview = renderedPreview.takeIf { canShowPreview },
@@ -601,6 +600,7 @@ private fun NoteWorkspace(
                             wiki = state.wiki,
                             onWikiLinkClick = onWikiLinkClick,
                             onOpenNote = onOpenNote,
+                            onMissingLink = { uri -> scope.launch { snackbarHostState.showSnackbar(resources.getString(R.string.note_link_missing, uri)) } },
                             title = if (state.showInlineTitle) {
                                 {
                                     Text(
@@ -773,6 +773,7 @@ private fun NoteReadBody(
     wiki: WikiContext,
     onWikiLinkClick: (String) -> Unit,
     onOpenNote: (NoteId) -> Unit,
+    onMissingLink: (String) -> Unit,
     title: (@Composable () -> Unit)?,
     onCheckboxToggle: (PreparedMarkdown.Ready, position: Int, checked: Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -795,11 +796,19 @@ private fun NoteReadBody(
     }
     Box(modifier = modifier, contentAlignment = Alignment.TopCenter) {
         val platform = androidx.compose.ui.platform.LocalUriHandler.current
-        val handler = remember(wiki, platform, onOpenNote) {
+        val handler = remember(wiki, platform, onOpenNote, onMissingLink) {
             object : androidx.compose.ui.platform.UriHandler {
                 override fun openUri(uri: String) {
                     val target = wiki.localNote(uri)
-                    if (target != null) onOpenNote(target) else platform.openUri(uri)
+                    when {
+                        target != null -> onOpenNote(target)
+                        android.net.Uri.parse(uri).isRelative -> onMissingLink(uri)
+                        else -> try {
+                            platform.openUri(uri)
+                        } catch (_: IllegalArgumentException) {
+                            onMissingLink(uri)
+                        }
+                    }
                 }
             }
         }

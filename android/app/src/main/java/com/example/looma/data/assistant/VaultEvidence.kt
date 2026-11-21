@@ -5,6 +5,8 @@ import com.example.looma.data.note.StoredMarkdown
 import com.example.looma.data.note.NoteListEntry
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.search.SemanticSearchRepository
+import android.util.LruCache
+import com.example.looma.data.search.SemanticChunk
 import com.example.looma.data.search.semanticChunks
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.markdown.NotePassage
@@ -28,11 +30,11 @@ internal data class Evidence(val id: NoteId, val anchor: PassageAnchor, val text
 internal data class EvidenceSet(val hits: List<Evidence>, val semantic: Boolean, val partial: Boolean)
 internal data class Connection(val source: NoteId, val evidence: Evidence, val reference: String, val tags: Set<String>, val keywords: List<String>, val passage: NotePassage?)
 internal class EvidenceDocument(val source: StoredMarkdown) {
-    var chunks: List<com.example.looma.data.search.SemanticChunk>? = null
+    var chunks: List<SemanticChunk>? = null
 }
 
 internal data class EvidenceScope(val vault: Vault, val notes: List<NoteListEntry>, val partial: Boolean,
-    val documents: android.util.LruCache<NoteId, EvidenceDocument> = object : android.util.LruCache<NoteId, EvidenceDocument>(4 * 1024 * 1024) {
+    val documents: LruCache<NoteId, EvidenceDocument> = object : LruCache<NoteId, EvidenceDocument>(4 * 1024 * 1024) {
         override fun sizeOf(key: NoteId, value: EvidenceDocument) = value.source.content.length.coerceAtLeast(1)
     })
 

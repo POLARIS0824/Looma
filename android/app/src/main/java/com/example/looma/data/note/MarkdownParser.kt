@@ -1,5 +1,7 @@
 package com.example.looma.data.note
 
+import com.example.looma.domain.model.NotePath
+import com.example.looma.domain.wiki.LocalNoteLink
 import com.example.looma.domain.markdown.MarkdownIndex
 import com.example.looma.domain.markdown.forEachLineRange
 
@@ -35,12 +37,12 @@ internal class MarkdownParser {
 
     fun tags(text: String): Set<String> = MarkdownIndex.extractMetadata(text).tags
 
-    fun parseForIndex(text: String, fallbackTitle: String, path: com.example.looma.domain.model.NotePath? = null): MarkdownMetadata {
+    fun parseForIndex(text: String, fallbackTitle: String, path: NotePath? = null): MarkdownMetadata {
         val ast = MarkdownIndex.extractMetadata(text, forIndex = true)
         val visibleLines = nonCodeLines(text.substring(ast.bodyStart), ast.blockCodeRanges)
         val links = ast.indexedLinks.map { MarkdownLink(it.target, it.embedded) } +
             ast.inlineDestinations.mapNotNull { link ->
-                path?.let { com.example.looma.domain.wiki.LocalNoteLink.resolve(it, link.target) }
+                path?.let { LocalNoteLink.resolve(it, link.target) }
                     ?.let { MarkdownLink(it.relativePath, false) }
             }
         return MarkdownMetadata(

@@ -11,6 +11,7 @@ import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.removeMarkdownSuffix
+import com.example.looma.domain.wiki.LocalNoteLink
 import com.example.looma.domain.wiki.WikiGraph
 import com.example.looma.domain.wiki.WikiNote
 import java.io.ByteArrayOutputStream
@@ -415,14 +416,14 @@ internal class VaultRelocation(private val vault: Vault) {
         val rewritten = WikiLinks.retargetSpans(body, spans) { span ->
             val target = span.target
             if (localDestinations[span.range.first] === span) {
-                val original = com.example.looma.domain.wiki.LocalNoteLink.resolve(NotePath(oldPath), target)
+                val original = LocalNoteLink.resolve(NotePath(oldPath), target)
                     ?: return@retargetSpans null
                 val destination = paths[original.relativePath] ?: return@retargetSpans null
-                if (com.example.looma.domain.wiki.LocalNoteLink.resolve(NotePath(newPath), target)?.relativePath == destination)
+                if (LocalNoteLink.resolve(NotePath(newPath), target)?.relativePath == destination)
                     return@retargetSpans null
                 updated++
                 val fragment = target.indexOf('#').let { if (it < 0) "" else target.substring(it) }
-                return@retargetSpans com.example.looma.domain.wiki.LocalNoteLink.destination(NotePath(newPath), NotePath(destination)) + fragment
+                return@retargetSpans LocalNoteLink.destination(NotePath(newPath), NotePath(destination)) + fragment
             }
             val standard = span.range.first in standardOffsets
             if (standard || span.range.first in imageOffsets) {

@@ -83,11 +83,13 @@ class NoteRepository internal constructor(
             if (vault.rootPath != current.rootPath) throw VaultFileException(VaultFileFailure.NOT_FOUND)
             val scan = indexUpdater.scan(vault, force)
             if (expected == null) onVaultScanned(vault, !scan.complete || scan.unreadableCount > 0 || stalled != null)
+            val previous = recentScan?.result
+            val items = if (!force && previous != null && previous.vault == vault &&
+                scan.version != null && previous.version == scan.version) previous.items
+                else scan.notes.map { it.toListEntry() }.sortedByDescending { it.summary.modifiedAt }
             NoteListResult(
                 vault = vault,
-                items = scan.notes
-                    .map { it.toListEntry() }
-                    .sortedByDescending { it.summary.modifiedAt },
+                items = items,
                 folders = scan.folders,
                 unreadableCount = scan.unreadableCount,
                 stalledRelocation = stalled,
@@ -233,11 +235,8 @@ class NoteRepository internal constructor(
     suspend fun imageContext(id: NoteId): ImageContext? = read(id.vaultId) { _, store -> store.imageContext(id) }
 
     internal suspend fun editorDocument(id: NoteId, recover: Boolean = false): StoredMarkdown {
-        if (recover) {
-            val vault = currentVault(id.vaultId)
-            VaultWriteCoordinator.write(vault) { recoverPendingRelocations(vault, retryStalled = false) }
-        }
-        return read(id.vaultId) { _, store -> store.readNote(id, requireUtf8 = true) }
+        return if (recover) write(id.vaultId) { _, store -> store.readNote(id, requireUtf8 = true) }
+        else read(id.vaultId) { _, store -> store.readNote(id, requireUtf8 = true) }
     }
 
     suspend fun openNote(id: NoteId): Note = write(id.vaultId) { _, store ->

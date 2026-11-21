@@ -210,14 +210,16 @@ class SemanticSearchRepository internal constructor(
         val checkActive = coroutineContext::ensureActive
         val current = store.rank(vault.id, ids, queryVector, checkActive)
         current.forEach { (id, passage) -> ranked += RankedHit(id, passage) }
-        if (!store.initialized(vault.id)) {
+        val stale = mutableListOf<NoteId>()
+        if (store.initialized(vault.id)) {
+            stale += store.missing(vault.id, ids - current.keys, checkActive).filterNot(cache::isSkipped)
+        } else {
             for (id in ids) {
                 checkActive()
                 if (id in current) continue
                 cache.forNote(id).rank(queryVector, checkActive)?.let { ranked += RankedHit(id, it) }
             }
         }
-        val stale = mutableListOf<NoteId>()
         val results = buildList {
             for ((id, passage) in ranked.sortedWith(RANKING)) {
                 if (size == MAX_RESULTS) break
@@ -238,7 +240,7 @@ class SemanticSearchRepository internal constructor(
         }
         if (!SemanticVaultTarget(vault).matches(vaults.getCurrentVault())) return@withContext emptyList()
         if (stale.isNotEmpty()) {
-            store.mark(vault.id, stale.map { it.path })
+            store.mark(vault.id, stale.map { it.path }, replaceTicket = false)
             work.enqueueUpdates(vault)
         }
         results

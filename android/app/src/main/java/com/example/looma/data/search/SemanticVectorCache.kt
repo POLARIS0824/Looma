@@ -47,6 +47,8 @@ internal class SemanticVectorCache(private val root: File) {
         return if (partial) marker.createNewFile() else Files.deleteIfExists(marker.toPath())
     }
 
+    fun isSkipped(id: NoteId) = directory(id.vaultId).resolve(key(id.path.relativePath) + ".skipped").isFile
+
     fun markSkipped(id: NoteId, skipped: Boolean) {
         val marker = directory(id.vaultId).resolve("${key(id.path.relativePath)}.skipped")
         if (skipped) marker.createNewFile() else Files.deleteIfExists(marker.toPath())

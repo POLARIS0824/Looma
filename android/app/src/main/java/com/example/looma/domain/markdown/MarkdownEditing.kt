@@ -34,7 +34,7 @@ object MarkdownEditing {
         return MarkdownEdit(text.replaceRange(edit.from, edit.to, edit.replacement), edit.selection)
     }
 
-    internal fun replacement(command: MarkdownCommand, text: String, selection: TextSelection): MarkdownReplacement {
+    internal fun replacement(command: MarkdownCommand, text: CharSequence, selection: TextSelection): MarkdownReplacement {
         val from = selection.from.coerceIn(0, text.length)
         val to = selection.to.coerceIn(0, text.length)
         return when (command) {
@@ -96,7 +96,7 @@ object MarkdownEditing {
     }
 
     private fun toggleInline(
-        text: String,
+        text: CharSequence,
         from: Int,
         to: Int,
         style: MarkdownInlineStyle,
@@ -137,12 +137,12 @@ object MarkdownEditing {
         return MarkdownReplacement(from, to, updated, TextSelection(from + length, to + length))
     }
 
-    private fun isWrappedOutside(text: String, from: Int, to: Int, style: MarkdownInlineStyle): Boolean {
+    private fun isWrappedOutside(text: CharSequence, from: Int, to: Int, style: MarkdownInlineStyle): Boolean {
         val marker = style.marker
         val length = marker.length
         if (from < length || to + length > text.length) return false
-        if (!text.regionMatches(from - length, marker, 0, length)) return false
-        if (!text.regionMatches(to, marker, 0, length)) return false
+        if (!text.startsWith(marker, from - length)) return false
+        if (!text.startsWith(marker, to)) return false
         val char = marker[0]
         val before = runEndingAt(text, from, char)
         val after = runStartingAt(text, to, char)
@@ -153,12 +153,12 @@ object MarkdownEditing {
         }
     }
 
-    private fun isWrappedInside(text: String, from: Int, to: Int, style: MarkdownInlineStyle): Boolean {
+    private fun isWrappedInside(text: CharSequence, from: Int, to: Int, style: MarkdownInlineStyle): Boolean {
         val marker = style.marker
         val length = marker.length
         if (to - from < 2 * length) return false
-        if (!text.regionMatches(from, marker, 0, length)) return false
-        if (!text.regionMatches(to - length, marker, 0, length)) return false
+        if (!text.startsWith(marker, from)) return false
+        if (!text.startsWith(marker, to - length)) return false
         return when (style) {
             MarkdownInlineStyle.Italic, MarkdownInlineStyle.Code -> {
                 val next = text.getOrNull(from + length)
@@ -170,7 +170,7 @@ object MarkdownEditing {
     }
 
     private fun findSpan(
-        text: String,
+        text: CharSequence,
         from: Int,
         to: Int,
         style: MarkdownInlineStyle,
@@ -184,7 +184,7 @@ object MarkdownEditing {
     }
 
     private fun removeRanges(
-        text: String,
+        text: CharSequence,
         selection: TextSelection,
         ranges: List<IntRange>,
     ): MarkdownReplacement {
@@ -215,7 +215,7 @@ object MarkdownEditing {
         return mapped.coerceAtLeast(0)
     }
 
-    private fun applyLink(text: String, from: Int, to: Int): MarkdownReplacement {
+    private fun applyLink(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val label = text.substring(from, to)
         val existing = LINK.matchEntire(label)
         if (existing != null) {
@@ -233,7 +233,7 @@ object MarkdownEditing {
         )
     }
 
-    private fun applyHeading(text: String, from: Int, to: Int, level: Int): MarkdownReplacement {
+    private fun applyHeading(text: CharSequence, from: Int, to: Int, level: Int): MarkdownReplacement {
         val lines = linesInRange(text, from, to)
         val parsed = lines.map { parseLine(it.text) }
         val nonBlank = parsed.filterIndexed { index, _ -> lines[index].text.isNotBlank() }
@@ -254,7 +254,7 @@ object MarkdownEditing {
 
     private enum class ListKind { Bullet, Numbered, Checklist }
 
-    private fun applyList(text: String, from: Int, to: Int, kind: ListKind): MarkdownReplacement {
+    private fun applyList(text: CharSequence, from: Int, to: Int, kind: ListKind): MarkdownReplacement {
         val lines = linesInRange(text, from, to)
         val parsed = lines.map { parseLine(it.text) }
         val nonBlank = parsed.filterIndexed { index, _ -> lines[index].text.isNotBlank() }
@@ -282,7 +282,7 @@ object MarkdownEditing {
         return rewriteLines(text, from, to, rewrites)
     }
 
-    private fun applyQuote(text: String, from: Int, to: Int): MarkdownReplacement {
+    private fun applyQuote(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val lines = linesInRange(text, from, to)
         val parsed = lines.map { parseLine(it.text) }
         val nonBlank = parsed.filterIndexed { index, _ -> lines[index].text.isNotBlank() }
@@ -301,7 +301,7 @@ object MarkdownEditing {
         return rewriteLines(text, from, to, rewrites)
     }
 
-    private fun applyCodeBlock(text: String, from: Int, to: Int): MarkdownReplacement {
+    private fun applyCodeBlock(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val leading = if (from > 0 && text[from - 1] != '\n') "\n" else ""
         if (from == to) {
             val trailing = if (to < text.length && text[to] != '\n') "\n" else ""
@@ -320,7 +320,7 @@ object MarkdownEditing {
         )
     }
 
-    private fun insertTable(text: String, from: Int, to: Int): MarkdownReplacement {
+    private fun insertTable(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val leading = if (from > 0 && text[from - 1] != '\n') "\n" else ""
         val trailing = if (to < text.length && text[to] != '\n') "\n" else ""
         val table = "|  |  |\n| --- | --- |\n|  |  |$trailing"
@@ -331,7 +331,7 @@ object MarkdownEditing {
         )
     }
 
-    private fun insertDivider(text: String, from: Int, to: Int): MarkdownReplacement {
+    private fun insertDivider(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val leading = when {
             from == 0 -> "\n"
             text[from - 1] != '\n' -> "\n\n"
@@ -418,10 +418,10 @@ object MarkdownEditing {
         return null
     }
 
-    private fun linesInRange(text: String, from: Int, to: Int): List<LineSlice> =
+    private fun linesInRange(text: CharSequence, from: Int, to: Int): List<LineSlice> =
         lineSlices(text, from, to).toList()
 
-    private fun lineSlices(text: String, from: Int, to: Int): Sequence<LineSlice> = sequence {
+    private fun lineSlices(text: CharSequence, from: Int, to: Int): Sequence<LineSlice> = sequence {
         val firstStart = text.lastIndexOf('\n', from - 1) + 1
         val lastPosition = if (to > from) (to - 1).coerceAtLeast(from) else to
         val lastStart = text.lastIndexOf('\n', lastPosition - 1) + 1
@@ -435,7 +435,7 @@ object MarkdownEditing {
     }
 
     private fun rewriteLines(
-        text: String,
+        text: CharSequence,
         from: Int,
         to: Int,
         rewrites: List<Rewrite>,
@@ -492,7 +492,7 @@ object MarkdownEditing {
         val closeEnd: Int,
     )
 
-    private fun spansInLine(text: String, lineStart: Int, lineEnd: Int): List<Span> {
+    private fun spansInLine(text: CharSequence, lineStart: Int, lineEnd: Int): List<Span> {
         val spans = mutableListOf<Span>()
         val open = mutableMapOf<MarkdownInlineStyle, IntRange>()
         var index = lineStart
@@ -552,7 +552,7 @@ object MarkdownEditing {
         }
     }
 
-    private fun runEndingAt(text: String, position: Int, char: Char): Int {
+    private fun runEndingAt(text: CharSequence, position: Int, char: Char): Int {
         var count = 0
         var index = position - 1
         while (index >= 0 && text[index] == char) {
@@ -562,7 +562,7 @@ object MarkdownEditing {
         return count
     }
 
-    private fun runStartingAt(text: String, position: Int, char: Char): Int {
+    private fun runStartingAt(text: CharSequence, position: Int, char: Char): Int {
         var count = 0
         var index = position
         while (index < text.length && text[index] == char) {
