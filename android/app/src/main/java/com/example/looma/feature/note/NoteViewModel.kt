@@ -121,12 +121,6 @@ class NoteViewModel(
             try {
                 val note = repository.openNote(currentId)
                 val keepEmptyNotes = settingsRepository.settings.first().keepEmptyNotes
-                val wiki = runCatching { repository.wikiContext(currentId) }
-                    .onFailure { if (it is CancellationException) throw it }
-                    .getOrDefault(WikiContext.Empty)
-                val imageContext = runCatching { repository.imageContext(currentId) }
-                    .onFailure { if (it is CancellationException) throw it }
-                    .getOrNull()
                 if (generation != operationGeneration) return@enqueue
                 if (draft.isDirty) {
                     _uiState.update { it.copy(isLoading = false) }
@@ -145,10 +139,21 @@ class NoteViewModel(
                         loadFailed = false,
                         keepEmptyNotes = keepEmptyNotes,
                         fileName = fileNameOf(currentId),
-                        wiki = wiki,
-                        imageContext = imageContext,
+                        wiki = WikiContext.Empty,
+                        imageContext = null,
                         conflictCopy = null,
                     )
+                }
+                refreshWiki()
+                val id = currentId
+                viewModelScope.launch {
+                    val images = try {
+                        repository.imageContext(id)
+                    } catch (cancel: CancellationException) { throw cancel }
+                    catch (_: Exception) { null }
+                    if (id == currentId && generation == operationGeneration) {
+                        _uiState.update { it.copy(imageContext = images) }
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -364,7 +369,8 @@ class NoteViewModel(
         if (currentId != suggestion.source || uiState.value.saveProblem != null ||
             !evidence.linkStillValid(vault, suggestion, source)) return@withLock false
         if (source != draft.content || generation != operationGeneration || currentId != suggestion.source) return@withLock false
-        editor.edit { replace(length, length, linkAddition(source, suggestion.reference)) }
+        val at = suggestion.passage?.insertAt ?: source.length
+        editor.edit { replace(at, at, linkAddition(source, suggestion.reference, at)) }
         saveCurrent(generation)
     }
 

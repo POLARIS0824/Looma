@@ -237,14 +237,23 @@ internal class VaultFileOps(root: File) {
         return directory
     }
 
-    fun newNoteFile(folder: FolderPath, title: String, fallbackName: String): File {
+    fun newNoteFile(folder: FolderPath, title: String, fallbackName: String, staged: File? = null): File {
         val directory = ensureFolder(folder)
         val base = safeFilename(title, fallbackName)
         for (index in 0..MAX_DUPLICATES) {
             val name = if (index == 0) "$base$MARKDOWN_SUFFIX" else "$base ($index)$MARKDOWN_SUFFIX"
             val candidate = File(directory, name).canonicalFile
             if (!isInside(candidate)) throw VaultFileException(VaultFileFailure.INVALID_PATH)
-            if (candidate.createNewFile()) return candidate
+            if (staged == null) {
+                if (candidate.createNewFile()) return candidate
+            } else {
+                try {
+                    java.nio.file.Files.move(staged.toPath(), candidate.toPath())
+                    return candidate
+                } catch (_: java.nio.file.FileAlreadyExistsException) {
+                    continue
+                }
+            }
         }
         throw VaultFileException(VaultFileFailure.NAME_TAKEN)
     }

@@ -27,4 +27,9 @@
     <string name="weave_similarity">Passage similarity · %1$.2f</string>
     <string name="weave_keywords">Shared terms · %1$s</string>
     <string name="ask_length">Use a question of 1,000 characters or fewer</string>
+    <string name="ask_save_note">Save as note</string>
+    <string name="ask_open_saved">Open saved note</string>
+    <string name="ask_sources">Sources</string>
+    <string name="ask_filename">File name</string>
+    <string name="ask_save_failed">Could not save this answer to the vault</string>
 </resources>

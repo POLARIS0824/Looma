@@ -18,6 +18,11 @@ import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.ui.text.TextRange
+import com.example.looma.domain.markdown.MarkdownNavigation
+import com.example.looma.domain.markdown.NotePassage
 
 @Composable
 internal fun WeaveAction(
@@ -25,10 +30,12 @@ internal fun WeaveAction(
     id: NoteId,
     repository: VaultEvidence,
     editor: NoteViewModel,
+    focus: () -> TextRange?,
     open: (Evidence) -> Unit,
 ) {
     var showing by remember(id) { mutableStateOf(false) }
-    IconButton(onClick = { showing = true }, shapes = IconButtonDefaults.shapes()) {
+    var range by remember(id) { mutableStateOf<TextRange?>(null) }
+    IconButton(onClick = { range = focus(); showing = true }, shapes = IconButtonDefaults.shapes()) {
         LoomaIcon(R.drawable.ic_sparkle, stringResource(R.string.weave_title))
     }
     if (!showing) return
@@ -39,11 +46,17 @@ internal fun WeaveAction(
     var applying by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(id, refresh) {
+    var passage by remember { mutableStateOf<NotePassage?>(null) }
+    var scoped by remember { mutableStateOf(range?.collapsed == false) }
+    LaunchedEffect(id, refresh, scoped) {
         loading = true
         failed = false
         try {
-            items = repository.related(vault, id, editor.editor.text.toString())
+            val source = editor.editor.text.toString()
+            passage = passage?.takeIf { it.source === source } ?: range?.let { r ->
+                withContext(Dispatchers.Default) { MarkdownNavigation.scan(source).passage(source, r.min, r.max) }
+            }
+            items = repository.related(vault, id, source, passage.takeIf { scoped })
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {
@@ -58,12 +71,17 @@ internal fun WeaveAction(
         title = { Text(stringResource(if (proposal == null) R.string.weave_title else R.string.weave_confirm)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (proposal == null && passage != null) {
+                    FilterChip(selected = scoped, onClick = { scoped = !scoped },
+                        label = { Text(stringResource(R.string.weave_focus)) })
+                    if (scoped) passage?.let { Text(it.excerpt(160)) }
+                }
                 when {
                     loading -> DelayedLoadingIndicator(true)
                     failed -> Text(stringResource(R.string.weave_changed))
                     proposal != null -> {
                         Text(proposal.evidence.text)
-                        Text(stringResource(R.string.weave_diff, proposal.reference), style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(if (proposal.passage == null) R.string.weave_diff else R.string.weave_focus_diff, proposal.reference), style = MaterialTheme.typography.titleMedium)
                     }
                     items.isEmpty() -> Text(stringResource(R.string.weave_empty))
                     else -> for (item in items) {

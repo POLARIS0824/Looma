@@ -142,14 +142,20 @@ class SemanticSearchRepository internal constructor(
         if (!vectors.isCurrent(revision, note.content, checkActive)) {
             val chunks = semanticChunks(note.content, checkActive)
             val title = id.path.relativePath.substringAfterLast('/').removeMarkdownSuffix().cappedForModel(128)
-            vectors.replace(revision, chunks, beforeReplace = {
+            fun prompt(chunk: SemanticChunk): String {
+                val text = note.content.substring(chunk.start, chunk.end)
+                return if (chunk.section.isEmpty()) text else "${chunk.section}\n$text"
+            }
+            val hasher = java.security.MessageDigest.getInstance("SHA-256")
+            vectors.replace(revision, chunks, inputKey = { chunk ->
+                val input = EmbeddingGemma.documentInput(prompt(chunk), title)
+                hasher.digest(input.toByteArray(Charsets.UTF_8)).toHexString()
+            }, checkActive = checkActive, beforeReplace = {
                 checkActive()
                 if (read(id, vault)?.revision != revision) throw SemanticIndexIncompleteException()
             }) { chunk ->
                 checkActive()
-                val text = note.content.substring(chunk.start, chunk.end)
-                val prompt = if (chunk.section.isEmpty()) text else "${chunk.section}\n$text"
-                withModel { it.document(prompt, title) }.also { checkActive() }
+                withModel { it.document(prompt(chunk), title) }.also { checkActive() }
             }
         }
         cache.markSkipped(id, false)

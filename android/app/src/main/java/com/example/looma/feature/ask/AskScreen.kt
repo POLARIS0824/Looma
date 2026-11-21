@@ -2,6 +2,9 @@ package com.example.looma.feature.ask
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.example.looma.domain.model.NoteId
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,9 +28,10 @@ import com.example.looma.ui.components.*
 import com.example.looma.ui.theme.LoomaTokens
 
 @Composable
-internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, open: (Evidence) -> Unit) {
+internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, openNote: (NoteId) -> Unit, open: (Evidence) -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     val question = rememberTextFieldState()
+    var preview by rememberSaveable { mutableStateOf(false) }
     var investigate by rememberSaveable { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::install) }
     Scaffold(containerColor = LoomaTokens.colors.page, topBar = {
@@ -68,6 +72,7 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, open: (Evide
                             AskIssue.Run -> R.string.ask_run_failed
                             AskIssue.Timeout -> R.string.ask_timeout
                             AskIssue.Changed -> R.string.ask_changed
+                            AskIssue.Save -> R.string.ask_save_failed
                         }), color = MaterialTheme.colorScheme.error)
                     }
                     state.answer?.let { answer ->
@@ -87,6 +92,12 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, open: (Evide
                                 }
                             }
                         }
+                        if (answer.claims.isNotEmpty()) {
+                            val saved = state.saved
+                            TextButton(enabled = !state.busy, onClick = {
+                                if (saved == null) preview = true else openNote(saved)
+                            }) { Text(stringResource(if (saved == null) R.string.ask_save_note else R.string.ask_open_saved)) }
+                        }
                         if (!answer.semantic) Text(stringResource(R.string.ask_lexical))
                         if (answer.partial) Text(stringResource(R.string.ask_partial))
                     }
@@ -102,4 +113,27 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, open: (Evide
             }
         }
     }
+    val answer = state.answer
+    if (preview && answer != null && answer.claims.isNotEmpty()) {
+        val title = rememberTextFieldState(initialText = state.question.lineSequence().first().take(72))
+        val sources = stringResource(R.string.ask_sources)
+        val markdown = remember(answer, state.question, sources) { answer.asMarkdown(state.question, sources) }
+        AlertDialog(onDismissRequest = { preview = false }, title = { Text(stringResource(R.string.ask_save_note)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    OutlinedTextField(state = title, label = { Text(stringResource(R.string.ask_filename)) },
+                        lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.SingleLine)
+                    Text(markdown, style = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = title.text.isNotBlank() && !state.busy, onClick = {
+                    model.save(title.text.toString(), markdown)
+                    preview = false
+                }) { Text(stringResource(R.string.ask_save_note)) }
+            },
+            dismissButton = { TextButton(onClick = { preview = false }) { Text(stringResource(android.R.string.cancel)) } },
+        )
+    }
+
 }

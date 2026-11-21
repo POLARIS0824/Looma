@@ -27,4 +27,9 @@
     <string name="weave_similarity">段落余弦相似度 · %1$.2f</string>
     <string name="weave_keywords">共同词语 · %1$s</string>
     <string name="ask_length">问题最多可输入 1,000 个字符</string>
+    <string name="ask_save_note">保存为笔记</string>
+    <string name="ask_open_saved">打开已保存笔记</string>
+    <string name="ask_sources">引用来源</string>
+    <string name="ask_filename">文件名</string>
+    <string name="ask_save_failed">无法将此回答保存到笔记库</string>
 </resources>

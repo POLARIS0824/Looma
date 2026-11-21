@@ -1,0 +1,11 @@
+<resources>
+    <string name="note_navigate">Navigate note</string>
+    <string name="note_find">Find in note</string>
+    <string name="note_no_headings">No headings in this note</string>
+    <string name="note_no_matches">No matches</string>
+    <string name="note_previous">Previous</string>
+    <string name="note_next">Next</string>
+    <string name="note_locate">Go to match</string>
+    <string name="weave_focus">Use selected passage</string>
+    <string name="weave_focus_diff">Insert after this passage\n+ [[%1$s]]</string>
+</resources>

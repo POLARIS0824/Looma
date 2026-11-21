@@ -216,6 +216,12 @@ class NoteRepository internal constructor(
         record(vault, fileStore.createNote(title, folder))
     }
 
+    internal suspend fun createWithContent(expected: Vault, title: String, content: String): Note =
+        write(expected.id) { vault, store ->
+            if (vault.rootPath != expected.rootPath) throw VaultFileException(VaultFileFailure.NOT_FOUND)
+            record(vault, store.createWithContent(title, content))
+        }
+
     suspend fun saveNote(
         id: NoteId,
         content: String,

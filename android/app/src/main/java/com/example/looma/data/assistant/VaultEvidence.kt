@@ -5,6 +5,7 @@ import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.search.semanticChunks
 import com.example.looma.data.vault.VaultRepository
+import com.example.looma.domain.markdown.NotePassage
 import com.example.looma.domain.markdown.MarkdownIndex
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NoteRevision
@@ -23,7 +24,7 @@ import kotlinx.coroutines.withContext
 
 internal data class Evidence(val id: NoteId, val anchor: PassageAnchor, val text: String, val section: String, val similarity: Double? = null)
 internal data class EvidenceSet(val hits: List<Evidence>, val semantic: Boolean, val partial: Boolean)
-internal data class Connection(val source: NoteId, val evidence: Evidence, val reference: String, val tags: Set<String>, val keywords: List<String>)
+internal data class Connection(val source: NoteId, val evidence: Evidence, val reference: String, val tags: Set<String>, val keywords: List<String>, val passage: NotePassage?)
 internal data class EvidenceScope(val vault: Vault, val notes: List<NoteListEntry>, val partial: Boolean)
 
 internal class VaultEvidence(
@@ -144,7 +145,7 @@ internal class VaultEvidence(
         hit.copy(anchor = hit.anchor.copy(start = start, end = end), text = note.content.substring(start, end))
     }
 
-    suspend fun related(vault: Vault, source: NoteId, buffer: String): List<Connection> = withContext(Dispatchers.IO) {
+    suspend fun related(vault: Vault, source: NoteId, buffer: String, passage: NotePassage? = null): List<Connection> = withContext(Dispatchers.IO) {
         val scope = scope(vault)
         val current = scope.notes.firstOrNull { it.summary.id == source }?.summary ?: return@withContext emptyList()
         val wiki = notes.wikiContext(source)
@@ -152,7 +153,7 @@ internal class VaultEvidence(
             wiki.backlinks.map { it.id } + source
         val eligible = scope.notes.filter { it.summary.id !in linked }
         val metadata = eligible.associate { it.summary.id to it.summary }
-        val query = (current.title + " " + current.tags.joinToString(" ") + " " + buffer.take(640)).trim()
+        val query = passage?.let { it.excerpt(1024).trim() } ?: (current.title + " " + current.tags.joinToString(" ") + " " + buffer.take(640)).trim()
         val sourceTerms = terms(query)
         search(scope.copy(notes = eligible), query, 12, relatedDocumentTitle = current.title).hits.distinctBy { it.id }.mapNotNull { hit ->
             val path = wikiPathOf(hit.id.path)
@@ -160,7 +161,7 @@ internal class VaultEvidence(
             val target = metadata.getValue(hit.id)
             val sharedTerms = sourceTerms.filter { hit.text.contains(it, true) || target.title.contains(it, true) }
                 .sortedByDescending { it.length }.take(3)
-            Connection(source, hit, path, current.tags.intersect(target.tags), sharedTerms)
+            Connection(source, hit, path, current.tags.intersect(target.tags), sharedTerms, passage)
         }.take(5)
     }
 
@@ -169,9 +170,14 @@ internal class VaultEvidence(
         val wiki = notes.wikiContext(suggestion.source)
         val target = suggestion.evidence.id
         if (wiki.resolve(suggestion.reference) != target || wiki.backlinks.any { it.id == target }) return@withContext false
-        val links = MarkdownIndex.index(buffer + linkAddition(buffer, suggestion.reference), "").links
-        links.lastOrNull()?.let { it.range.first >= buffer.length && wiki.resolve(it.target) == target } == true &&
-            links.dropLast(1).none { wiki.resolve(it.target) == target }
+        val passage = suggestion.passage
+        if (passage != null && passage.source != buffer) return@withContext false
+        val at = passage?.insertAt ?: buffer.length
+        val addition = linkAddition(buffer, suggestion.reference, at)
+        val links = MarkdownIndex.index(buffer.replaceRange(at, at, addition), "").links
+        val inserted = links.singleOrNull { it.range.first in at until (at + addition.length) }
+        inserted != null && wiki.resolve(inserted.target) == target &&
+            links.none { it !== inserted && wiki.resolve(it.target) == target }
     }
 
     private fun score(text: String, terms: List<String>) = terms.sumOf { term ->
@@ -193,11 +199,11 @@ internal class VaultEvidence(
     }
 }
 
-internal fun linkAddition(buffer: String, path: String): String {
+internal fun linkAddition(buffer: String, path: String, at: Int = buffer.length): String {
     val newline = if ("\r\n" in buffer) "\r\n" else "\n"
     val separator = when {
-        buffer.isEmpty() || buffer.endsWith(newline + newline) -> ""
-        buffer.endsWith(newline) -> newline
+        at == 0 || buffer.regionMatches(at - 2 * newline.length, newline + newline, 0, 2 * newline.length) -> ""
+        buffer.regionMatches(at - newline.length, newline, 0, newline.length) -> newline
         else -> newline + newline
     }
     return separator + "[[" + path + "]]" + newline

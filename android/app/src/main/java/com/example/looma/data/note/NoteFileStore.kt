@@ -84,6 +84,19 @@ internal class NoteFileStore(
         storedMarkdown(vault, ops.rootDir, file, byteArrayOf(), fingerprint)
     }
 
+    suspend fun createWithContent(title: String, content: String): StoredMarkdown = withContext(Dispatchers.IO) {
+        val ops = VaultFileOps(File(vault.rootPath))
+        val bytes = markdownBytes(content)
+        val staged = File.createTempFile(".looma-", ".tmp", ops.rootDir)
+        try {
+            staged.outputStream().use { it.write(bytes); it.fd.sync() }
+            val file = ops.newNoteFile(FolderPath.Root, title, UNTITLED_FALLBACK, staged)
+            storedMarkdown(vault, ops.rootDir, file, bytes, file.fingerprint(), content)
+        } finally {
+            staged.delete()
+        }
+    }
+
     suspend fun discardNote(id: NoteId) = withContext(Dispatchers.IO) {
         val (_, ops) = currentVault(id.vaultId)
         val file = ops.noteFile(id.path)
