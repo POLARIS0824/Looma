@@ -28,7 +28,7 @@ data class HomeRecentItem(
 )
 
 internal class HomeVaultIndex private constructor(
-    private val foldersByParent: Map<FolderPath, List<VaultFolder>>,
+    private val foldersByParent: Map<FolderPath, List<HomeFolderItem>>,
     private val ordered: Map<HomeSort, List<HomeNoteItem>>,
     private val notesByParent: Map<HomeSort, Map<FolderPath, List<HomeNoteItem>>>,
     private val folderNames: Map<FolderPath, String>,
@@ -52,8 +52,7 @@ internal class HomeVaultIndex private constructor(
             path = target,
             crumbs = crumbs(target),
             recents = if (target == FolderPath.Root) recents() else emptyList(),
-            folders = foldersByParent[target].orEmpty()
-                .map { HomeFolderItem(path = it.path, name = it.name) },
+            folders = foldersByParent[target].orEmpty(),
             notes = notesByParent[sort]?.get(target).orEmpty(),
         )
     }
@@ -92,7 +91,8 @@ internal class HomeVaultIndex private constructor(
             }
             val ordered = HomeSort.entries.associateWith { notes.orderedBy(it) }
             return HomeVaultIndex(
-                foldersByParent = known.sortedBy { it.name.lowercase() }.groupBy { it.path.parentFolder() },
+                foldersByParent = known.sortedBy { it.name.lowercase() }
+                    .groupBy({ it.path.parentFolder() }, { HomeFolderItem(it.path, it.name) }),
                 ordered = ordered,
                 notesByParent = ordered.mapValues { (_, sorted) -> sorted.groupBy { it.id.path.parentFolder() } },
                 folderNames = names,

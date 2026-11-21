@@ -48,8 +48,6 @@ internal class VaultEvidence(
         return EvidenceScope(vault, scan.items, !scan.complete || scan.unreadableCount > 0 || scan.stalledRelocation != null)
     }
 
-    suspend fun releaseEmbedding() = vectors.releaseModel()
-
     suspend fun checkVault(vault: Vault) {
         val current = vaults.requireCurrentVault()
         check(current.id == vault.id && current.rootPath == vault.rootPath)

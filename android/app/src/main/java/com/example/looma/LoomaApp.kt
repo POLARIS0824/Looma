@@ -1,5 +1,6 @@
 package com.example.looma
 
+import com.example.looma.data.assistant.LocalModelSession
 import com.example.looma.data.assistant.LocalGenerator
 import com.example.looma.data.assistant.VaultAgent
 import com.example.looma.data.assistant.VaultEvidence
@@ -36,9 +37,10 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val searchHistoryRepository by lazy {
         SearchHistoryRepository(vaultRepository, indexDatabase.searchHistoryDao())
     }
-    val semanticSearchRepository by lazy { SemanticSearchRepository(this, noteRepository, vaultRepository) }
+    private val modelSession = LocalModelSession()
+    val semanticSearchRepository by lazy { SemanticSearchRepository(this, noteRepository, vaultRepository, modelSession) }
     internal val evidence by lazy { VaultEvidence(vaultRepository, noteRepository, semanticSearchRepository) }
-    internal val generator by lazy { LocalGenerator(this) }
+    internal val generator by lazy { LocalGenerator(this, modelSession) }
     internal val vaultAgent by lazy { VaultAgent(evidence, generator) }
     val folderRepository by lazy { FolderRepository(noteRepository) }
     val settingsRepository by lazy { SettingsRepository(this) }

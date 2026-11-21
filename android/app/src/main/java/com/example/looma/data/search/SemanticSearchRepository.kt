@@ -1,6 +1,7 @@
 package com.example.looma.data.search
 
 import android.content.Context
+import com.example.looma.data.assistant.LocalModelSession
 import com.example.looma.data.note.NoteTooLargeException
 import com.example.looma.data.note.VaultFileException
 import com.example.looma.data.note.VaultFileFailure
@@ -32,18 +33,15 @@ class SemanticSearchRepository internal constructor(
     private val context: Context,
     private val notes: NoteRepository,
     private val vaults: VaultRepository = VaultRepository(context),
+    private val session: LocalModelSession = LocalModelSession(),
 ) {
     private val directory = context.noBackupFilesDir.resolve("semantic-search")
     private val modelFile = EmbeddingModelFile(directory)
     private val cache = SemanticVectorCache(directory.resolve("vectors-v1-${EmbeddingModelFile.MODEL_SHA256}"))
     private val store = PassageVectorStore(context, directory.resolve("passages-" + EmbeddingModelFile.MODEL_SHA256 + ".db"))
     private val work = SemanticSearchWork(context, vaults, modelFile, cache, store)
-    private val modelMutex = Mutex()
     private val indexMutex = Mutex()
     private var model: EmbeddingGemma? = null
-    private val lifetime = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
-    private var idle: kotlinx.coroutines.Job? = null
-
     internal val supported: Boolean get() = work.supported
     internal val modelState by lazy { work.modelState }
     internal val indexState = work.indexState
@@ -77,12 +75,13 @@ class SemanticSearchRepository internal constructor(
     }
 
     internal suspend fun releaseModel() = withContext(Dispatchers.IO) {
-        modelMutex.withLock {
-            idle?.cancel()
-            val closing = model
-            model = null
-            closing?.close()
-        }
+        session.release(LocalModelSession.Model.Embedding)
+    }
+
+    private fun closeModel() {
+        val closing = model
+        model = null
+        closing?.close()
     }
 
     internal suspend fun rebuildIndex(
@@ -102,7 +101,7 @@ class SemanticSearchRepository internal constructor(
                         if (incremental && store.initialized(vault.id)) updatePending(vault, onProgress)
                         else rebuildIndex(vault, onProgress)
                     } finally {
-                        withContext(NonCancellable) { releaseModel() }
+                        withContext(NonCancellable) { session.release(LocalModelSession.Model.Embedding) }
                     }
                 }
             } finally {
@@ -246,25 +245,15 @@ class SemanticSearchRepository internal constructor(
         results
     }
 
-    private suspend fun <T> withModel(releaseWhenIdle: Boolean = false, block: (EmbeddingGemma) -> T): T = modelMutex.withLock {
-        idle?.cancel()
-        val active = model ?: EmbeddingGemma(
-            context,
-            modelFile.open() ?: throw SemanticModelMissingException(),
-        ).also { model = it }
-        coroutineContext.ensureActive()
-        try {
+    private suspend fun <T> withModel(releaseWhenIdle: Boolean = false, block: (EmbeddingGemma) -> T): T =
+        session.use(LocalModelSession.Model.Embedding, if (releaseWhenIdle) 15_000 else null, ::closeModel) {
+            val active = model ?: EmbeddingGemma(
+                context,
+                modelFile.open() ?: throw SemanticModelMissingException(),
+            ).also { model = it }
+            coroutineContext.ensureActive()
             block(active)
-        } finally {
-            if (releaseWhenIdle) idle = lifetime.launch {
-                kotlinx.coroutines.delay(15_000)
-                modelMutex.withLock {
-                    model?.close()
-                    model = null
-                }
-            }
         }
-    }
 
     private suspend fun readForIndex(id: NoteId, vault: Vault): StoredMarkdown? = try {
         notes.readSearchSource(id, vault.rootPath)
