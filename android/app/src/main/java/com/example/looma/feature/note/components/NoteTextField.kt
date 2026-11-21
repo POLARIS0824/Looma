@@ -43,7 +43,6 @@ internal fun NoteTextField(
     active: Boolean,
     textStyle: TextStyle,
     modifier: Modifier = Modifier,
-    inputTransformation: androidx.compose.foundation.text.input.InputTransformation? = null,
     lineLimits: TextFieldLineLimits = TextFieldLineLimits.Default,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     onKeyboardAction: KeyboardActionHandler? = null,
@@ -84,7 +83,6 @@ internal fun NoteTextField(
     ) {
         BasicTextField(
             state = state,
-            inputTransformation = inputTransformation,
             modifier = modifier.pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)

@@ -112,7 +112,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
-import androidx.compose.foundation.text.input.InputTransformation
 import kotlin.math.roundToInt
 
 @Composable
@@ -272,13 +271,6 @@ private fun NoteWorkspace(
         )
     }
     val fences = remember(contentBuffer) { FenceIndex() }
-    val trackChanges = remember(fences) {
-        InputTransformation {
-            if (changes.changeCount > 0) {
-                fences.noteEdit(originalText, toString(), changes.getOriginalRange(0).min)
-            }
-        }
-    }
     LaunchedEffect(contentBuffer, mode, editorActive) {
         if (mode != NoteMode.Edit || !editorActive) return@LaunchedEffect
         snapshotFlow { contentBuffer.text to contentBuffer.selection }.collectLatest { (text, selection) ->
@@ -695,7 +687,6 @@ private fun NoteWorkspace(
                             NoteBodyEditor(
                                 active = editorActive,
                                 buffer = contentBuffer,
-                                trackChanges = trackChanges,
                                 focusRequester = bodyFocus,
                                 onTextLayout = { modeScroll.editLayout = it },
                                 onTextTopInContent = { modeScroll.editTextOffset = it },
@@ -757,7 +748,6 @@ private fun NoteWorkspace(
 
 @Composable
 private fun NoteBodyEditor(
-    trackChanges: InputTransformation,
     active: Boolean,
     buffer: TextFieldState,
     focusRequester: FocusRequester,
@@ -768,7 +758,6 @@ private fun NoteBodyEditor(
     val placeholder = stringResource(R.string.editor_placeholder)
     NoteTextField(
         state = buffer,
-        inputTransformation = trackChanges,
         active = active,
         modifier = modifier
             .fillMaxWidth()

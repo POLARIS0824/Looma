@@ -587,25 +587,22 @@ internal class FenceIndex {
     private val states = mutableListOf<FenceMarker?>(null)
     private var previous: CharSequence = ""
 
-    private data class Change(val before: CharSequence, val after: CharSequence, val start: Int)
-    @Volatile private var latest: Change? = null
-
-    fun noteEdit(before: CharSequence, after: CharSequence, start: Int) {
-        latest = Change(before, after, start)
-    }
-
     @Synchronized
     fun isInside(text: CharSequence, end: Int): Boolean {
         if (text !== previous) {
             val limit = minOf(starts.last(), text.length, previous.length)
-            val change = latest
-            val prefix = if (change != null && change.before === previous && change.after === text) {
-                minOf(change.start, limit)
-            } else {
-                var same = 0
-                while (same < limit && previous[same] == text[same]) same++
-                same
+            val old = previous
+            var prefix = 0
+            // Verify common blocks off the input thread. Only the first differing block
+            // needs character-by-character comparison to find the exact invalidation point.
+            if (old is String && text is String) {
+                while (prefix < limit) {
+                    val size = minOf(8 * 1024, limit - prefix)
+                    if (!text.regionMatches(prefix, old, prefix, size)) break
+                    prefix += size
+                }
             }
+            while (prefix < limit && old[prefix] == text[prefix]) prefix++
             val retained = starts.binarySearch(prefix).let { if (it >= 0) it + 1 else -it - 1 }
             starts.subList(retained, starts.size).clear()
             states.subList(retained, states.size).clear()
