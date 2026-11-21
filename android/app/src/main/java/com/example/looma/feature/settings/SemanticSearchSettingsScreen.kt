@@ -270,7 +270,7 @@ private fun SemanticSearchOperations(
                                     R.string.settings_semantic_downloading,
                                     state.completed,
                                 )
-                                SemanticWorkState.Ready -> stringResource(R.string.settings_semantic_model_ready)
+                                SemanticWorkState.Partial, SemanticWorkState.Ready -> stringResource(R.string.settings_semantic_model_ready)
                                 SemanticWorkState.Cancelled -> stringResource(R.string.settings_semantic_download_cancelled)
                                 SemanticWorkState.Failed -> stringResource(R.string.settings_semantic_download_failed)
                             },
@@ -320,6 +320,7 @@ private fun SemanticSearchOperations(
                         } else {
                             stringResource(R.string.settings_semantic_index_preparing)
                         }
+                        SemanticWorkState.Partial -> stringResource(R.string.semantic_index_partial)
                         SemanticWorkState.Ready -> stringResource(R.string.settings_semantic_index_ready)
                         SemanticWorkState.Cancelled -> stringResource(R.string.settings_semantic_index_cancelled)
                         SemanticWorkState.Failed -> stringResource(R.string.settings_semantic_index_failed)

@@ -41,6 +41,8 @@ internal fun HomeSemanticSearchControls(
     }
     val message = when (state) {
         HomeSemanticSearch.Off, HomeSemanticSearch.Ready -> return
+        HomeSemanticSearch.Partial -> stringResource(R.string.semantic_index_partial)
+        HomeSemanticSearch.Updating -> stringResource(R.string.semantic_index_updating)
         HomeSemanticSearch.Unsupported -> stringResource(R.string.home_semantic_unsupported)
         HomeSemanticSearch.Checking -> stringResource(R.string.home_semantic_checking)
         HomeSemanticSearch.NeedsModel -> stringResource(R.string.home_semantic_model_required)

@@ -20,7 +20,14 @@ import coil3.size.Precision
 class LoomaApp : Application(), SingletonImageLoader.Factory {
     val vaultRepository by lazy { VaultRepository(this) }
     private val indexDatabase by lazy { NoteIndexDatabase.get(this) }
-    val noteRepository by lazy { NoteRepository(vaultRepository, RoomNoteIndex(indexDatabase)) }
+    val noteRepository: NoteRepository by lazy {
+        NoteRepository(
+            vaultRepository,
+            RoomNoteIndex(indexDatabase),
+            onFilesChanged = { vault, delta -> semanticSearchRepository.filesChanged(vault, delta) },
+            onVaultScanned = { vault -> semanticSearchRepository.resumeUpdates(vault) },
+        )
+    }
     val searchHistoryRepository by lazy {
         SearchHistoryRepository(vaultRepository, indexDatabase.searchHistoryDao())
     }

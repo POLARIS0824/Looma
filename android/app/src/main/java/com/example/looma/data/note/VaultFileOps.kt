@@ -257,11 +257,11 @@ internal class VaultFileOps(root: File) {
         return destination
     }
 
-    fun moveDestination(note: File, target: FolderPath): File {
+    fun moveDestination(note: File, target: FolderPath, reserved: Set<String> = emptySet()): File {
         val directory = folderDirectory(target)
         if (directory.exists() && !directory.isDirectory) throw VaultFileException(VaultFileFailure.INVALID_PATH)
         if (directory.path == note.parentFile?.path) return note
-        return uniqueIn(directory, note.name)
+        return uniqueIn(directory, note.name, reserved)
     }
 
     fun trash(note: File, deletedAt: Instant = Instant.now()): TrashRecord {
@@ -371,13 +371,13 @@ internal class VaultFileOps(root: File) {
         if (remaining.isEmpty()) directory.delete()
     }
 
-    private fun uniqueIn(directory: File, filename: String): File {
+    private fun uniqueIn(directory: File, filename: String, reserved: Set<String> = emptySet()): File {
         val base = filename.removeMarkdownSuffix()
         for (index in 0..MAX_DUPLICATES) {
             val name = if (index == 0) "$base$MARKDOWN_SUFFIX" else "$base ($index)$MARKDOWN_SUFFIX"
             val candidate = File(directory, name).canonicalFile
             if (!isInside(candidate)) throw VaultFileException(VaultFileFailure.INVALID_PATH)
-            if (!candidate.exists()) return candidate
+            if (!candidate.exists() && name.lowercase() !in reserved) return candidate
         }
         throw VaultFileException(VaultFileFailure.NAME_TAKEN)
     }

@@ -68,6 +68,26 @@ object MarkdownIndex {
         }
     }
 
+    fun markdownImageLinks(source: String): List<MarkdownLinkSpan> {
+        val base = frontmatterEnd(source)
+        val body = source.substring(base)
+        val tree = MarkdownParser(WikiImageFlavour()).buildMarkdownTreeFromString(body as CharSequence)
+        val linkMap = lazy { LinkMap.buildLinkMap(tree, body) }
+        val destinations = linkedMapOf<Int, MarkdownLinkSpan>()
+        fun visit(node: ASTNode) {
+            if (node.type == MarkdownElementTypes.IMAGE && !body.startsWith("![[", node.startOffset)) {
+                val destination = imageDestinationNode(node, body, linkMap) ?: return
+                val range = base + destination.startOffset until base + destination.endOffset
+                val target = unescapeMarkdownDestination(destination.getTextInNode(body).toString())
+                destinations[range.first] = MarkdownLinkSpan(range, range, target, null, null, true)
+            } else {
+                node.children.forEach(::visit)
+            }
+        }
+        visit(tree)
+        return destinations.values.toList()
+    }
+
     fun extractMetadata(source: String): MarkdownAstMetadata {
         val span = frontmatterSpan(source)
         val body = source.substring(span.bodyStart)
@@ -204,12 +224,18 @@ object MarkdownIndex {
     }
 
     private fun imageDestination(imageNode: ASTNode, body: String, linkMap: Lazy<LinkMap>): String? {
+        val node = imageDestinationNode(imageNode, body, linkMap) ?: return null
+        val raw = node.getTextInNode(body).toString()
+        return if (body.startsWith("![[", imageNode.startOffset)) raw.trim() else unescapeMarkdownDestination(raw)
+    }
+
+    private fun imageDestinationNode(imageNode: ASTNode, body: String, linkMap: Lazy<LinkMap>): ASTNode? {
         imageNode.children.firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION }?.let { dest ->
-            return dest.getTextInNode(body).toString().trim()
+            return dest
         }
         imageNode.children.firstOrNull { it.type == MarkdownElementTypes.INLINE_LINK }?.let { inline ->
             val dest = inline.children.firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION } ?: return null
-            return unescapeMarkdownDestination(dest.getTextInNode(body).toString())
+            return dest
         }
         val ref = imageNode.children.firstOrNull {
             it.type == MarkdownElementTypes.FULL_REFERENCE_LINK || it.type == MarkdownElementTypes.SHORT_REFERENCE_LINK
@@ -217,7 +243,7 @@ object MarkdownIndex {
         val label = ref.children.firstOrNull { it.type == MarkdownElementTypes.LINK_LABEL } ?: return null
         val info = linkMap.value.getLinkInfo(label.getTextInNode(body)) ?: return null
         val dest = info.node.children.firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION } ?: return null
-        return unescapeMarkdownDestination(dest.getTextInNode(body).toString())
+        return dest
     }
 
     private fun unescapeMarkdownDestination(raw: String): String {

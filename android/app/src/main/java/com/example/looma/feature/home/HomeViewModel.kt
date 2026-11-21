@@ -233,7 +233,13 @@ class HomeViewModel(
                 semanticSearchRepository.hasIndex,
                 semanticSearchRepository.indexState,
             ) { model, hasIndex, indexState ->
-                semanticAvailability(model, hasIndex) to (indexState == SemanticWorkState.Ready)
+                val availability = semanticAvailability(model, hasIndex)
+                val status = if (availability != HomeSemanticSearch.Ready) availability else when (indexState) {
+                    SemanticWorkState.Queued, is SemanticWorkState.Running -> HomeSemanticSearch.Updating
+                    SemanticWorkState.Ready -> HomeSemanticSearch.Ready
+                    else -> HomeSemanticSearch.Partial
+                }
+                status to (indexState == SemanticWorkState.Ready)
             }.distinctUntilChanged().collect { (availability, isIndexReady) ->
                 val finishedIndexing = availability == HomeSemanticSearch.Ready && isIndexReady && !wasIndexReady
                 if (availability != previousAvailability || finishedIndexing) {
@@ -298,7 +304,7 @@ class HomeViewModel(
         if (keyword.isEmpty()) return
         val semantic = _uiState.value.search.semanticSearch
         if (semantic != HomeSemanticSearch.Off) {
-            val canSearch = semantic == HomeSemanticSearch.Ready ||
+            val canSearch = (semantic.canSearch && semantic != HomeSemanticSearch.SearchFailed) ||
                 (retryFailedSemantic && semantic == HomeSemanticSearch.SearchFailed)
             if (canSearch) scheduleSemanticSearch(value, keyword, debounce)
             return
@@ -344,10 +350,12 @@ class HomeViewModel(
     }
 
     private fun scheduleSemanticSearch(value: String, keyword: String, debounce: Boolean) {
+        val available = _uiState.value.search.semanticSearch.takeIf { it.canSearch && it != HomeSemanticSearch.SearchFailed }
+            ?: HomeSemanticSearch.Ready
         _uiState.update {
             it.copy(
                 search = it.search.copy(
-                    semanticSearch = HomeSemanticSearch.Ready,
+                    semanticSearch = available,
                     isSearching = true,
                 ),
             )
@@ -366,7 +374,7 @@ class HomeViewModel(
                         passage = hit.anchor,
                         section = hit.section,
                     )
-                } to HomeSemanticSearch.Ready
+                } to available
             } catch (e: CancellationException) {
                 throw e
             } catch (_: SemanticModelMissingException) {
@@ -617,8 +625,14 @@ class HomeViewModel(
     private fun moveNotesTo(notes: List<HomeNoteItem>, target: FolderPath) {
         if (notes.isEmpty()) return
         runBusyAction {
-            val result = processNotes(notes) { note ->
-                MovedNote(noteRepository.relocateNote(note.id, target), note.id.path)
+            val result = try {
+                val moved = noteRepository.relocateNotes(notes.map { it.id }, target)
+                    .map { (id, destination) -> MovedNote(id.copy(path = destination), id.path) }
+                NoteBatchResult(moved, notes.size - moved.size, null)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                NoteBatchResult(emptyList(), notes.size, error)
             }
             val count = result.completed.size
             val notice = when {

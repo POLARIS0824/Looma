@@ -47,9 +47,11 @@ import kotlinx.coroutines.withContext
 class NoteRepository internal constructor(
     private val vaultRepository: VaultRepository,
     private val index: NoteIndex,
+    onFilesChanged: suspend (Vault, IndexDelta) -> Unit = { _, _ -> },
+    private val onVaultScanned: suspend (Vault) -> Unit = {},
 ) {
     private val parser = MarkdownParser()
-    private val indexUpdater = NoteIndexUpdater(index)
+    private val indexUpdater = NoteIndexUpdater(index, onFilesChanged)
     private val searchDispatcher = Dispatchers.IO.limitedParallelism(SEARCH_IO_PARALLELISM)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
@@ -64,6 +66,7 @@ class NoteRepository internal constructor(
         return read(current.id) { vault, _ ->
             if (vault.rootPath != current.rootPath) throw VaultFileException(VaultFileFailure.NOT_FOUND)
             val scan = indexUpdater.scan(vault, force)
+            if (expected == null) onVaultScanned(vault)
             NoteListResult(
                 vault = vault,
                 items = scan.notes
@@ -215,10 +218,8 @@ class NoteRepository internal constructor(
     suspend fun moveNote(id: NoteId, target: FolderPath): RenameOutcome =
         relocate(id) { it.moveNote(id, target) }
 
-    internal suspend fun relocateNote(id: NoteId, target: FolderPath): NoteId = write(id.vaultId) { vault, _ ->
-        val result = runRelocation(vault) { it.moveNote(id, target) }
-        NoteId(vault.id, result.path)
-    }
+    internal suspend fun relocateNotes(ids: List<NoteId>, target: FolderPath): Map<NoteId, NotePath> =
+        write(ids.first().vaultId) { vault, _ -> runRelocation(vault) { it.moveNotes(ids, target) }.path }
 
     internal suspend fun moveNoteToOriginalPath(id: NoteId, originalPath: NotePath): Unit = write(id.vaultId) { vault, _ ->
         runRelocation(vault) { it.moveNoteToOriginalPath(id, originalPath) }

@@ -36,6 +36,7 @@ internal class VaultIndexer(
     private val root: File,
     private val vault: Vault,
     private val index: NoteIndex,
+    private val onChanged: suspend (Vault, IndexDelta) -> Unit = { _, _ -> },
 ) {
     private val parser = MarkdownParser()
 
@@ -139,6 +140,7 @@ internal class VaultIndexer(
         val applied = index.applyIfVersion(delta, expectedVersion = version)
         if (!applied && retryOnConflict) return scanAttempt(retryOnConflict = false, force = force)
 
+        if (applied && (fresh.isNotEmpty() || plan.removed.isNotEmpty())) onChanged(vault, delta)
         val notes = if (applied) plan.kept + fresh + retained else index.load(vault.id)
         return IndexScan(
             notes = notes,

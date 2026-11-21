@@ -28,6 +28,51 @@ internal class SemanticVectorCache(private val root: File) {
         }
     }
 
+    fun enabled(vaultId: VaultId): Boolean =
+        directory(vaultId).resolve("enabled").isFile || hasSearchableIndex(vaultId)
+
+    fun enable(vaultId: VaultId) {
+        val dir = directory(vaultId)
+        Files.createDirectories(dir.toPath())
+        dir.resolve("enabled").createNewFile()
+    }
+
+    fun partial(vaultId: VaultId): Boolean =
+        directory(vaultId).resolve("partial-index").isFile || markers(vaultId, "*.skipped").isNotEmpty()
+
+    fun markScanPartial(vaultId: VaultId, partial: Boolean) {
+        val marker = directory(vaultId).resolve("partial-index")
+        if (partial) marker.createNewFile() else Files.deleteIfExists(marker.toPath())
+    }
+
+    fun markSkipped(id: NoteId, skipped: Boolean) {
+        val marker = directory(id.vaultId).resolve("${key(id.path.relativePath)}.skipped")
+        if (skipped) marker.createNewFile() else Files.deleteIfExists(marker.toPath())
+    }
+
+    @Synchronized
+    fun markDirty(id: NoteId) {
+        val file = directory(id.vaultId).resolve("${key(id.path.relativePath)}.dirty")
+        val value = "${java.util.UUID.randomUUID()}\n${id.path.relativePath}"
+        writeBytesAtomically(file, value.toByteArray())
+    }
+
+    fun pending(vaultId: VaultId): Map<File, String> =
+        markers(vaultId, "*.dirty").mapNotNull { file ->
+            try { file to file.readText() } catch (_: java.io.FileNotFoundException) { null }
+        }.toMap()
+
+    private fun markers(vaultId: VaultId, pattern: String): List<File> = try {
+        Files.newDirectoryStream(directory(vaultId).toPath(), pattern).use { stream -> stream.map { it.toFile() } }
+    } catch (_: java.nio.file.NoSuchFileException) {
+        emptyList()
+    }
+
+    @Synchronized
+    fun acknowledge(file: File, value: String) {
+        if (file.isFile && file.readText() == value) Files.deleteIfExists(file.toPath())
+    }
+
     fun complete(vaultId: VaultId, checkActive: () -> Unit) {
         val directory = directory(vaultId)
         Files.createDirectories(directory.toPath())
@@ -63,23 +108,30 @@ internal class NoteVectors(private val file: File) {
         checkActive: () -> Unit,
     ): CachedRanking? = read(revision, source, query, checkActive)
 
+    fun rank(query: FloatArray, checkActive: () -> Unit): ScoredPassage? =
+        read(null, null, query, checkActive)?.best
+
+    fun delete() { Files.deleteIfExists(file.toPath()) }
+
     private fun read(
-        revision: NoteRevision.Known,
-        source: String,
+        revision: NoteRevision.Known?,
+        source: String?,
         query: FloatArray?,
         checkActive: () -> Unit,
     ): CachedRanking? {
         return try {
             DataInputStream(file.inputStream().buffered()).use { input ->
-                if (input.readUTF() != revision.sha256) return null
+                val digest = input.readUTF()
+                if (digest.length != 64 || (revision != null && digest != revision.sha256)) return null
                 val count = input.readInt()
-                if (count !in 0..source.length) return null
+                if (count !in 0..(source?.length ?: com.example.looma.data.note.MAX_MARKDOWN_BYTES.toInt())) return null
                 var best: ScoredPassage? = null
                 repeat(count) {
                     checkActive()
-                    val anchor = PassageAnchor(revision.sha256, input.readInt(), input.readInt())
+                    val anchor = PassageAnchor(digest, input.readInt(), input.readInt())
                     val section = input.readUTF()
-                    if (!anchor.matches(revision, source) || section.length > 256) return null
+                    if (section.length > 256 || anchor.start < 0 || anchor.end <= anchor.start) return null
+                    if (revision != null && source != null && !anchor.matches(revision, source)) return null
                     var score = 0.0
                     repeat(EmbeddingGemma.DIMENSIONS) { dimension ->
                         val value = input.readFloat()

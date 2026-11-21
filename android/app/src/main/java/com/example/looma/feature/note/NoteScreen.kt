@@ -1,5 +1,9 @@
 package com.example.looma.feature.note
 
+import com.example.looma.domain.markdown.FenceIndex
+import com.example.looma.domain.markdown.MarkdownFormatState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.content.res.Resources
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -256,13 +260,13 @@ private fun NoteWorkspace(
     passage: PassageAnchor? = null,
     matchesPassage: (PassageAnchor) -> Boolean = { false },
 ) {
-    val formatState by remember(contentBuffer) {
-        derivedStateOf {
-            val selection = contentBuffer.selection
-            MarkdownEditing.formatState(
-                text = contentBuffer.text,
-                selection = TextSelection(selection.start, selection.end),
-            )
+    var formatState by remember(contentBuffer) { mutableStateOf(MarkdownFormatState()) }
+    LaunchedEffect(contentBuffer) {
+        val fences = FenceIndex()
+        snapshotFlow { contentBuffer.text to contentBuffer.selection }.collectLatest { (text, selection) ->
+            formatState = withContext(Dispatchers.Default) {
+                MarkdownEditing.formatState(text, TextSelection(selection.start, selection.end), fences)
+            }
         }
     }
     var mode by rememberSaveable {

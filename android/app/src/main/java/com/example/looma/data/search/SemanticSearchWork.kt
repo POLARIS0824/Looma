@@ -28,6 +28,7 @@ internal sealed interface SemanticWorkState {
     data object Idle : SemanticWorkState
     data object Queued : SemanticWorkState
     data class Running(val completed: Int, val total: Int) : SemanticWorkState
+    data object Partial : SemanticWorkState
     data object Ready : SemanticWorkState
     data object Cancelled : SemanticWorkState
     data object Failed : SemanticWorkState
@@ -60,7 +61,8 @@ internal class SemanticSearchWork(
         }
 
     val indexState: Flow<SemanticWorkState> = currentVaultWork(SemanticWorkState.Unavailable) { vault, info ->
-        info.state(cache.hasCompletedIndex(vault.id))
+        val state = info.state(cache.hasCompletedIndex(vault.id))
+        if (state == SemanticWorkState.Ready && cache.partial(vault.id)) SemanticWorkState.Partial else state
     }
 
     val hasIndex: Flow<Boolean> = currentVaultWork(false) { vault, _ ->
@@ -84,10 +86,22 @@ internal class SemanticSearchWork(
         check(supported)
         val vault = vaults.requireCurrentVault()
         if (!modelIsReady()) throw SemanticModelMissingException()
+        withContext(Dispatchers.IO) { cache.enable(vault.id) }
         val request = OneTimeWorkRequestBuilder<SemanticVaultIndexWorker>()
             .setInputData(workDataOf(VAULT_ID to vault.id.value, VAULT_PATH to vault.rootPath))
             .build()
         manager.enqueueUniqueWork(indexName(vault), ExistingWorkPolicy.KEEP, request).await()
+    }
+
+    suspend fun enqueueUpdates(vault: Vault) = scheduleUpdates(vault, ExistingWorkPolicy.APPEND_OR_REPLACE)
+
+    suspend fun resumeUpdates(vault: Vault) = scheduleUpdates(vault, ExistingWorkPolicy.KEEP)
+
+    private suspend fun scheduleUpdates(vault: Vault, policy: ExistingWorkPolicy) {
+        val request = OneTimeWorkRequestBuilder<SemanticVaultIndexWorker>()
+            .setInputData(workDataOf(VAULT_ID to vault.id.value, VAULT_PATH to vault.rootPath, INCREMENTAL to true))
+            .build()
+        manager.enqueueUniqueWork(indexName(vault), policy, request).await()
     }
 
     suspend fun cancelIndex() {
@@ -133,6 +147,7 @@ internal class SemanticSearchWork(
 
     companion object {
         private const val MODEL_WORK_NAME = "semantic-embedding-model"
+        const val INCREMENTAL = "incremental"
         const val VAULT_ID = "vault_id"
         const val VAULT_PATH = "vault_path"
         const val VAULT_CHANGED = "vault_changed"
