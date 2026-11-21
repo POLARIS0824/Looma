@@ -345,4 +345,7 @@
     <string name="note_image_error_network">Could not reach the image bed</string>
     <string name="note_image_error_rejected">Image bed rejected the upload: %1$s</string>
     <string name="note_image_error_unknown">Image upload failed</string>
+    <string name="editor_encoding_readonly">This file contains invalid UTF-8. Read-only preview.</string>
+    <string name="editor_too_large">The note exceeds 2 MiB of UTF-8 text. Shorten it to save.</string>
+    <string name="editor_too_large_recovered">The note exceeds 2 MiB. Your full text was exported to %1$s.</string>
 </resources>

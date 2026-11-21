@@ -47,7 +47,7 @@ class TrashViewModel(
         viewModelScope.launch {
             var restored: NoteId? = null
             try {
-                restored = noteRepository.restoreNote(trashId).id
+                restored = noteRepository.restoreNote(trashId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

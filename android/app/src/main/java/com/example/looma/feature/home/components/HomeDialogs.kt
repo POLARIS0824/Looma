@@ -98,7 +98,7 @@ internal fun HomeFileDialogs(
 
         is HomeFileDialog.DeleteFolder -> HomeDeleteFolderDialog(
             folderName = dialog.folderName,
-            noteCount = dialog.noteCount,
+            noteCount = dialog.paths.size,
             error = dialog.error,
             busy = isActionRunning,
             onConfirm = actions.onConfirmDeleteFolder,

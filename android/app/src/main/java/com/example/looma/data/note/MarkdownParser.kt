@@ -24,8 +24,11 @@ data class MarkdownMetadata(
 )
 
 internal class MarkdownParser {
-    fun title(text: String, fallbackTitle: String): String {
-        val ast = MarkdownIndex.extractMetadata(text)
+    fun title(
+        text: String,
+        fallbackTitle: String,
+        ast: com.example.looma.domain.markdown.MarkdownAstMetadata = MarkdownIndex.extractMetadata(text),
+    ): String {
         val visibleLines = nonCodeLines(text.substring(ast.bodyStart), ast.blockCodeRanges)
         return extractTitle(visibleLines.asSequence(), fallbackTitle)
     }

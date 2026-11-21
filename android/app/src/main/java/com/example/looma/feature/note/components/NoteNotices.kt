@@ -60,6 +60,8 @@ private fun SaveBannerContent(
     val copy = state.conflictCopy
     val copyName = copy?.relativePath?.substringAfterLast('/')
     val message = when {
+        state.exceedsSizeLimit && copyName != null -> stringResource(R.string.editor_too_large_recovered, copyName)
+        state.exceedsSizeLimit -> stringResource(R.string.editor_too_large)
         state.isConflict && copyName != null -> stringResource(R.string.editor_conflict_conflict_copy, copyName)
         state.isConflict -> stringResource(R.string.editor_conflict)
         copyName != null -> stringResource(R.string.editor_save_failed_conflict_copy, copyName)

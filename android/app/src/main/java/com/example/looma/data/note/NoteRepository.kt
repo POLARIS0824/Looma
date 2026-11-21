@@ -53,7 +53,7 @@ class NoteRepository internal constructor(
     private val searchDispatcher = Dispatchers.IO.limitedParallelism(SEARCH_IO_PARALLELISM)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
-    internal suspend fun listNotes(expected: Vault? = null): NoteListResult {
+    internal suspend fun listNotes(expected: Vault? = null, force: Boolean = false): NoteListResult {
         val current = currentVault(expected?.id)
         if (expected != null && current.rootPath != expected.rootPath) {
             throw VaultFileException(VaultFileFailure.NOT_FOUND)
@@ -63,7 +63,7 @@ class NoteRepository internal constructor(
         }
         return read(current.id) { vault, _ ->
             if (vault.rootPath != current.rootPath) throw VaultFileException(VaultFileFailure.NOT_FOUND)
-            val scan = indexUpdater.scan(vault)
+            val scan = indexUpdater.scan(vault, force)
             NoteListResult(
                 vault = vault,
                 items = scan.notes
@@ -155,7 +155,7 @@ class NoteRepository internal constructor(
     }
 
     suspend fun readNote(id: NoteId): Note = read(id.vaultId) { _, store ->
-        parser.note(store.readNote(id))
+        parser.note(store.readNote(id, requireUtf8 = true))
     }
 
     internal suspend fun readSearchSource(id: NoteId, expectedRoot: String): StoredMarkdown = read(id.vaultId) { vault, store ->
@@ -166,11 +166,11 @@ class NoteRepository internal constructor(
     suspend fun imageContext(id: NoteId): ImageContext? = read(id.vaultId) { _, store -> store.imageContext(id) }
 
     suspend fun openNote(id: NoteId): Note = write(id.vaultId) { _, store ->
-        parser.note(store.readNote(id))
+        parser.note(store.readNote(id, requireUtf8 = true))
     }
 
     suspend fun reloadNote(id: NoteId): Note = write(id.vaultId) { _, store ->
-        parser.note(store.readNote(id))
+        parser.note(store.readNote(id, requireUtf8 = true))
     }
 
     suspend fun wikiContext(id: NoteId): WikiContext = read(id.vaultId) { _, _ ->
@@ -199,7 +199,7 @@ class NoteRepository internal constructor(
     ): ConflictCopy = write(id.vaultId) { vault, fileStore ->
         val stored = fileStore.writeConflictCopy(id, content, previous)
         val copy = ConflictCopy(stored.id, stored.revision)
-        if (copy != previous) record(vault, stored)
+        if (copy != previous && stored.file.length() <= MAX_MARKDOWN_BYTES) record(vault, stored)
         copy
     }
 
@@ -239,8 +239,10 @@ class NoteRepository internal constructor(
 
     suspend fun listTrashedNotes(): List<TrashedNote> = read { _, store -> store.listTrashedNotes() }
 
-    suspend fun restoreNote(trashId: String): Note = write { vault, store ->
-        record(vault, store.restoreNote(trashId))
+    suspend fun restoreNote(trashId: String): NoteId = write { vault, store ->
+        val id = store.restoreNote(trashId)
+        reindex(vault, RelocationChanges(changedNotes = listOf(id.path)))
+        id
     }
 
     suspend fun deleteTrashedNote(trashId: String) = write { _, store -> store.deleteTrashedNote(trashId) }
@@ -248,9 +250,7 @@ class NoteRepository internal constructor(
     suspend fun restoreTrashedNotes(trashIds: List<String>, vaultId: VaultId? = null): TrashBulkOutcome =
         write(vaultId) { vault, store ->
             val (restored, outcome) = store.restoreNotes(trashIds)
-            for (stored in restored) {
-                record(vault, stored)
-            }
+            reindex(vault, RelocationChanges(changedNotes = restored.map { it.path }))
             outcome
         }
 
@@ -286,9 +286,13 @@ class NoteRepository internal constructor(
         folder(vault, runRelocation(vault) { it.moveFolder(path, destination) }.path)
     }
 
-    internal suspend fun deleteFolderWithOutcome(path: FolderPath, vaultId: VaultId): FolderDeleteOutcome =
+    internal suspend fun folderNotePaths(path: FolderPath, vaultId: VaultId) = read(vaultId) { vault, _ ->
+        VaultFileOps(File(vault.rootPath)).folderNotePaths(path)
+    }
+
+    internal suspend fun deleteFolderWithOutcome(path: FolderPath, vaultId: VaultId, expected: List<NotePath>): FolderDeleteOutcome =
         write(vaultId) { vault, _ ->
-            val result = VaultFileOps(File(vault.rootPath)).deleteFolderWithOutcome(path)
+            val result = VaultFileOps(File(vault.rootPath)).deleteFolderWithOutcome(path, expected)
             reindex(vault, RelocationChanges(removedNotes = result.records.map { it.originalPath }))
             FolderDeleteOutcome(result.records.map { it.trashId }, result.failed, result.directoryRemoved)
         }

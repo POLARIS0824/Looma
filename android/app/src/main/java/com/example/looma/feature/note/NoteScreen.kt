@@ -156,6 +156,15 @@ fun NoteRoute(
             modifier = modifier,
         )
 
+        state.readOnlyPreview != null -> NoteStatusScaffold(onNavigateUp, modifier) { padding ->
+            Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = pageMargin())) {
+                Text(stringResource(R.string.editor_encoding_readonly), style = MaterialTheme.typography.titleMedium)
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(state.readOnlyPreview.orEmpty())
+                }
+            }
+        }
+
         state.loadFailed -> NoteLoadErrorScreen(
             onNavigateUp = onNavigateUp,
             onRetry = viewModel::load,

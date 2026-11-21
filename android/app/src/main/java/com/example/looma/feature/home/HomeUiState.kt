@@ -127,7 +127,7 @@ sealed interface HomeFileDialog {
     data class DeleteFolder(
         val path: FolderPath,
         val folderName: String,
-        val noteCount: Int,
+        val paths: List<NotePath>,
         val error: HomeFileError? = null,
         val id: Long = 0L,
     ) : HomeFileDialog

@@ -39,11 +39,11 @@ internal class VaultIndexer(
 ) {
     private val parser = MarkdownParser()
 
-    suspend fun scan(): IndexScan = withContext(Dispatchers.IO) {
-        scanAttempt(retryOnConflict = true)
+    suspend fun scan(force: Boolean = false): IndexScan = withContext(Dispatchers.IO) {
+        scanAttempt(retryOnConflict = true, force = force)
     }
 
-    private suspend fun scanAttempt(retryOnConflict: Boolean): IndexScan {
+    private suspend fun scanAttempt(retryOnConflict: Boolean, force: Boolean): IndexScan {
         val version = index.version(vault.id)
         val ops = VaultFileOps(root)
         val rootDir = ops.rootDir
@@ -91,7 +91,7 @@ internal class VaultIndexer(
         }
 
         val indexed = index.load(vault.id)
-        val plan = planScan(indexed, onDisk, index.pathsNeedingSearchSignature(vault.id))
+        val plan = planScan(indexed, onDisk, if (force) onDisk.keys else index.pathsNeedingSearchSignature(vault.id))
             .let { if (complete) it else it.copy(removed = emptyList()) }
         val indexedByPath = indexed.associateBy { it.id.path }
 
@@ -137,7 +137,7 @@ internal class VaultIndexer(
             signatures = signatures,
         )
         val applied = index.applyIfVersion(delta, expectedVersion = version)
-        if (!applied && retryOnConflict) return scanAttempt(retryOnConflict = false)
+        if (!applied && retryOnConflict) return scanAttempt(retryOnConflict = false, force = force)
 
         val notes = if (applied) plan.kept + fresh + retained else index.load(vault.id)
         return IndexScan(

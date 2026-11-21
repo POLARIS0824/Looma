@@ -199,7 +199,7 @@ class HomeVaultActionsTest {
             home.onSelectionEvent(HomeSelectionEvent.FolderLongPressed(folder))
             home.startFolderDelete()
         }
-        val confirmation = home.uiState.value
+        val confirmation = withTimeout(10_000) { home.uiState.first { it.dialog is HomeFileDialog.DeleteFolder && !it.isBusy } }
         val deleted = act { confirmDeleteFolder() }
         assertEquals("attachment", file("Assets/photo.png").readText())
 

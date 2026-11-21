@@ -49,7 +49,9 @@ class HomeViewModel(
     private var dialogGeneration = 0L
     private var index: HomeVaultIndex = HomeVaultIndex.Empty
 
-    fun refresh(): Job {
+    fun refresh(): Job = refresh(force = false)
+
+    private fun refresh(force: Boolean): Job {
         refreshJob?.cancel()
         clearSearch()
         refreshJob = viewModelScope.launch {
@@ -59,7 +61,7 @@ class HomeViewModel(
             val previousSort = previousState.sort
             val previousNotes = previousState.notes
             try {
-                val result = noteRepository.listNotes()
+                val result = noteRepository.listNotes(force = force)
                 val vault = result.vault
                 val notes = result.items.map { it.toHomeItem() }
                 index = HomeVaultIndex.build(result.folders, notes)
@@ -77,7 +79,7 @@ class HomeViewModel(
                         newFiles.isAtRoot -> newFiles.recents
                         else -> index.recents()
                     }
-                    preserveSearch = previousVaultId == vault.id &&
+                    preserveSearch = !force && previousVaultId == vault.id &&
                         previousSort == current.sort &&
                         previousNotes == orderedNotes &&
                         !current.search.isSearching &&
@@ -153,7 +155,7 @@ class HomeViewModel(
     fun refreshFromUser() {
         if (_uiState.value.isBusy) return
         _uiState.update { it.copy(isRefreshing = true) }
-        refresh()
+        refresh(force = true)
     }
 
     fun openFolder(path: FolderPath) {
@@ -553,15 +555,19 @@ class HomeViewModel(
         val current = _uiState.value
         if (current.isBusy) return
         val folder = current.selectedFolder ?: return
-        _uiState.update {
-            it.copy(
-                dialog = HomeFileDialog.DeleteFolder(
-                    path = folder.path,
-                    folderName = folder.name,
-                    noteCount = index.noteCountUnder(folder.path),
-                    id = nextDialogId(),
-                ),
-            )
+        val vaultId = current.vaultId ?: return
+        runBusyAction {
+            try {
+                val paths = folderRepository.folderNotePaths(folder.path, vaultId)
+                _uiState.update { state ->
+                    if (state.vaultId != vaultId || state.selectedFolder != folder) state
+                    else state.copy(dialog = HomeFileDialog.DeleteFolder(folder.path, folder.name, paths, id = nextDialogId()))
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _uiState.update { it.copy(message = homeMessage(HomeNotice.ActionFailed)) }
+            }
         }
     }
 
@@ -582,7 +588,7 @@ class HomeViewModel(
         val dialog = _uiState.value.dialog as? HomeFileDialog.DeleteFolder ?: return
         val vaultId = _uiState.value.vaultId ?: return
         runDialogAction(dialog.id) {
-            val result = folderRepository.deleteFolderWithOutcome(dialog.path, vaultId)
+            val result = folderRepository.deleteFolderWithOutcome(dialog.path, vaultId, dialog.paths)
             homeMessage(
                 notice = if (result.directoryRemoved) {
                     HomeNotice.FolderDeleted(result.trashIds.size)

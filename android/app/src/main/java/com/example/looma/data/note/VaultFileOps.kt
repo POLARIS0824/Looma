@@ -150,17 +150,27 @@ internal class VaultFileOps(root: File) {
 
     fun deleteFolder(path: FolderPath): List<TrashRecord> = trashFolder(path, continueOnFailure = false).records
 
-    fun deleteFolderWithOutcome(path: FolderPath): FolderTrashResult = trashFolder(path, continueOnFailure = true)
+    fun folderNotePaths(path: FolderPath): List<NotePath> {
+        val files = mutableListOf<File>()
+        collectNotes(directoryForDeletion(path), files)
+        return files.map { NotePath(it.relativeTo(root).invariantSeparatorsPath) }
+    }
+
+    fun deleteFolderWithOutcome(path: FolderPath, expected: List<NotePath>? = null): FolderTrashResult =
+        trashFolder(path, continueOnFailure = true, expected = expected)
 
     fun deleteEmptyFolder(path: FolderPath): Boolean {
         val directory = directoryForDeletion(path)
         return directory.list()?.isEmpty() == true && directory.delete()
     }
 
-    private fun trashFolder(path: FolderPath, continueOnFailure: Boolean): FolderTrashResult {
+    private fun trashFolder(path: FolderPath, continueOnFailure: Boolean, expected: List<NotePath>? = null): FolderTrashResult {
         val directory = directoryForDeletion(path)
         val notes = mutableListOf<File>()
         collectNotes(directory, notes)
+        if (expected != null && notes.map { NotePath(it.relativeTo(root).invariantSeparatorsPath) } != expected) {
+            throw VaultFileException(VaultFileFailure.IO)
+        }
         val records = mutableListOf<TrashRecord>()
         var failed = 0
         for (note in notes) {

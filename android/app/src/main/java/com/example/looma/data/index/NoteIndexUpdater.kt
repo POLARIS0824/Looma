@@ -6,8 +6,8 @@ import kotlinx.coroutines.CancellationException
 
 internal class NoteIndexUpdater(private val index: NoteIndex) {
 
-    suspend fun scan(vault: Vault): IndexScan =
-        VaultIndexer(File(vault.rootPath), vault, index).scan()
+    suspend fun scan(vault: Vault, force: Boolean = false): IndexScan =
+        VaultIndexer(File(vault.rootPath), vault, index).scan(force)
 
     suspend fun apply(vault: Vault, delta: IndexDelta) {
         try {

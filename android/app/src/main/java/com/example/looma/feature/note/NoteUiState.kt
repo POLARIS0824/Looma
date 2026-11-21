@@ -45,6 +45,8 @@ data class NoteUiState(
     val leave: NoteLeave = NoteLeave.Idle,
     val isLoading: Boolean = true,
     val loadFailed: Boolean = false,
+    val readOnlyPreview: String? = null,
+    val exceedsSizeLimit: Boolean = false,
     val keepEmptyNotes: Boolean = true,
     val isNewNote: Boolean = false,
     val fileName: String = "",
