@@ -27,7 +27,7 @@ class EmbeddingGemma(context: Context, modelFile: File, gpu: Boolean = false) : 
     )
 
     fun document(text: String, title: String = "none"): FloatArray =
-        embed("title: $title | text: ${text.trim()}")
+        embed(documentInput(text, title))
 
     fun query(text: String): FloatArray =
         embed("task: search result | query: ${text.trim()}")
@@ -38,6 +38,7 @@ class EmbeddingGemma(context: Context, modelFile: File, gpu: Boolean = false) : 
     override fun close() = provider.close()
 
     companion object {
+        fun documentInput(text: String, title: String) = "title: $title | text: ${text.trim()}"
         const val DIMENSIONS = 768
     }
 }

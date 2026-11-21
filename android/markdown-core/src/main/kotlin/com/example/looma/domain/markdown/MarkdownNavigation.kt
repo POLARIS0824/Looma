@@ -19,7 +19,7 @@ class MarkdownNavigation private constructor(
         if (lastBlock.last < firstBlock.first) return null
         if (start == end) return NotePassage(source, firstBlock, firstBlock.last + 1)
         val range = maxOf(start, firstBlock.first)..minOf(last, lastBlock.last)
-        if (range.isEmpty() || source.substring(range).isBlank()) return null
+        if (range.isEmpty() || range.all { source[it].isWhitespace() }) return null
         return NotePassage(source, range, lastBlock.last + 1)
     }
 
@@ -59,4 +59,10 @@ class MarkdownNavigation private constructor(
     }
 }
 
-class NotePassage(val source: String, val range: IntRange, val insertAt: Int)
+class NotePassage(val source: String, val range: IntRange, val insertAt: Int) {
+    fun excerpt(limit: Int): String {
+        var end = range.first + minOf(range.last - range.first + 1, limit)
+        if (end < source.length && end > range.first && source[end - 1].isHighSurrogate() && source[end].isLowSurrogate()) end--
+        return source.substring(range.first, end)
+    }
+}

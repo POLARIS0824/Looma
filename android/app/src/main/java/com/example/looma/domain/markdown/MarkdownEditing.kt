@@ -594,6 +594,7 @@ internal class FenceIndex {
         latest = Change(before, after, start)
     }
 
+    @Synchronized
     fun isInside(text: CharSequence, end: Int): Boolean {
         if (text !== previous) {
             val limit = minOf(starts.last(), text.length, previous.length)

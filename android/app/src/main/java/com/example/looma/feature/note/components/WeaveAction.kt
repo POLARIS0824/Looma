@@ -53,7 +53,7 @@ internal fun WeaveAction(
         failed = false
         try {
             val source = editor.editor.text.toString()
-            passage = range?.let { r ->
+            passage = passage?.takeIf { it.source === source } ?: range?.let { r ->
                 withContext(Dispatchers.Default) { MarkdownNavigation.scan(source).passage(source, r.min, r.max) }
             }
             items = repository.related(vault, id, source, passage.takeIf { scoped })
@@ -74,7 +74,7 @@ internal fun WeaveAction(
                 if (proposal == null && passage != null) {
                     FilterChip(selected = scoped, onClick = { scoped = !scoped },
                         label = { Text(stringResource(R.string.weave_focus)) })
-                    if (scoped) passage?.let { Text(it.source.substring(it.range).take(160)) }
+                    if (scoped) passage?.let { Text(it.excerpt(160)) }
                 }
                 when {
                     loading -> DelayedLoadingIndicator(true)

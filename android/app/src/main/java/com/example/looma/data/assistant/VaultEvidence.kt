@@ -4,7 +4,6 @@ import com.example.looma.data.note.NoteListEntry
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.search.semanticChunks
-import com.example.looma.data.search.cappedForModel
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.markdown.NotePassage
 import com.example.looma.domain.markdown.MarkdownIndex
@@ -154,7 +153,7 @@ internal class VaultEvidence(
             wiki.backlinks.map { it.id } + source
         val eligible = scope.notes.filter { it.summary.id !in linked }
         val metadata = eligible.associate { it.summary.id to it.summary }
-        val query = passage?.let { buffer.substring(it.range).trim().cappedForModel(1024) } ?: (current.title + " " + current.tags.joinToString(" ") + " " + buffer.take(640)).trim()
+        val query = passage?.let { it.excerpt(1024).trim() } ?: (current.title + " " + current.tags.joinToString(" ") + " " + buffer.take(640)).trim()
         val sourceTerms = terms(query)
         search(scope.copy(notes = eligible), query, 12, relatedDocumentTitle = current.title).hits.distinctBy { it.id }.mapNotNull { hit ->
             val path = wikiPathOf(hit.id.path)
