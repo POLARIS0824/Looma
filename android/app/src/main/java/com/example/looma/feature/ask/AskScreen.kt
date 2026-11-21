@@ -30,13 +30,14 @@ import com.example.looma.ui.theme.LoomaTokens
 @Composable
 internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, openNote: (NoteId) -> Unit, open: (Evidence) -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
+    androidx.activity.compose.BackHandler(enabled = state.saving) { }
     val question = rememberTextFieldState()
     var preview by rememberSaveable { mutableStateOf(false) }
     var investigate by rememberSaveable { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::install) }
     Scaffold(containerColor = LoomaTokens.colors.page, topBar = {
         TopAppBar(title = { Text(stringResource(R.string.ask_title)) }, navigationIcon = {
-            IconButton(onClick = navigateUp) {
+            IconButton(onClick = navigateUp, enabled = !state.saving) {
                 LoomaIcon(R.drawable.ic_arrow_back, stringResource(R.string.nav_back))
             }
         })
@@ -64,7 +65,8 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, openNote: (N
                     } else {
                         if (rememberDelayedVisibility(true)) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
                         if (state.step.isNotEmpty()) Text(stringResource(R.string.ask_tool, state.step))
-                        TextButton(onClick = model::cancel) { Text(stringResource(android.R.string.cancel)) }
+                        if (state.saving) Text(stringResource(R.string.ask_saving))
+                        else TextButton(onClick = model::cancel) { Text(stringResource(android.R.string.cancel)) }
                     }
                     state.issue?.let {
                         Text(stringResource(when (it) {

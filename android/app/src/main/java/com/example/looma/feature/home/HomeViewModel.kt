@@ -49,6 +49,8 @@ class HomeViewModel(
     private var dialogGeneration = 0L
     private var index: HomeVaultIndex = HomeVaultIndex.Empty
 
+    private var indexedListing: com.example.looma.data.note.NoteListResult? = null
+
     fun refresh(): Job = refresh(force = false)
 
     private fun refresh(force: Boolean): Job {
@@ -63,16 +65,22 @@ class HomeViewModel(
             try {
                 val result = noteRepository.listNotes(force = force)
                 val vault = result.vault
-                val notes = result.items.map { it.toHomeItem() }
-                index = HomeVaultIndex.build(result.folders, notes)
+                val previous = indexedListing
+                val oldIndex = index
+                index = withContext(Dispatchers.Default) {
+                    if (!force && result.version != null && previous != null && result.vault == previous.vault &&
+                        result.version == previous.version && result.folders == previous.folders) oldIndex
+                    else HomeVaultIndex.build(result.folders, result.items.map { it.toHomeItem() })
+                }
+                indexedListing = result
                 var preserveSearch = false
                 _uiState.update { current ->
                     val path = current.files.path
                         .takeIf(index::contains)
                         ?: FolderPath.Root
-                    val alive = notes.mapTo(mutableSetOf()) { it.listKey }
+                    val alive = index.keys
                     val selection = current.selection.normalized(alive)
-                    val orderedNotes = notes.orderedBy(current.sort)
+                    val orderedNotes = index.notes(current.sort)
                     val newFiles = index.files(path, current.sort)
                     val recentItems = when {
                         current.recentReveal == null -> emptyList()
@@ -117,6 +125,7 @@ class HomeViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                indexedListing = null
                 index = HomeVaultIndex.Empty
                 _uiState.update {
                     it.copy(
@@ -421,7 +430,7 @@ class HomeViewModel(
     fun setSort(sort: HomeSort) = _uiState.update {
         it.copy(
             sort = sort,
-            notes = it.notes.orderedBy(sort),
+            notes = index.notes(sort),
             search = if (it.search.semanticSearch == HomeSemanticSearch.Off) {
                 it.search.copy(results = it.search.results.orderedBy(sort))
             } else {

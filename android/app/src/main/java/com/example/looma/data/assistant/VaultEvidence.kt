@@ -1,5 +1,7 @@
 package com.example.looma.data.assistant
 
+import com.example.looma.data.index.SearchSignature
+import com.example.looma.data.note.StoredMarkdown
 import com.example.looma.data.note.NoteListEntry
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.search.SemanticSearchRepository
@@ -25,7 +27,14 @@ import kotlinx.coroutines.withContext
 internal data class Evidence(val id: NoteId, val anchor: PassageAnchor, val text: String, val section: String, val similarity: Double? = null)
 internal data class EvidenceSet(val hits: List<Evidence>, val semantic: Boolean, val partial: Boolean)
 internal data class Connection(val source: NoteId, val evidence: Evidence, val reference: String, val tags: Set<String>, val keywords: List<String>, val passage: NotePassage?)
-internal data class EvidenceScope(val vault: Vault, val notes: List<NoteListEntry>, val partial: Boolean)
+internal class EvidenceDocument(val source: StoredMarkdown) {
+    var chunks: List<com.example.looma.data.search.SemanticChunk>? = null
+}
+
+internal data class EvidenceScope(val vault: Vault, val notes: List<NoteListEntry>, val partial: Boolean,
+    val documents: android.util.LruCache<NoteId, EvidenceDocument> = object : android.util.LruCache<NoteId, EvidenceDocument>(4 * 1024 * 1024) {
+        override fun sizeOf(key: NoteId, value: EvidenceDocument) = value.source.content.length.coerceAtLeast(1)
+    })
 
 internal class VaultEvidence(
     private val vaults: VaultRepository,
@@ -33,9 +42,11 @@ internal class VaultEvidence(
     private val vectors: SemanticSearchRepository,
 ) {
     suspend fun scope(vault: Vault): EvidenceScope {
-        val scan = notes.listNotes(vault)
+        val scan = notes.evidenceNotes(vault)
         return EvidenceScope(vault, scan.items, !scan.complete || scan.unreadableCount > 0 || scan.stalledRelocation != null)
     }
+
+    suspend fun releaseEmbedding() = vectors.releaseModel()
 
     suspend fun checkVault(vault: Vault) {
         val current = vaults.requireCurrentVault()
@@ -63,43 +74,43 @@ internal class VaultEvidence(
             null
         }
         val dense = semantic.orEmpty().map { Evidence(it.id, it.anchor, it.excerpt, it.section, it.similarity) }
-        val exact = if (dense.isEmpty()) emptySet() else {
-            notes.search(candidates, question).mapTo(mutableSetOf()) { it.id }
-        }
+        val tests = (terms + question).distinct().map(SearchSignature::prepare)
+        val reader = notes.lexicalReader(scope.vault)
         val shortlist = mutableListOf<Pair<Int, NoteListEntry>>()
         val lexical = mutableListOf<Pair<Int, Evidence>>()
         var skipped = false
         val checkActive = coroutineContext::ensureActive
+        suspend fun document(entry: NoteListEntry, meta: Int): EvidenceDocument? {
+            val id = entry.summary.id
+            scope.documents.get(id)?.let { return it }
+            return try {
+                reader.read(id, tests, meta > 0)?.let { source ->
+                    EvidenceDocument(source).also { scope.documents.put(id, it) }
+                }
+            } catch (_: IOException) {
+                skipped = true
+                null
+            }
+        }
+        fun meta(entry: NoteListEntry) = score(with(entry.summary) {
+            title + " " + id.path.relativePath + " " + tags.joinToString(" ")
+        }, terms)
         for (entry in scope.notes) {
             checkActive()
-            val summary = entry.summary
-            val meta = score(summary.title + " " + summary.id.path.relativePath + " " + summary.tags.joinToString(" "), terms)
-            if (!semantic.isNullOrEmpty() && summary.id !in exact && meta == 0 &&
-                score(entry.markdownSnippet, terms) == 0) continue
-            val hint = score(entry.markdownSnippet, terms) + meta
-            val rank = if (dense.isEmpty()) {
-                val note = try {
-                    notes.readSearchSource(summary.id, scope.vault.rootPath, requireUtf8 = true)
-                } catch (_: IOException) {
-                    skipped = true
-                    continue
-                }
-                score(note.content, terms) + meta + if (note.content.contains(question, true)) 1000 else 0
-            } else hint + if (summary.id in exact) 1000 else 0
+            val metadata = meta(entry)
+            val source = document(entry, metadata)?.source ?: continue
+            val rank = score(source.content, terms) + metadata + if (source.content.contains(question, true)) 1000 else 0
             if (rank > 0) shortlist += rank to entry
         }
         for ((_, entry) in shortlist.sortedByDescending { it.first }.take(limit * 3)) {
             checkActive()
             val summary = entry.summary
-            val meta = score(summary.title + " " + summary.id.path.relativePath + " " + summary.tags.joinToString(" "), terms)
-            val note = try {
-                notes.readSearchSource(summary.id, scope.vault.rootPath, requireUtf8 = true)
-            } catch (_: IOException) {
-                skipped = true
-                continue
-            }
+            val meta = meta(entry)
+            val document = document(entry, meta) ?: continue
+            val note = document.source
             val revision = note.revision as? NoteRevision.Known ?: continue
-            val passages = semanticChunks(note.content, checkActive).mapNotNull { chunk ->
+            val chunks = document.chunks ?: semanticChunks(note.content, checkActive).also { document.chunks = it }
+            val passages = chunks.mapNotNull { chunk ->
                 val text = note.content.substring(chunk.start, chunk.end)
                 val direct = text.contains(question, ignoreCase = true)
                 val rank = score(text, terms) + meta + if (direct) 100 else 0
@@ -113,8 +124,14 @@ internal class VaultEvidence(
             }
         }
         val byScore = lexical.sortedByDescending { it.first }
-        val ordered = byScore.filter { it.second.text.contains(question, true) }.map { it.second } +
-            dense + byScore.map { it.second }
+        val keywords = byScore.map { it.second }
+        val ordered = buildList {
+            addAll(keywords.filter { it.text.contains(question, true) })
+            for (i in 0 until maxOf(keywords.size, dense.size)) {
+                keywords.getOrNull(i)?.let(::add)
+                dense.getOrNull(i)?.let(::add)
+            }
+        }
         val perNote = mutableMapOf<NoteId, Int>()
         val hits = ordered.distinctBy { it.id to it.anchor }.filter {
             val count = perNote.getOrDefault(it.id, 0)
@@ -122,7 +139,7 @@ internal class VaultEvidence(
             count < 2
         }.take(limit)
         checkVault(scope.vault)
-        val partialIndex = dense.isNotEmpty() && vectors.indexState.first() != SemanticWorkState.Ready
+        val partialIndex = semantic != null && vectors.indexState.first() != SemanticWorkState.Ready
         EvidenceSet(hits, semantic != null, scope.partial || skipped || partialIndex)
     }
 
@@ -173,7 +190,7 @@ internal class VaultEvidence(
         val passage = suggestion.passage
         if (passage != null && passage.source != buffer) return@withContext false
         val at = passage?.insertAt ?: buffer.length
-        val addition = linkAddition(buffer, suggestion.reference, at)
+        val addition = suggestion.addition(buffer)
         val links = MarkdownIndex.index(buffer.replaceRange(at, at, addition), "").links
         val inserted = links.singleOrNull { it.range.first in at until (at + addition.length) }
         inserted != null && wiki.resolve(inserted.target) == target &&
@@ -198,6 +215,9 @@ internal class VaultEvidence(
         val WORDS = Regex("""[\p{IsHan}]+|[\p{L}\p{N}_#./-]+""")
     }
 }
+
+internal fun Connection.addition(buffer: String): String =
+    if (passage?.inline == true) " [[$reference]]" else linkAddition(buffer, reference, passage?.insertAt ?: buffer.length)
 
 internal fun linkAddition(buffer: String, path: String, at: Int = buffer.length): String {
     val newline = if ("\r\n" in buffer) "\r\n" else "\n"

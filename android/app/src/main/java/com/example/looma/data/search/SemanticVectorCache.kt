@@ -105,6 +105,8 @@ internal class SemanticVectorCache(private val root: File) {
 }
 
 internal class NoteVectors(private val file: File) {
+    fun reusable(checkActive: () -> Unit) = ReusableVectors.open(file, checkActive)
+
     fun exists(): Boolean = file.isFile
 
     fun isCurrent(revision: NoteRevision.Known, source: String, checkActive: () -> Unit): Boolean =

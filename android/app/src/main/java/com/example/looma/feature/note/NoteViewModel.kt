@@ -2,7 +2,7 @@ package com.example.looma.feature.note
 
 import com.example.looma.data.assistant.Connection
 import com.example.looma.data.assistant.VaultEvidence
-import com.example.looma.data.assistant.linkAddition
+import com.example.looma.data.assistant.addition
 import com.example.looma.domain.model.Vault
 import android.net.Uri
 import android.os.Bundle
@@ -119,7 +119,7 @@ class NoteViewModel(
             if (draft.isDirty) return@enqueue
             _uiState.update { it.copy(isLoading = true, loadFailed = false, readOnlyPreview = null) }
             try {
-                val note = repository.openNote(currentId)
+                val note = repository.editorDocument(currentId, recover = true)
                 val keepEmptyNotes = settingsRepository.settings.first().keepEmptyNotes
                 if (generation != operationGeneration) return@enqueue
                 if (draft.isDirty) {
@@ -130,7 +130,7 @@ class NoteViewModel(
                 val selection = restoredSelection?.let { (start, end) ->
                     TextRange(start.coerceIn(0, note.content.length), end.coerceIn(0, note.content.length))
                 } ?: TextRange(note.content.length)
-                draft.replaceFromDisk(note, selection)
+                draft.replaceFromDisk(note.content, note.revision, selection)
                 restoredSelection = null
                 _uiState.update {
                     it.copy(
@@ -186,9 +186,9 @@ class NoteViewModel(
             }
             try {
                 if (canRefreshDraft()) {
-                    val disk = repository.readNote(currentId)
+                    val disk = repository.editorDocument(currentId)
                     if (disk.revision != draft.revision && canRefreshDraft()) {
-                        draft.replaceFromDisk(disk)
+                        draft.replaceFromDisk(disk.content, disk.revision)
                         _uiState.update { it.copy(fileName = fileNameOf(currentId)) }
                     }
                 }
@@ -370,7 +370,7 @@ class NoteViewModel(
             !evidence.linkStillValid(vault, suggestion, source)) return@withLock false
         if (source != draft.content || generation != operationGeneration || currentId != suggestion.source) return@withLock false
         val at = suggestion.passage?.insertAt ?: source.length
-        editor.edit { replace(at, at, linkAddition(source, suggestion.reference, at)) }
+        editor.edit { replace(at, at, suggestion.addition(source)) }
         saveCurrent(generation)
     }
 

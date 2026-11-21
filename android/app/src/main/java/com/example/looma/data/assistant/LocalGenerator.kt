@@ -13,6 +13,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,6 +22,27 @@ import kotlinx.coroutines.withContext
 internal class LocalGenerator(private val context: Context) {
     private val file = File(context.noBackupFilesDir, "answer-model.litertlm")
     private val mutex = Mutex()
+    private val lifetime = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private var engine: Engine? = null
+    private var idle: kotlinx.coroutines.Job? = null
+
+    private fun closeEngine() {
+        val current = engine
+        engine = null
+        current?.close()
+    }
+
+    suspend fun prepareRetrieval() {
+        if (context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true) {
+            withContext(Dispatchers.IO) {
+                mutex.withLock {
+                    idle?.cancel()
+                    closeEngine()
+                }
+            }
+        }
+    }
+
     val installed get() = file.isFile
 
     suspend fun install(uri: Uri) = withContext(Dispatchers.IO) {
@@ -39,6 +61,7 @@ internal class LocalGenerator(private val context: Context) {
                         }
                     }
                 }
+                closeEngine()
                 engine(stage).use { it.initialize() }
                 coroutineContext.ensureActive()
                 Files.move(stage.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
@@ -49,26 +72,36 @@ internal class LocalGenerator(private val context: Context) {
         }
     }
 
-    suspend fun <T> run(block: suspend (suspend (String, String) -> String) -> T): T = withContext(Dispatchers.IO) {
+    suspend fun generate(instruction: String, payload: String): String = withContext(Dispatchers.IO) {
         mutex.withLock {
-            engine(file).use { engine ->
-                engine.initialize()
+            idle?.cancel()
+            try {
+                val active = engine ?: engine(file).also {
+                    engine = it
+                    it.initialize()
+                }
                 coroutineContext.ensureActive()
-                block { instruction, payload ->
-                    engine.createConversation(ConversationConfig(systemInstruction = Contents.of(instruction))).use { conversation ->
-                        val text = StringBuilder()
-                        try {
-                            conversation.sendMessageAsync(payload).collect { part ->
-                                coroutineContext.ensureActive()
-                                text.append(part.toString())
-                                check(text.length <= 12000)
-                            }
-                        } catch (error: Exception) {
-                            runCatching { conversation.cancelProcess() }.exceptionOrNull()?.let(error::addSuppressed)
-                            throw error
+                active.createConversation(ConversationConfig(systemInstruction = Contents.of(instruction))).use { conversation ->
+                    val text = StringBuilder()
+                    try {
+                        conversation.sendMessageAsync(payload).collect { part ->
+                            coroutineContext.ensureActive()
+                            text.append(part.toString())
+                            check(text.length <= 12000)
                         }
-                        text.toString().trim()
+                    } catch (error: Exception) {
+                        runCatching { conversation.cancelProcess() }.exceptionOrNull()?.let(error::addSuppressed)
+                        throw error
                     }
+                    text.toString().trim()
+                }
+            } catch (error: Throwable) {
+                closeEngine()
+                throw error
+            } finally {
+                idle = lifetime.launch {
+                    kotlinx.coroutines.delay(30_000)
+                    mutex.withLock { closeEngine() }
                 }
             }
         }

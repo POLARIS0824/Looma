@@ -21,6 +21,7 @@ internal class VaultAgent(private val evidence: VaultEvidence, private val gener
         withTimeout(180_000L) {
             require(question.isNotBlank() && question.length <= 1000)
             val scope = evidence.scope(vault)
+            generator.prepareRetrieval()
             val first = evidence.search(scope, question)
             val pool = first.hits.mapNotNull { evidence.resolve(vault, it) }.toMutableList()
             var partial = first.partial
@@ -31,7 +32,11 @@ internal class VaultAgent(private val evidence: VaultEvidence, private val gener
             if (pool.isEmpty() && !investigate) return@withTimeout initial
 
             try {
-                generator.run { generate ->
+                suspend fun generate(instruction: String, payload: String): String {
+                    evidence.releaseEmbedding()
+                    return generator.generate(instruction, payload)
+                }
+                run {
                     val searched = mutableSetOf(question.trim().lowercase())
                     val expanded = mutableSetOf<Int>()
                     if (investigate) {
@@ -43,6 +48,7 @@ internal class VaultAgent(private val evidence: VaultEvidence, private val gener
                                     val query = response.optString("query").trim()
                                     if (query.length !in 1..200 || !searched.add(query.lowercase())) break
                                     progress(query)
+                                    generator.prepareRetrieval()
                                     val found = evidence.search(scope, query, 4)
                                     partial = partial || found.partial
                                     pool += found.hits.filter { hit ->

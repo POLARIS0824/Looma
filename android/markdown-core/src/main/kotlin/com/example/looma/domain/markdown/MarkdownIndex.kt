@@ -22,6 +22,7 @@ data class MarkdownAstMetadata(
     val imageReferences: List<String>,
     val blockCodeRanges: List<IntRange>,
     val indexedLinks: List<MarkdownLinkSpan> = emptyList(),
+    val inlineDestinations: List<MarkdownLinkSpan> = emptyList(),
 )
 
 object MarkdownIndex {
@@ -67,6 +68,27 @@ object MarkdownIndex {
             }
             visit(tree)
         }
+    }
+
+    fun markdownNoteLinks(source: String): List<MarkdownLinkSpan> {
+        val base = frontmatterEnd(source)
+        val body = source.substring(base)
+        val tree = MarkdownParser(WikiImageFlavour()).buildMarkdownTreeFromString(body as CharSequence)
+        return inlineNoteDestinations(tree, body, base)
+    }
+
+    private fun inlineNoteDestinations(tree: ASTNode, body: String, base: Int): List<MarkdownLinkSpan> = buildList {
+        fun visit(node: ASTNode) {
+            if (node.type == MarkdownElementTypes.IMAGE) return
+            if (node.type == MarkdownElementTypes.INLINE_LINK) {
+                node.children.firstOrNull { it.type == MarkdownElementTypes.LINK_DESTINATION }?.let {
+                    val target = unescapeMarkdownDestination(it.getTextInNode(body).toString())
+                    val range = base + it.startOffset until base + it.endOffset
+                    add(MarkdownLinkSpan(range, range, target, null, null, false))
+                }
+            } else node.children.forEach(::visit)
+        }
+        visit(tree)
     }
 
     fun markdownImageLinks(source: String): List<MarkdownLinkSpan> {
@@ -125,6 +147,7 @@ object MarkdownIndex {
             bodyStart = span.bodyStart,
             tags = fmTags + inlineTags,
             indexedLinks = links,
+            inlineDestinations = if (forIndex && "](" in body) inlineNoteDestinations(tree, body, span.bodyStart) else emptyList(),
             imageReferences = imageReferences,
             blockCodeRanges = blockCodeRanges,
         )

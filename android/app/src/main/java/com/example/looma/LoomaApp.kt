@@ -26,7 +26,7 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val noteRepository: NoteRepository by lazy {
         NoteRepository(
             vaultRepository,
-            RoomNoteIndex(indexDatabase),
+            RoomNoteIndex(indexDatabase) { delta -> semanticSearchRepository.recordChanges(delta) },
             onFilesChanged = { vault, delta -> updateSemanticIndex { semanticSearchRepository.filesChanged(vault, delta) } },
             onVaultScanned = { vault, partial ->
                 updateSemanticIndex { semanticSearchRepository.resumeUpdates(vault, partial) }

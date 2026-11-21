@@ -9,7 +9,10 @@ import com.example.looma.domain.wiki.WikiContext
 import java.time.Instant
 import kotlinx.coroutines.sync.withLock
 
-internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteIndex {
+internal class RoomNoteIndex(
+    private val database: NoteIndexDatabase,
+    private val beforeCommit: (IndexDelta) -> Unit = {},
+) : NoteIndex {
 
     private val dao = database.noteIndexDao()
     private var searchSnapshot: SearchSnapshot? = null
@@ -85,13 +88,14 @@ internal class RoomNoteIndex(private val database: NoteIndexDatabase) : NoteInde
             val version = currentVersion(delta.vaultId)
             if (expectedVersion != null && version != expectedVersion) return@withLock false
             if (delta.upserts.isNotEmpty() || delta.removed.isNotEmpty()) {
+                beforeCommit(delta)
+                write(delta)
                 database.indexVersions[delta.vaultId] = version + 1
                 if (searchSnapshot?.vaultId == delta.vaultId) searchSnapshot = null
                 val wiki = database.wikiSnapshot
                 if (wiki?.vaultId == delta.vaultId && wiki.changesWith(delta)) {
                     database.wikiSnapshot = null
                 }
-                write(delta)
             }
             true
         }

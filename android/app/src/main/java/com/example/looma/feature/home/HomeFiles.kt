@@ -29,10 +29,14 @@ data class HomeRecentItem(
 
 internal class HomeVaultIndex private constructor(
     private val foldersByParent: Map<FolderPath, List<VaultFolder>>,
-    private val notesByParent: Map<FolderPath, List<HomeNoteItem>>,
+    private val ordered: Map<HomeSort, List<HomeNoteItem>>,
+    private val notesByParent: Map<HomeSort, Map<FolderPath, List<HomeNoteItem>>>,
     private val folderNames: Map<FolderPath, String>,
     private val allNotes: List<HomeNoteItem>,
 ) {
+
+    val keys: Set<String> = allNotes.mapTo(mutableSetOf()) { it.listKey }
+    fun notes(sort: HomeSort): List<HomeNoteItem> = ordered[sort].orEmpty()
 
     fun contains(path: FolderPath): Boolean =
         path == FolderPath.Root || folderNames.containsKey(path)
@@ -49,14 +53,13 @@ internal class HomeVaultIndex private constructor(
             crumbs = crumbs(target),
             recents = if (target == FolderPath.Root) recents() else emptyList(),
             folders = foldersByParent[target].orEmpty()
-                .sortedBy { it.name.lowercase() }
                 .map { HomeFolderItem(path = it.path, name = it.name) },
-            notes = notesByParent[target].orEmpty().orderedBy(sort),
+            notes = notesByParent[sort]?.get(target).orEmpty(),
         )
     }
 
     fun recents(limit: Int = RECENT_LIMIT): List<HomeRecentItem> =
-        allNotes.orderedBy(HomeSort.LAST_MODIFIED)
+        notes(HomeSort.LAST_MODIFIED)
             .take(limit)
             .map { HomeRecentItem(note = it, markdown = it.markdownSnippet) }
 
@@ -73,7 +76,7 @@ internal class HomeVaultIndex private constructor(
     }
 
     companion object {
-        val Empty: HomeVaultIndex = HomeVaultIndex(emptyMap(), emptyMap(), emptyMap(), emptyList())
+        val Empty: HomeVaultIndex = HomeVaultIndex(emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyList())
 
         fun build(folders: List<VaultFolder>, notes: List<HomeNoteItem>): HomeVaultIndex {
             val names = folders.associateTo(mutableMapOf()) { it.path to it.name }
@@ -87,9 +90,11 @@ internal class HomeVaultIndex private constructor(
                     parent = parent.parentFolder()
                 }
             }
+            val ordered = HomeSort.entries.associateWith { notes.orderedBy(it) }
             return HomeVaultIndex(
-                foldersByParent = known.groupBy { it.path.parentFolder() },
-                notesByParent = notes.groupBy { it.id.path.parentFolder() },
+                foldersByParent = known.sortedBy { it.name.lowercase() }.groupBy { it.path.parentFolder() },
+                ordered = ordered,
+                notesByParent = ordered.mapValues { (_, sorted) -> sorted.groupBy { it.id.path.parentFolder() } },
                 folderNames = names,
                 allNotes = notes,
             )

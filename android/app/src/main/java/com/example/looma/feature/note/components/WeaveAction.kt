@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.example.looma.R
+import com.example.looma.data.assistant.addition
 import com.example.looma.data.assistant.Connection
 import com.example.looma.data.assistant.Evidence
 import com.example.looma.data.assistant.VaultEvidence
@@ -81,7 +82,10 @@ internal fun WeaveAction(
                     failed -> Text(stringResource(R.string.weave_changed))
                     proposal != null -> {
                         Text(proposal.evidence.text)
-                        Text(stringResource(if (proposal.passage == null) R.string.weave_diff else R.string.weave_focus_diff, proposal.reference), style = MaterialTheme.typography.titleMedium)
+                        val focusPassage = proposal.passage
+                        val diff = if (focusPassage == null) stringResource(R.string.weave_diff, proposal.reference)
+                            else focusPassage.insertionPreview(proposal.addition(focusPassage.source))
+                        Text(diff, style = MaterialTheme.typography.titleMedium)
                     }
                     items.isEmpty() -> Text(stringResource(R.string.weave_empty))
                     else -> for (item in items) {

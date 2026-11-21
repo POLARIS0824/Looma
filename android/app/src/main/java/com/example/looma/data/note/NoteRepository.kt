@@ -59,6 +59,18 @@ class NoteRepository internal constructor(
     private val searchDispatcher = Dispatchers.IO.limitedParallelism(SEARCH_IO_PARALLELISM)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
+    private data class RecentScan(val result: NoteListResult, val at: Long)
+    @Volatile private var recentScan: RecentScan? = null
+
+    internal suspend fun evidenceNotes(vault: Vault): NoteListResult {
+        val recent = recentScan
+        if (recent != null && recent.result.vault == vault && recent.result.complete &&
+            System.nanoTime() - recent.at < 5_000_000_000L && recent.result.version == index.version(vault.id)) {
+            return recent.result
+        }
+        return listNotes(vault)
+    }
+
     internal suspend fun listNotes(expected: Vault? = null, force: Boolean = false): NoteListResult {
         val current = currentVault(expected?.id)
         if (expected != null && current.rootPath != expected.rootPath) {
@@ -80,7 +92,8 @@ class NoteRepository internal constructor(
                 unreadableCount = scan.unreadableCount,
                 stalledRelocation = stalled,
                 complete = scan.complete,
-            )
+                version = scan.version,
+            ).also { recentScan = RecentScan(it, System.nanoTime()) }
         }
     }
 
@@ -167,6 +180,28 @@ class NoteRepository internal constructor(
         return metadataMatch(candidate, keyword)
     }
 
+    internal fun lexicalReader(vault: Vault): LexicalReader = LexicalReader(vault)
+
+    internal inner class LexicalReader(vault: Vault) {
+        private val files = VaultFileOps(File(vault.rootPath))
+        private val store = NoteFileStore(vault)
+        suspend fun read(id: NoteId, tests: List<SearchSignature.Query?>, metadataMatch: Boolean): StoredMarkdown? {
+            val file = files.noteFile(id.path)
+            val stamp = signatureStamp(file)
+            val known = synchronized(verifiedSignatures) { verifiedSignatures[file] }
+            if (!metadataMatch && stamp != null && known != null && known.stamp == stamp &&
+                tests.all { it != null && !it.mayContain(known.bytes) }) return null
+            val source = store.readNote(id, requireUtf8 = true)
+            if (stamp != null && known?.stamp != stamp) {
+                val signature = SearchSignature.fromBody(source.content)
+                if (signatureStamp(file) == stamp) synchronized(verifiedSignatures) {
+                    verifiedSignatures[file] = VerifiedSignature(stamp, signature)
+                }
+            }
+            return source
+        }
+    }
+
     private fun signatureStamp(file: File): SignatureStamp? = try {
         val attrs = Files.readAttributes(file.toPath(), "unix:ino,ctime,size")
         val changed = attrs["ctime"] as java.nio.file.attribute.FileTime
@@ -196,6 +231,14 @@ class NoteRepository internal constructor(
     }
 
     suspend fun imageContext(id: NoteId): ImageContext? = read(id.vaultId) { _, store -> store.imageContext(id) }
+
+    internal suspend fun editorDocument(id: NoteId, recover: Boolean = false): StoredMarkdown {
+        if (recover) {
+            val vault = currentVault(id.vaultId)
+            VaultWriteCoordinator.write(vault) { recoverPendingRelocations(vault, retryStalled = false) }
+        }
+        return read(id.vaultId) { _, store -> store.readNote(id, requireUtf8 = true) }
+    }
 
     suspend fun openNote(id: NoteId): Note = write(id.vaultId) { _, store ->
         parser.note(store.readNote(id, requireUtf8 = true))
@@ -421,7 +464,7 @@ class NoteRepository internal constructor(
                 val before = file.fingerprint()
                 val text = readMarkdown(file)
                 if (before != file.fingerprint()) continue
-                val metadata = parser.parseForIndex(text, file.nameWithoutExtension)
+                val metadata = parser.parseForIndex(text, file.nameWithoutExtension, path)
                 indexedNote(vault.id, ops.rootDir, file, text, metadata, before) to SearchSignature.fromBody(text)
             } catch (error: CancellationException) {
                 throw error

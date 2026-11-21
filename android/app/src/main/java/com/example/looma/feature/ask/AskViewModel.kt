@@ -3,6 +3,7 @@ package com.example.looma.feature.ask
 import android.net.Uri
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.wiki.LocalNoteLink
 import com.example.looma.domain.wiki.wikiPathOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -24,6 +25,7 @@ internal enum class AskIssue { Import, Run, Timeout, Changed, Save }
 internal data class AskState(
     val hasModel: Boolean,
     val busy: Boolean = false,
+    val saving: Boolean = false,
     val step: String = "",
     val answer: VaultAnswer? = null,
     val question: String = "",
@@ -71,12 +73,12 @@ internal class AskViewModel(
         mutable.update { it.copy(saved = note.id) }
     }
 
-    fun cancel() { task?.cancel() }
+    fun cancel() { if (!mutable.value.saving) task?.cancel() }
 
     private fun start(failure: AskIssue, action: suspend () -> Unit) {
         if (task?.isActive == true) return
         task = viewModelScope.launch {
-            mutable.update { it.copy(busy = true, issue = null, step = "") }
+            mutable.update { it.copy(busy = true, saving = failure == AskIssue.Save, issue = null, step = "") }
             try {
                 action()
             } catch (_: TimeoutCancellationException) {
@@ -88,7 +90,7 @@ internal class AskViewModel(
             } catch (_: LinkageError) {
                 mutable.update { it.copy(issue = failure) }
             } finally {
-                mutable.update { it.copy(busy = false, step = "") }
+                mutable.update { it.copy(busy = false, saving = false, step = "") }
             }
         }
     }
@@ -107,7 +109,7 @@ internal fun VaultAnswer.asMarkdown(question: String, sourcesTitle: String): Str
         val source = sources[number - 1]
         val path = wikiPathOf(source.id.path)
         val link = if (path.none { it in "[]#|\r\n" }) "[[$path]]" else {
-            "[" + escapeMarkdown(path) + "](<" + Uri.encode(source.id.path.relativePath, "/") + ">)"
+            "[" + escapeMarkdown(path) + "](<" + LocalNoteLink.fromRoot(source.id.path) + ">)"
         }
         appendLine()
         appendLine("[$number] $link")
