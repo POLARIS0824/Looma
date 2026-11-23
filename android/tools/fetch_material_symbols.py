@@ -41,6 +41,8 @@ ICONS = {
     "restore_from_trash": "ic_restore",
     "settings": "ic_settings",
     "folder": "ic_folder",
+    "memory": "ic_memory",
+    "bolt": "ic_bolt",
     "arrow_upward": "ic_arrow_up",
     "arrow_downward": "ic_arrow_down",
     "dehaze": "ic_drag_handle",
