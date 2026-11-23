@@ -25,7 +25,7 @@ import com.example.looma.feature.home.HomeSearchResult
 import com.example.looma.ui.components.DelayedContent
 import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.components.pageMargin
+import com.example.looma.ui.components.noteGridMargin
 import com.example.looma.ui.components.SectionHeader
 
 @Composable
@@ -39,7 +39,7 @@ internal fun HomeSearchResults(
     isSearching: Boolean = false,
     semanticSearch: Boolean = false,
 ) {
-    val margin = pageMargin()
+    val margin = noteGridMargin()
     when {
         query.isBlank() && recentSearches.isNotEmpty() -> LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -101,7 +101,7 @@ private val RecentSearchItemInset = 8.dp
 
 @Composable
 private fun HomeSearchHint(text: String) {
-    Box(Modifier.fillMaxSize().padding(start = pageMargin(), end = pageMargin(), top = 24.dp)) {
+    Box(Modifier.fillMaxSize().padding(start = noteGridMargin(), end = noteGridMargin(), top = 24.dp)) {
         Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

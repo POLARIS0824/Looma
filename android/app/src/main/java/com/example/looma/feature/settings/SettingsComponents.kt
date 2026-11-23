@@ -49,14 +49,11 @@ internal fun SettingsSwitchRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     SegmentedListItem(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
         shapes = ListItemDefaults.segmentedShapes(index, count),
         modifier = Modifier.fillMaxWidth(),
-        enabled = enabled,
         supportingContent = { Text(description) },
         trailingContent = {
-            Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
         },
         colors = settingsListColors(),
     ) {

@@ -3,6 +3,7 @@ package com.example.looma.data.settings
 import android.content.Context
 import com.example.looma.domain.markdown.ToolbarItem
 import com.example.looma.domain.markdown.ToolbarOrder
+import com.example.looma.embedding.EmbeddingBackend
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -39,6 +40,9 @@ class SettingsRepository(
                     pathStyle = data.s3PathStyle ?: true,
                     publicRead = data.s3PublicRead ?: true,
                 ),
+                embeddingBackend = data.embeddingBackend
+                    ?.let { stored -> EmbeddingBackend.entries.firstOrNull { it.name == stored } }
+                    ?: EmbeddingBackend.CPU,
                 isLoaded = true,
                 s3CredentialsUnavailable = data.s3CredentialsUnavailable,
                 syncConfig = S3SyncConfig(
@@ -84,5 +88,9 @@ class SettingsRepository(
 
     suspend fun setSyncConfig(config: S3SyncConfig) {
         preferences.saveSyncConfig(config)
+    }
+
+    suspend fun setEmbeddingBackend(backend: EmbeddingBackend) {
+        preferences.saveEmbeddingBackend(backend.name)
     }
 }

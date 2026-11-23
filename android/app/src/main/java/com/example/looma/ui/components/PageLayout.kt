@@ -17,4 +17,7 @@ fun isCompactWindow(): Boolean {
 @Composable
 fun pageMargin(): Dp = if (isCompactWindow()) 16.dp else 24.dp
 
+@Composable
+fun noteGridMargin(): Dp = if (isCompactWindow()) 8.dp else 16.dp
+
 private val CompactWidthLimit = 600.dp

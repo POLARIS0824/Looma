@@ -13,14 +13,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.looma.ui.components.isCompactWindow
-import com.example.looma.ui.components.pageMargin
+import com.example.looma.ui.components.noteGridMargin
 
 private val FabClearance = 96.dp
 internal val HomeCardGap = 8.dp
 
 @Composable
 internal fun homeGridPadding(bottom: Dp = FabClearance): PaddingValues {
-    val margin = pageMargin()
+    val margin = noteGridMargin()
     return PaddingValues(start = margin, end = margin, top = 8.dp, bottom = bottom)
 }
 

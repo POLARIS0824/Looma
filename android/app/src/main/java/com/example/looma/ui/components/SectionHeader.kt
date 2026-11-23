@@ -26,7 +26,7 @@ fun SectionHeader(
     val top = if (first) 0.dp else SectionHeaderDefaults.GroupGap
     Text(
         text = title,
-        style = MaterialTheme.typography.titleLarge,
+        style = MaterialTheme.typography.titleMediumEmphasized,
         color = MaterialTheme.colorScheme.onSurface,
         modifier = modifier
             .fillMaxWidth()

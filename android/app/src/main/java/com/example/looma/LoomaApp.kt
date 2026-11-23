@@ -27,9 +27,11 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val searchHistoryRepository by lazy {
         SearchHistoryRepository(vaultRepository, indexDatabase.searchHistoryDao())
     }
-    val semanticSearchRepository by lazy { SemanticSearchRepository(this, noteRepository, vaultRepository) }
-    val folderRepository by lazy { FolderRepository(noteRepository) }
     val settingsRepository by lazy { SettingsRepository(this) }
+    val semanticSearchRepository by lazy {
+        SemanticSearchRepository(this, noteRepository, vaultRepository, settingsRepository)
+    }
+    val folderRepository by lazy { FolderRepository(noteRepository) }
     val imageUploader by lazy { ImageUploader(this, vaultRepository, httpClient) }
     val syncRepository by lazy {
         SyncRepository(

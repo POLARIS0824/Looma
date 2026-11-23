@@ -3,6 +3,7 @@ package com.example.looma.data.search
 import android.content.Context
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.note.StoredMarkdown
+import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
@@ -11,6 +12,7 @@ import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.removeMarkdownSuffix
 import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.search.SearchableNote
+import com.example.looma.embedding.EmbeddingBackend
 import com.example.looma.embedding.EmbeddingGemma
 import java.io.IOException
 import java.util.PriorityQueue
@@ -20,7 +22,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -30,6 +35,7 @@ class SemanticSearchRepository internal constructor(
     private val context: Context,
     private val notes: NoteRepository,
     private val vaults: VaultRepository = VaultRepository(context),
+    private val settings: SettingsRepository = SettingsRepository(context),
 ) {
     private val directory = context.noBackupFilesDir.resolve("semantic-search")
     private val modelFile = EmbeddingModelFile(directory)
@@ -43,9 +49,29 @@ class SemanticSearchRepository internal constructor(
     internal val modelState by lazy { work.modelState }
     internal val indexState = work.indexState
     internal val hasIndex = work.hasIndex
+    internal val embeddingBackend: Flow<EmbeddingBackend> = settings.settings
+        .map { it.embeddingBackend }
+        .distinctUntilChanged()
+
+    internal suspend fun setEmbeddingBackend(backend: EmbeddingBackend) {
+        val current = settings.settings.first().embeddingBackend
+        if (current != backend) {
+            releaseModel()
+            settings.setEmbeddingBackend(backend)
+        }
+    }
 
     internal suspend fun enqueueModelDownload() = work.enqueueDownload()
     internal suspend fun cancelModelDownload() = work.cancelDownload()
+    internal suspend fun deleteModel() {
+        work.cancelDownload()
+        work.cancelIndex()
+        releaseModel()
+        withContext(Dispatchers.IO) {
+            modelFile.delete()
+        }
+        work.notifyModelChanged()
+    }
     internal suspend fun enqueueIndex() = work.enqueueIndex()
     internal suspend fun cancelIndex() = work.cancelIndex()
 
@@ -182,12 +208,22 @@ class SemanticSearchRepository internal constructor(
     }
 
     private suspend fun <T> withModel(block: (EmbeddingGemma) -> T): T = modelMutex.withLock {
-        val active = model ?: EmbeddingGemma(
-            context,
-            modelFile.open() ?: throw SemanticModelMissingException(),
-        ).also { model = it }
+        val active = model ?: openEmbeddingModel().also { model = it }
         coroutineContext.ensureActive()
         block(active)
+    }
+
+    private suspend fun openEmbeddingModel(): EmbeddingGemma {
+        val file = modelFile.open() ?: throw SemanticModelMissingException()
+        val backend = settings.settings.first().embeddingBackend
+        if (backend == EmbeddingBackend.NPU) {
+            try {
+                return EmbeddingGemma(context, file, EmbeddingBackend.NPU)
+            } catch (_: Exception) {
+                // Fall back to CPU if NPU initialization is unavailable on this device.
+            }
+        }
+        return EmbeddingGemma(context, file, EmbeddingBackend.CPU)
     }
 
     private suspend fun read(id: NoteId, vault: Vault): StoredMarkdown? = try {

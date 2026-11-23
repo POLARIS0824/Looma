@@ -2,6 +2,7 @@ package com.example.looma.data.settings
 
 import androidx.compose.ui.graphics.Color
 import com.example.looma.domain.markdown.ToolbarItem
+import com.example.looma.embedding.EmbeddingBackend
 
 data class AppSettings(
     val dynamicColor: Boolean = true,
@@ -11,6 +12,7 @@ data class AppSettings(
     val toolbarOrder: List<ToolbarItem> = ToolbarItem.DEFAULT_ORDER,
     val imageUploadTarget: ImageUploadTarget = ImageUploadTarget.LocalAttachment,
     val imageBed: S3ImageBedConfig = S3ImageBedConfig(),
+    val embeddingBackend: EmbeddingBackend = EmbeddingBackend.CPU,
     val isLoaded: Boolean = false,
     val s3CredentialsUnavailable: Boolean = false,
     val syncConfig: S3SyncConfig = S3SyncConfig(),

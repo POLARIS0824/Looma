@@ -96,7 +96,7 @@ import com.example.looma.ui.components.ErrorBanner
 import com.example.looma.ui.components.LoadingPage
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.MessagePage
-import com.example.looma.ui.components.pageMargin
+import com.example.looma.ui.components.noteGridMargin
 import com.example.looma.ui.components.rememberDelayedVisibility
 import com.example.looma.ui.theme.LoomaTokens
 
@@ -583,7 +583,7 @@ private fun HomeContent(
         val syncBanner = state.syncBanner
         if (stalled != null || error != null || syncBanner != null) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = pageMargin(), vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = noteGridMargin(), vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 stalled?.let {
