@@ -32,6 +32,12 @@ internal class EmbeddingModelFile(directory: File) {
 
     suspend fun open(): File? = mutex.withLock { openPublishedModel() }
 
+    suspend fun delete() = mutex.withLock {
+        verified = false
+        Files.deleteIfExists(file.toPath())
+        Files.deleteIfExists(pending.toPath())
+    }
+
     private suspend fun openPublishedModel(): File? {
         if (!exists()) {
             verified = false

@@ -35,6 +35,7 @@ data class SettingsPreferencesData(
     val s3PublicBaseUrl: String?,
     val s3PathStyle: Boolean?,
     val s3PublicRead: Boolean?,
+    val embeddingBackend: String?,
     val s3CredentialsUnavailable: Boolean = false,
 )
 
@@ -71,6 +72,7 @@ class SettingsPreferences(context: Context) {
                     s3PublicBaseUrl = preferences[KEY_S3_PUBLIC_BASE_URL],
                     s3PathStyle = preferences[KEY_S3_PATH_STYLE],
                     s3PublicRead = preferences[KEY_S3_PUBLIC_READ],
+                    embeddingBackend = preferences[KEY_EMBEDDING_BACKEND],
                     s3CredentialsUnavailable = encryptedCredentials != null && credentials == null,
                 )
             }
@@ -146,6 +148,10 @@ class SettingsPreferences(context: Context) {
         }
     }
 
+    suspend fun saveEmbeddingBackend(backend: String) {
+        dataStore.edit { it[KEY_EMBEDDING_BACKEND] = backend }
+    }
+
     companion object {
         val KEY_DYNAMIC_COLOR = booleanPreferencesKey("key_dynamic_color")
         val KEY_THEME_PRESET = stringPreferencesKey("key_theme_preset")
@@ -163,5 +169,6 @@ class SettingsPreferences(context: Context) {
         val KEY_S3_PUBLIC_BASE_URL = stringPreferencesKey("key_s3_public_base_url")
         val KEY_S3_PATH_STYLE = booleanPreferencesKey("key_s3_path_style")
         val KEY_S3_PUBLIC_READ = booleanPreferencesKey("key_s3_public_read")
+        val KEY_EMBEDDING_BACKEND = stringPreferencesKey("key_embedding_backend")
     }
 }

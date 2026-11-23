@@ -2,14 +2,29 @@ package com.example.looma.embedding
 
 import android.content.Context
 import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.BaseOptions.DelegateOptions.NpuOptions
 import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.retrieval.universalembedder.UniversalEmbedder
 import com.google.mediapipe.tasks.retrieval.universalembedder.UniversalEmbedderOptions
 import java.io.Closeable
 import java.io.File
 
-class EmbeddingGemma(context: Context, modelFile: File, gpu: Boolean = false) : Closeable {
-    private val delegate = if (gpu) Delegate.GPU else Delegate.CPU
+enum class EmbeddingBackend {
+    CPU,
+    GPU,
+    NPU,
+}
+
+class EmbeddingGemma(
+    context: Context,
+    modelFile: File,
+    backend: EmbeddingBackend = EmbeddingBackend.CPU,
+) : Closeable {
+    private val delegate = when (backend) {
+        EmbeddingBackend.CPU -> Delegate.CPU
+        EmbeddingBackend.GPU -> Delegate.GPU
+        EmbeddingBackend.NPU -> Delegate.NPU
+    }
     val backend = "MediaPipe UniversalEmbedder / LiteRT-LM ${delegate.name}"
     private val provider = UniversalEmbedder.createFromOptions(
         context,
@@ -18,6 +33,17 @@ class EmbeddingGemma(context: Context, modelFile: File, gpu: Boolean = false) : 
                 BaseOptions.builder()
                     .setModelAssetPath(modelFile.absolutePath)
                     .setDelegate(delegate)
+                    .apply {
+                        if (delegate == Delegate.NPU) {
+                            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+                            setDelegateOptions(
+                                NpuOptions.builder()
+                                    .setDispatchLibraryDirectory(nativeLibDir)
+                                    .setCompilerPluginLibraryDirectory(nativeLibDir)
+                                    .build(),
+                            )
+                        }
+                    }
                     .build(),
             )
             .setTextDelegate(delegate)

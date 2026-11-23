@@ -17,10 +17,13 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 internal sealed interface SemanticWorkState {
@@ -47,11 +50,12 @@ internal class SemanticSearchWork(
     private val cache: SemanticVectorCache,
 ) {
     private val manager by lazy { WorkManager.getInstance(context) }
+    private val modelVersion = MutableStateFlow(0)
     val supported get() = Process.is64Bit()
 
     val modelState: Flow<SemanticWorkState>
         get() = if (supported) {
-            observe(MODEL_WORK_NAME).map { info ->
+            combine(observe(MODEL_WORK_NAME), modelVersion) { info, _ ->
                 val ready = (info == null || info.state.isFinished) && modelIsReady()
                 if (ready) SemanticWorkState.Ready else info.state(false)
             }.distinctUntilChanged()
@@ -78,6 +82,11 @@ internal class SemanticSearchWork(
 
     suspend fun cancelDownload() {
         manager.cancelUniqueWork(MODEL_WORK_NAME).await()
+    }
+
+    suspend fun notifyModelChanged() {
+        manager.pruneWork().await()
+        modelVersion.update { it + 1 }
     }
 
     suspend fun enqueueIndex() {
