@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.feature.home.HomeSemanticSearch
 import com.example.looma.ui.components.DelayedContent
-import com.example.looma.ui.components.pageMargin
+import com.example.looma.ui.components.noteGridMargin
 
 @Composable
 internal fun HomeSemanticSearchControls(
@@ -48,7 +48,7 @@ internal fun HomeSemanticSearchControls(
         HomeSemanticSearch.SearchFailed -> stringResource(R.string.home_semantic_search_failed)
     }
     DelayedContent {
-        Column(Modifier.padding(horizontal = pageMargin(), vertical = 8.dp)) {
+        Column(Modifier.padding(horizontal = noteGridMargin(), vertical = 8.dp)) {
             Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             when (state) {
                 HomeSemanticSearch.NeedsModel, HomeSemanticSearch.NeedsIndex -> TextButton(

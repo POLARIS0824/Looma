@@ -19,11 +19,11 @@ Expressive 不是让所有元素都更醒目。先确定页面的主任务，再
 
 下表是 Looma 决定。
 
-| 页面 | 主任务 | 强调方式 |
-|---|---|---|
-| 首页 | 找到并打开笔记 | 笔记卡片占据页面主体。`FloatingActionButtonMenu` 是页面上唯一的高强调操作 |
-| 笔记 | 读写正文 | 正文占据页面主体。顶栏和 `NoteFormatBar` 使用 surface 色，不和正文争夺注意力 |
-| 回收站、设置、选择 vault | 完成一个操作或修改一个选项 | 只用组件自带的效果 |
+| 页面                     | 主任务                     | 强调方式                                                                     |
+|--------------------------|----------------------------|------------------------------------------------------------------------------|
+| 首页                     | 找到并打开笔记             | 笔记卡片占据页面主体。`FloatingActionButtonMenu` 是页面上唯一的高强调操作    |
+| 笔记                     | 读写正文                   | 正文占据页面主体。顶栏和 `NoteFormatBar` 使用 surface 色，不和正文争夺注意力 |
+| 回收站、设置、选择 vault | 完成一个操作或修改一个选项 | 只用组件自带的效果                                                           |
 
 - 自定义的 Expressive 效果只用在首页和笔记页。自定义效果包括形状变形、Emphasized 字体之外的字体轴变化和自定义动画。
 - 每个页面最多一个 FAB，只放整个页面的主操作。
@@ -66,15 +66,16 @@ Expressive 不是让所有元素都更醒目。先确定页面的主任务，再
 
 ### 布局数值
 
-| 位置 | 数值 | 来源 |
-|---|---|---|
-| 页边距 | 紧凑窗口 16dp，中等及以上窗口 24dp | M3 布局规范 |
-| 页面分组标题 | `titleLarge`，颜色 `onSurface`，带 `heading()` 语义 | Looma 决定，参考 Google Files |
-| 分组标题到下方内容 | 16dp 起，内容较重时可到 24dp | Looma 决定，参考 Google Files |
-| 分组之间 | 24dp 到 32dp | Looma 决定，参考 Google Files |
-| 卡片之间、网格项之间 | 8dp | M3 卡片规范，卡片间距最多 8dp |
-| 分段列表项之间 | `ListItemDefaults.SegmentedGap` | M3 组件默认值 |
-| 单栏内容的最大宽度 | 640dp | Looma 决定。`bodyLarge` 下一行约 40 个汉字 |
+| 位置                         | 数值                                                  | 来源                                                                     |
+|------------------------------|-------------------------------------------------------|--------------------------------------------------------------------------|
+| 页边距                       | 紧凑窗口 16dp，中等及以上窗口 24dp                    | M3 布局规范                                                              |
+| 首页和文件夹的笔记网格页边距 | 紧凑窗口 8dp，中等及以上窗口 16dp，`noteGridMargin()` | Looma 决定。笔记卡片占据页面主体，窄边距让双列卡片更宽，参考 Google Keep |
+| 页面分组标题                 | `titleLarge`，颜色 `onSurface`，带 `heading()` 语义   | Looma 决定，参考 Google Files                                            |
+| 分组标题到下方内容           | 16dp 起，内容较重时可到 24dp                          | Looma 决定，参考 Google Files                                            |
+| 分组之间                     | 24dp 到 32dp                                          | Looma 决定，参考 Google Files                                            |
+| 卡片之间、网格项之间         | 8dp                                                   | M3 卡片规范，卡片间距最多 8dp                                            |
+| 分段列表项之间               | `ListItemDefaults.SegmentedGap`                       | M3 组件默认值                                                            |
+| 单栏内容的最大宽度           | 640dp                                                 | Looma 决定。`bodyLarge` 下一行约 40 个汉字                               |
 
 - 间距写在父布局上，即 `Arrangement.spacedBy` 和 `contentPadding`。不在子元素上加外边距。
 - 表里的范围是起点。同一个页面里，同一种关系使用同一个值。关系越近，间距越小，所以分组标题到内容的间距小于分组之间的间距。
@@ -93,17 +94,17 @@ M3 的断点是 600dp 和 840dp。宽度小于 600dp 是紧凑窗口，600dp 到
 
 M3 Expressive 的圆角刻度如下。加粗的是 1.5.0 新增的级别。
 
-| token | 圆角 |
-|---|---|
-| `extraSmall` | 4dp |
-| `small` | 8dp |
-| `medium` | 12dp |
-| `large` | 16dp |
-| **`largeIncreased`** | 20dp |
-| `extraLarge` | 28dp |
-| **`extraLargeIncreased`** | 32dp |
-| **`extraExtraLarge`** | 48dp |
-| `CircleShape` | 完全圆角 |
+| token                     | 圆角     |
+|---------------------------|----------|
+| `extraSmall`              | 4dp      |
+| `small`                   | 8dp      |
+| `medium`                  | 12dp     |
+| `large`                   | 16dp     |
+| **`largeIncreased`**      | 20dp     |
+| `extraLarge`              | 28dp     |
+| **`extraLargeIncreased`** | 32dp     |
+| **`extraExtraLarge`**     | 48dp     |
+| `CircleShape`             | 完全圆角 |
 
 - 优先使用 M3 组件的默认形状，不传 `shape`。卡片用 `Card`，对话框用 `AlertDialog`，分组列表用 `SegmentedListItem`。
 - 首页的笔记卡片、文件夹卡片、最近笔记卡片和回收站的笔记卡片使用 `Card(shape = MaterialTheme.shapes.largeIncreased)`。同一种内容的卡片圆角一致。这一条是 Looma 决定，保留现在 20dp 的外观。
@@ -135,26 +136,26 @@ M3 Expressive 的圆角刻度如下。加粗的是 1.5.0 新增的级别。
 
 下表左列的写法在 Compose 1.13.0 和 Material 3 1.5.0 中已废弃或属于旧式组件。新代码使用右列。
 
-| 不用 | 改用（M3 1.5.0 / Compose 1.13.0） |
-|---|---|
-| `MediumTopAppBar`、`LargeTopAppBar` | `MediumFlexibleTopAppBar`、`LargeFlexibleTopAppBar` |
-| 没有理由的 `CenterAlignedTopAppBar` | `TopAppBar` |
-| 手动重置 `scrollBehavior.state.heightOffset` | `TopAppBarDefaults.pinnedScrollBehavior(scrollableState)` 或 `enterAlwaysScrollBehavior(scrollableState)`，直接传入 `LazyListState` 或 `ScrollState` |
-| `ModalNavigationDrawer` | 紧凑窗口用 `ModalWideNavigationRail`，中等及以上窗口用 `WideNavigationRail` |
-| 放在 `Card` 里、用分割线隔开的 `ListItem` | `SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(index, count))`，间距用 `ListItemDefaults.SegmentedGap` |
-| `ListItem(headlineContent = { ... })` | 1.5.0 的尾随 lambda 重载 `ListItem(...) { Text(...) }`（`headlineContent`、`ListItemDefaults.shape` 和 `ListItemDefaults.Elevation` 已废弃，改用 `ListItemDefaults.shapes()` 和 `ListItemDefaults.elevation()`） |
-| `SingleChoiceSegmentedButtonRow` | `ToggleButton`、`FilledTonalToggleButton` 或 `OutlinedToggleButton`，配 `ButtonGroupDefaults.connected*ButtonShapes()` |
-| `ToggleButtonDefaults.shapes` | `ToggleButtonDefaults.shapesFor(height)` |
-| `Button(shape = ...)` | `Button(shapes = ButtonDefaults.shapes())` 或 `ButtonDefaults.shapesFor(height)` |
-| 按钮加下拉箭头拼成的组合 | `SplitButtonLayout` 配 `SplitButtonDefaults.LeadingButton` 和 `SplitButtonDefaults.TrailingButton` |
-| 速拨 FAB、`SmallFloatingActionButton` | `FloatingActionButtonMenu` 加 `ToggleFloatingActionButton`；单个大号 FAB 用 `MediumFloatingActionButton`（80dp）或 `LargeFloatingActionButton`（96dp） |
-| `BottomAppBar` | `HorizontalFloatingToolbar` 或 `FlexibleBottomAppBar` |
-| 带有单选或多选状态的 `DropdownMenuItem` | `DropdownMenuPopup` 加 `DropdownMenuGroup`，菜单项用 `SelectableDropdownMenuItem` 或 `CheckableDropdownMenuItem` |
-| 不定进度的 `CircularProgressIndicator` | `LoadingIndicator` 或 `CircularWavyProgressIndicator` |
-| `LinearProgressIndicator` | `LinearWavyProgressIndicator` |
-| `SearchBar(query, onQueryChange, ...)` | `SearchBar(state, inputField)`，展开态在紧凑窗口用 `ExpandedFullScreenSearchBar` 或 `ExpandedFullScreenContainedSearchBar`，在宽窗口用 `ExpandedDockedSearchBarWithGap` |
-| `BasicTextField(value, onValueChange)`、`OutlinedTextField(value, onValueChange)` | 基于 `TextFieldState` 的重载；密钥输入框（例如 S3 密钥）用 `OutlinedSecureTextField(state)` |
-| `Slider(value, onValueChange)` | 基于 `SliderState` 的重载 `Slider(state, onValueChange)` |
+| 不用                                                                              | 改用（M3 1.5.0 / Compose 1.13.0）                                                                                                                                                                                |
+|-----------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `MediumTopAppBar`、`LargeTopAppBar`                                               | `MediumFlexibleTopAppBar`、`LargeFlexibleTopAppBar`                                                                                                                                                              |
+| 没有理由的 `CenterAlignedTopAppBar`                                               | `TopAppBar`                                                                                                                                                                                                      |
+| 手动重置 `scrollBehavior.state.heightOffset`                                      | `TopAppBarDefaults.pinnedScrollBehavior(scrollableState)` 或 `enterAlwaysScrollBehavior(scrollableState)`，直接传入 `LazyListState` 或 `ScrollState`                                                             |
+| `ModalNavigationDrawer`                                                           | 紧凑窗口用 `ModalWideNavigationRail`，中等及以上窗口用 `WideNavigationRail`                                                                                                                                      |
+| 放在 `Card` 里、用分割线隔开的 `ListItem`                                         | `SegmentedListItem(shapes = ListItemDefaults.segmentedShapes(index, count))`，间距用 `ListItemDefaults.SegmentedGap`                                                                                             |
+| `ListItem(headlineContent = { ... })`                                             | 1.5.0 的尾随 lambda 重载 `ListItem(...) { Text(...) }`（`headlineContent`、`ListItemDefaults.shape` 和 `ListItemDefaults.Elevation` 已废弃，改用 `ListItemDefaults.shapes()` 和 `ListItemDefaults.elevation()`） |
+| `SingleChoiceSegmentedButtonRow`                                                  | `ToggleButton`、`FilledTonalToggleButton` 或 `OutlinedToggleButton`，配 `ButtonGroupDefaults.connected*ButtonShapes()`                                                                                           |
+| `ToggleButtonDefaults.shapes`                                                     | `ToggleButtonDefaults.shapesFor(height)`                                                                                                                                                                         |
+| `Button(shape = ...)`                                                             | `Button(shapes = ButtonDefaults.shapes())` 或 `ButtonDefaults.shapesFor(height)`                                                                                                                                 |
+| 按钮加下拉箭头拼成的组合                                                          | `SplitButtonLayout` 配 `SplitButtonDefaults.LeadingButton` 和 `SplitButtonDefaults.TrailingButton`                                                                                                               |
+| 速拨 FAB、`SmallFloatingActionButton`                                             | `FloatingActionButtonMenu` 加 `ToggleFloatingActionButton`；单个大号 FAB 用 `MediumFloatingActionButton`（80dp）或 `LargeFloatingActionButton`（96dp）                                                           |
+| `BottomAppBar`                                                                    | `HorizontalFloatingToolbar` 或 `FlexibleBottomAppBar`                                                                                                                                                            |
+| 带有单选或多选状态的 `DropdownMenuItem`                                           | `DropdownMenuPopup` 加 `DropdownMenuGroup`，菜单项用 `SelectableDropdownMenuItem` 或 `CheckableDropdownMenuItem`                                                                                                 |
+| 不定进度的 `CircularProgressIndicator`                                            | `LoadingIndicator` 或 `CircularWavyProgressIndicator`                                                                                                                                                            |
+| `LinearProgressIndicator`                                                         | `LinearWavyProgressIndicator`                                                                                                                                                                                    |
+| `SearchBar(query, onQueryChange, ...)`                                            | `SearchBar(state, inputField)`，展开态在紧凑窗口用 `ExpandedFullScreenSearchBar` 或 `ExpandedFullScreenContainedSearchBar`，在宽窗口用 `ExpandedDockedSearchBarWithGap`                                          |
+| `BasicTextField(value, onValueChange)`、`OutlinedTextField(value, onValueChange)` | 基于 `TextFieldState` 的重载；密钥输入框（例如 S3 密钥）用 `OutlinedSecureTextField(state)`                                                                                                                      |
+| `Slider(value, onValueChange)`                                                    | 基于 `SliderState` 的重载 `Slider(state, onValueChange)`                                                                                                                                                         |
 
 ### 1.5.0 的实验性注解边界
 
@@ -166,14 +167,14 @@ Material 3 1.5.0 已将绝大部分 Expressive API 转为稳定版。不要在�
 
 ### 共享组件的取舍
 
-| 候选 | 处理 | 原因 |
-|---|---|---|
-| 延迟显示，即 `rememberDelayedVisibility` | 提取 | `DelayedContent` 和 `DelayedLoadingIndicator` 各写了一份相同的计时和显示逻辑 |
-| 错误横幅 | 提取 | 3 处的语义都是“一段出错说明加一个操作”。M3 没有横幅组件 |
-| 整页的加载、空和错误状态 | 提取 | 5 处的语义相同，布局应该相同 |
-| 分组标题，即 `SectionHeader` | 提取 | 4 处的语义相同。字体、颜色、`heading()` 语义、标题到内容的间距和分组之间的间距都定义在 `SectionHeader` 和 `SectionHeaderDefaults` 里。父布局已有间距时，用 `parentSpacing` 扣除 |
-| `LoomaLoadingIndicator` | 删除 | 它只给 `LoadingIndicator` 设置了尺寸和颜色，属于上面禁止的 wrapper。调用处改用 `DelayedLoadingIndicator` 或 `LoadingIndicator` |
-| 卡片、顶栏、确认对话框、开关行 | 不提取 | 直接使用 M3 组件 |
+| 候选                                     | 处理   | 原因                                                                                                                                                                            |
+|------------------------------------------|--------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 延迟显示，即 `rememberDelayedVisibility` | 提取   | `DelayedContent` 和 `DelayedLoadingIndicator` 各写了一份相同的计时和显示逻辑                                                                                                    |
+| 错误横幅                                 | 提取   | 3 处的语义都是“一段出错说明加一个操作”。M3 没有横幅组件                                                                                                                         |
+| 整页的加载、空和错误状态                 | 提取   | 5 处的语义相同，布局应该相同                                                                                                                                                    |
+| 分组标题，即 `SectionHeader`             | 提取   | 4 处的语义相同。字体、颜色、`heading()` 语义、标题到内容的间距和分组之间的间距都定义在 `SectionHeader` 和 `SectionHeaderDefaults` 里。父布局已有间距时，用 `parentSpacing` 扣除 |
+| `LoomaLoadingIndicator`                  | 删除   | 它只给 `LoadingIndicator` 设置了尺寸和颜色，属于上面禁止的 wrapper。调用处改用 `DelayedLoadingIndicator` 或 `LoadingIndicator`                                                  |
+| 卡片、顶栏、确认对话框、开关行           | 不提取 | 直接使用 M3 组件                                                                                                                                                                |
 
 ## 加载状态
 
@@ -219,5 +220,3 @@ Looma 决定如下：
 
 下表列出现有代码中违反本文的位置。修好一项，就删掉一行。
 
-| 位置 | 偏差 | 对应规则 |
-|---|---|---|
