@@ -52,6 +52,7 @@ import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.search.SearchHistoryRepository
 import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.settings.SettingsRepository
+import com.example.looma.data.sync.SyncRepository
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
@@ -64,6 +65,8 @@ import com.example.looma.feature.settings.SemanticSearchSettingsRoute
 import com.example.looma.feature.settings.SemanticSearchSettingsViewModel
 import com.example.looma.feature.settings.SettingsRoute
 import com.example.looma.feature.settings.SettingsViewModel
+import com.example.looma.feature.settings.SyncSettingsRoute
+import com.example.looma.feature.settings.SyncSettingsViewModel
 import com.example.looma.feature.trash.TrashRoute
 import com.example.looma.feature.trash.TrashViewModel
 import com.example.looma.feature.vault.VaultSelection
@@ -87,6 +90,7 @@ fun LoomaNavGraph(
     semanticSearchRepository: SemanticSearchRepository,
     settingsRepository: SettingsRepository,
     imageUploader: ImageUploader,
+    syncRepository: SyncRepository,
     vaultSetupViewModel: VaultSetupViewModel,
     launchGate: LaunchGate,
     modifier: Modifier = Modifier,
@@ -175,6 +179,7 @@ fun LoomaNavGraph(
                             folderRepository = folderRepository,
                             searchHistoryRepository = searchHistoryRepository,
                             semanticSearchRepository = semanticSearchRepository,
+                            syncRepository = syncRepository,
                         ),
                     )
                     LaunchedEffect(homeViewModel) {
@@ -202,6 +207,11 @@ fun LoomaNavGraph(
                                 backStack.add(LoomaRoute.SemanticSearchSettings)
                             }
                         },
+                        onOpenSyncSettings = {
+                            if (backStack.lastOrNull() == LoomaRoute.Home) {
+                                backStack.add(LoomaRoute.SyncSettings)
+                            }
+                        },
                     )
                 }
 
@@ -217,7 +227,7 @@ fun LoomaNavGraph(
 
                 entry<LoomaRoute.Settings> {
                     val settingsViewModel: SettingsViewModel = viewModel(
-                        factory = SettingsViewModel.factory(settingsRepository),
+                        factory = SettingsViewModel.factory(settingsRepository, syncRepository),
                     )
                     SettingsRoute(
                         vaultViewModel = vaultSetupViewModel,
@@ -232,6 +242,11 @@ fun LoomaNavGraph(
                                 backStack.add(LoomaRoute.SemanticSearchSettings)
                             }
                         },
+                        onSyncClick = {
+                            if (backStack.lastOrNull() == LoomaRoute.Settings) {
+                                backStack.add(LoomaRoute.SyncSettings)
+                            }
+                        },
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
                     )
                 }
@@ -242,6 +257,17 @@ fun LoomaNavGraph(
                     )
                     SemanticSearchSettingsRoute(
                         viewModel = semanticSettingsViewModel,
+                        vaultName = vault?.name.orEmpty(),
+                        onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                    )
+                }
+
+                entry<LoomaRoute.SyncSettings> {
+                    val syncSettingsViewModel: SyncSettingsViewModel = viewModel(
+                        factory = SyncSettingsViewModel.factory(syncRepository, settingsRepository),
+                    )
+                    SyncSettingsRoute(
+                        viewModel = syncSettingsViewModel,
                         vaultName = vault?.name.orEmpty(),
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
                     )

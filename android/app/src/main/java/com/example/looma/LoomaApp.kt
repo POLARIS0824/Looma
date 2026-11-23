@@ -6,9 +6,11 @@ import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.index.NoteIndexDatabase
 import com.example.looma.data.index.RoomNoteIndex
 import com.example.looma.data.note.NoteRepository
+import com.example.looma.data.s3.createLoomaHttpClient
 import com.example.looma.data.search.SearchHistoryRepository
 import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.settings.SettingsRepository
+import com.example.looma.data.sync.SyncRepository
 import com.example.looma.data.vault.VaultRepository
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -20,6 +22,7 @@ import coil3.size.Precision
 class LoomaApp : Application(), SingletonImageLoader.Factory {
     val vaultRepository by lazy { VaultRepository(this) }
     private val indexDatabase by lazy { NoteIndexDatabase.get(this) }
+    internal val httpClient by lazy { createLoomaHttpClient() }
     val noteRepository by lazy { NoteRepository(vaultRepository, RoomNoteIndex(indexDatabase)) }
     val searchHistoryRepository by lazy {
         SearchHistoryRepository(vaultRepository, indexDatabase.searchHistoryDao())
@@ -27,7 +30,18 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val semanticSearchRepository by lazy { SemanticSearchRepository(this, noteRepository, vaultRepository) }
     val folderRepository by lazy { FolderRepository(noteRepository) }
     val settingsRepository by lazy { SettingsRepository(this) }
-    val imageUploader by lazy { ImageUploader(this, vaultRepository) }
+    val imageUploader by lazy { ImageUploader(this, vaultRepository, httpClient) }
+    val syncRepository by lazy {
+        SyncRepository(
+            this,
+            vaultRepository,
+            settingsRepository,
+            noteRepository,
+            semanticSearchRepository,
+            indexDatabase.syncStateDao(),
+            httpClient,
+        )
+    }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)

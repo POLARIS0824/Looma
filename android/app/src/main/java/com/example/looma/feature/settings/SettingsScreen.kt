@@ -39,7 +39,9 @@ import com.example.looma.data.settings.AppSettings
 import com.example.looma.data.settings.ImageUploadTarget
 import com.example.looma.data.settings.S3ImageBedConfig
 import com.example.looma.data.settings.ThemePreset
+import com.example.looma.data.sync.SyncStatus
 import com.example.looma.domain.markdown.ToolbarItem
+import com.example.looma.domain.sync.SyncRunOutcome
 import com.example.looma.feature.vault.VaultSetupError
 import com.example.looma.feature.vault.VaultSetupViewModel
 import com.example.looma.feature.vault.rememberVaultPickerActions
@@ -58,9 +60,11 @@ fun SettingsRoute(
     onSemanticSearchClick: () -> Unit,
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
+    onSyncClick: () -> Unit = {},
 ) {
     val vaultState by vaultViewModel.uiState.collectAsStateWithLifecycle()
     val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
+    val syncStatus by settingsViewModel.syncStatus.collectAsStateWithLifecycle()
     val picker = rememberVaultPickerActions(vaultViewModel)
     var hasStorageAccess by remember { mutableStateOf(picker.hasAccess()) }
     val context = LocalContext.current
@@ -96,13 +100,15 @@ fun SettingsRoute(
         onToolbarOrderChange = settingsViewModel::setToolbarOrder,
         onImageUploadTargetChange = settingsViewModel::setImageUploadTarget,
         onImageBedChange = settingsViewModel::setS3ImageBed,
+        syncStatus = syncStatus,
+        onSyncClick = onSyncClick,
         onNavigateUp = onNavigateUp,
         modifier = modifier,
     )
 }
 
 @Composable
-fun SettingsScreen(
+internal fun SettingsScreen(
     vaultName: String?,
     vaultPath: String?,
     vaultError: VaultSetupError?,
@@ -124,6 +130,8 @@ fun SettingsScreen(
     onSemanticSearchClick: () -> Unit,
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
+    syncStatus: SyncStatus? = null,
+    onSyncClick: () -> Unit = {},
 ) {
     var overlay by remember { mutableStateOf<SettingsOverlay?>(null) }
     val dynamicColorSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -272,6 +280,16 @@ fun SettingsScreen(
                     )
                 }
 
+                SettingsGroup(stringResource(R.string.settings_section_sync)) {
+                    SettingsRow(
+                        index = 0,
+                        count = 1,
+                        title = stringResource(R.string.settings_sync_title),
+                        description = syncSummaryText(syncStatus),
+                        onClick = onSyncClick,
+                    )
+                }
+
                 SettingsGroup(stringResource(R.string.settings_section_images)) {
                     SettingsRow(
                         index = 0,
@@ -384,4 +402,24 @@ private sealed interface SettingsOverlay {
     data object ToolbarOrder : SettingsOverlay
     data object ImageTarget : SettingsOverlay
     data object ImageBed : SettingsOverlay
+}
+
+@Composable
+private fun syncSummaryText(syncStatus: SyncStatus?): String = when {
+    syncStatus == null -> stringResource(R.string.settings_sync_desc)
+    syncStatus.activeWork != null -> stringResource(R.string.settings_sync_status_syncing)
+    syncStatus.credentialsUnavailable -> stringResource(R.string.settings_sync_credentials_unavailable)
+    !syncStatus.config.isConfigured -> stringResource(R.string.settings_sync_not_configured)
+    syncStatus.lastState?.lastOutcome == SyncRunOutcome.FAILED.name ||
+        syncStatus.lastState?.lastOutcome == SyncRunOutcome.PARTIAL.name ->
+        stringResource(R.string.settings_sync_status_failed)
+    (syncStatus.lastState?.lastConflicts ?: 0) > 0 -> stringResource(
+        R.string.settings_sync_status_conflicts,
+        syncStatus.lastState!!.lastConflicts,
+    )
+    else -> stringResource(
+        R.string.settings_sync_configured,
+        syncStatus.config.bucket,
+        syncStatus.config.endpoint,
+    )
 }

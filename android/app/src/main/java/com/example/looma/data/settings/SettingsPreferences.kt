@@ -36,6 +36,14 @@ data class SettingsPreferencesData(
     val s3PathStyle: Boolean?,
     val s3PublicRead: Boolean?,
     val s3CredentialsUnavailable: Boolean = false,
+    val syncEndpoint: String? = null,
+    val syncRegion: String? = null,
+    val syncBucket: String? = null,
+    val syncAccessKey: String? = null,
+    val syncSecretKey: String? = null,
+    val syncRemotePrefix: String? = null,
+    val syncPathStyle: Boolean? = null,
+    val syncCredentialsUnavailable: Boolean = false,
 )
 
 class SettingsPreferences(context: Context) {
@@ -54,7 +62,11 @@ class SettingsPreferences(context: Context) {
             .map { snapshot ->
                 val preferences = migrateS3Credentials(snapshot)
                 val encryptedCredentials = preferences[KEY_S3_CREDENTIALS_V1]
-                val credentials = encryptedCredentials?.let(S3CredentialCipher::decrypt)
+                val credentials = encryptedCredentials?.let { S3CredentialCipher.decrypt(it) }
+                val encryptedSyncCredentials = preferences[KEY_SYNC_S3_CREDENTIALS_V1]
+                val syncCredentials = encryptedSyncCredentials?.let {
+                    S3CredentialCipher.decrypt(it, S3CredentialCipher.SYNC_KEY_ALIAS)
+                }
                 SettingsPreferencesData(
                     dynamicColor = preferences[KEY_DYNAMIC_COLOR],
                     themePreset = preferences[KEY_THEME_PRESET],
@@ -72,6 +84,14 @@ class SettingsPreferences(context: Context) {
                     s3PathStyle = preferences[KEY_S3_PATH_STYLE],
                     s3PublicRead = preferences[KEY_S3_PUBLIC_READ],
                     s3CredentialsUnavailable = encryptedCredentials != null && credentials == null,
+                    syncEndpoint = preferences[KEY_SYNC_S3_ENDPOINT],
+                    syncRegion = preferences[KEY_SYNC_S3_REGION],
+                    syncBucket = preferences[KEY_SYNC_S3_BUCKET],
+                    syncAccessKey = syncCredentials?.first,
+                    syncSecretKey = syncCredentials?.second,
+                    syncRemotePrefix = preferences[KEY_SYNC_S3_REMOTE_PREFIX],
+                    syncPathStyle = preferences[KEY_SYNC_S3_PATH_STYLE],
+                    syncCredentialsUnavailable = encryptedSyncCredentials != null && syncCredentials == null,
                 )
             }
             .flowOn(Dispatchers.IO)
@@ -98,16 +118,32 @@ class SettingsPreferences(context: Context) {
         }
     }
 
-    private fun MutablePreferences.replaceS3Credentials(
+    private fun MutablePreferences.replaceEncryptedCredentials(
+        key: Preferences.Key<String>,
+        keyAlias: String,
         accessKey: String,
         secretKey: String,
         replaceInvalidKey: Boolean,
     ) {
         if (accessKey.isEmpty() && secretKey.isEmpty()) {
-            remove(KEY_S3_CREDENTIALS_V1)
+            remove(key)
         } else {
-            this[KEY_S3_CREDENTIALS_V1] = S3CredentialCipher.encrypt(accessKey, secretKey, replaceInvalidKey)
+            this[key] = S3CredentialCipher.encrypt(accessKey, secretKey, replaceInvalidKey, keyAlias)
         }
+    }
+
+    private fun MutablePreferences.replaceS3Credentials(
+        accessKey: String,
+        secretKey: String,
+        replaceInvalidKey: Boolean,
+    ) {
+        replaceEncryptedCredentials(
+            key = KEY_S3_CREDENTIALS_V1,
+            keyAlias = S3CredentialCipher.DEFAULT_KEY_ALIAS,
+            accessKey = accessKey,
+            secretKey = secretKey,
+            replaceInvalidKey = replaceInvalidKey,
+        )
         remove(KEY_S3_ACCESS_KEY)
         remove(KEY_S3_SECRET_KEY)
     }
@@ -146,6 +182,23 @@ class SettingsPreferences(context: Context) {
         }
     }
 
+    suspend fun saveSyncConfig(config: S3SyncConfig): Unit = withContext(Dispatchers.IO) {
+        dataStore.edit {
+            it[KEY_SYNC_S3_ENDPOINT] = config.endpoint
+            it[KEY_SYNC_S3_REGION] = config.region
+            it[KEY_SYNC_S3_BUCKET] = config.bucket
+            it.replaceEncryptedCredentials(
+                key = KEY_SYNC_S3_CREDENTIALS_V1,
+                keyAlias = S3CredentialCipher.SYNC_KEY_ALIAS,
+                accessKey = config.accessKey,
+                secretKey = config.secretKey,
+                replaceInvalidKey = true,
+            )
+            it[KEY_SYNC_S3_REMOTE_PREFIX] = config.remotePrefix
+            it[KEY_SYNC_S3_PATH_STYLE] = config.pathStyle
+        }
+    }
+
     companion object {
         val KEY_DYNAMIC_COLOR = booleanPreferencesKey("key_dynamic_color")
         val KEY_THEME_PRESET = stringPreferencesKey("key_theme_preset")
@@ -163,5 +216,11 @@ class SettingsPreferences(context: Context) {
         val KEY_S3_PUBLIC_BASE_URL = stringPreferencesKey("key_s3_public_base_url")
         val KEY_S3_PATH_STYLE = booleanPreferencesKey("key_s3_path_style")
         val KEY_S3_PUBLIC_READ = booleanPreferencesKey("key_s3_public_read")
+        val KEY_SYNC_S3_ENDPOINT = stringPreferencesKey("key_sync_s3_endpoint")
+        val KEY_SYNC_S3_REGION = stringPreferencesKey("key_sync_s3_region")
+        val KEY_SYNC_S3_BUCKET = stringPreferencesKey("key_sync_s3_bucket")
+        private val KEY_SYNC_S3_CREDENTIALS_V1 = stringPreferencesKey("key_sync_s3_credentials_v1")
+        val KEY_SYNC_S3_REMOTE_PREFIX = stringPreferencesKey("key_sync_s3_remote_prefix")
+        val KEY_SYNC_S3_PATH_STYLE = booleanPreferencesKey("key_sync_s3_path_style")
     }
 }

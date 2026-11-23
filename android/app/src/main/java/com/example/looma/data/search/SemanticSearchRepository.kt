@@ -5,6 +5,7 @@ import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.note.StoredMarkdown
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.removeMarkdownSuffix
@@ -14,6 +15,7 @@ import com.example.looma.embedding.EmbeddingGemma
 import java.io.IOException
 import java.util.PriorityQueue
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
@@ -46,6 +48,24 @@ class SemanticSearchRepository internal constructor(
     internal suspend fun cancelModelDownload() = work.cancelDownload()
     internal suspend fun enqueueIndex() = work.enqueueIndex()
     internal suspend fun cancelIndex() = work.cancelIndex()
+
+    internal suspend fun onExternalNoteChanges(
+        vault: Vault,
+        changedNotes: List<NotePath>,
+        removedNotes: List<NotePath>,
+    ) {
+        val changes = (changedNotes + removedNotes).distinct()
+        if (changes.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            for (path in changes) {
+                cache.delete(NoteId(vault.id, path))
+            }
+            if (supported && cache.hasSearchableIndex(vault.id)) {
+                runCatching { work.enqueueIncrementalIndex(vault) }
+                    .onFailure { if (it is CancellationException) throw it }
+            }
+        }
+    }
 
     internal suspend fun downloadModel(onProgress: suspend (Int) -> Unit) = withContext(Dispatchers.IO) {
         modelFile.download(onProgress)

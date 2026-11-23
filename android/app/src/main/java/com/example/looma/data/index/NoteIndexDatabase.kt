@@ -5,6 +5,9 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.looma.data.search.SearchHistoryDao
+import com.example.looma.data.sync.SyncEntryEntity
+import com.example.looma.data.sync.SyncStateDao
+import com.example.looma.data.sync.SyncVaultStateEntity
 import com.example.looma.domain.model.VaultId
 import kotlinx.coroutines.sync.Mutex
 
@@ -15,6 +18,8 @@ import kotlinx.coroutines.sync.Mutex
         NoteTagEntity::class,
         NoteLinkEntity::class,
         SearchHistoryEntity::class,
+        SyncEntryEntity::class,
+        SyncVaultStateEntity::class,
     ],
     version = 1,
     exportSchema = true,
@@ -28,6 +33,8 @@ internal abstract class NoteIndexDatabase : RoomDatabase() {
     abstract fun noteIndexDao(): NoteIndexDao
 
     abstract fun searchHistoryDao(): SearchHistoryDao
+
+    abstract fun syncStateDao(): SyncStateDao
 
     companion object {
         private const val NAME = "looma_index.db"

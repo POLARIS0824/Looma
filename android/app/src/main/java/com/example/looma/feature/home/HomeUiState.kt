@@ -30,6 +30,12 @@ sealed interface HomeError {
     data object CreateFailed : HomeError
 }
 
+sealed interface HomeSyncBanner {
+    data class Syncing(val completed: Int, val total: Int) : HomeSyncBanner
+    data class Failed(val syncAtMillis: Long) : HomeSyncBanner
+    data class Conflicts(val count: Int, val syncAtMillis: Long) : HomeSyncBanner
+}
+
 enum class HomeFileError {
     EMPTY_NAME,
     INVALID_NAME,
@@ -218,6 +224,7 @@ data class HomeUiState(
     val dialog: HomeFileDialog? = null,
     val message: HomeMessage? = null,
     val stalledRelocation: StalledRelocation? = null,
+    val syncBanner: HomeSyncBanner? = null,
 ) {
     val topBarMode: HomeTopBarMode
         get() = when {

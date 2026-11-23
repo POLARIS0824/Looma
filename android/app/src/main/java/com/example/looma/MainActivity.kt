@@ -50,6 +50,7 @@ class MainActivity : AppCompatActivity() {
                     semanticSearchRepository = container.semanticSearchRepository,
                     settingsRepository = container.settingsRepository,
                     imageUploader = container.imageUploader,
+                    syncRepository = container.syncRepository,
                     vaultSetupViewModel = vaultSetupViewModel,
                     launchGate = launchGate,
                 )

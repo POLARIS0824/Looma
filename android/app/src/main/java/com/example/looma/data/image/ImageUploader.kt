@@ -7,6 +7,11 @@ import com.example.looma.data.note.hasOtherAttachmentNamed
 import com.example.looma.data.note.invalidateAttachmentIndex
 import com.example.looma.data.note.resolveImageSource
 import com.example.looma.data.note.writeBytesAtomically
+import com.example.looma.data.s3.S3Client
+import com.example.looma.data.s3.S3EndpointConfig
+import com.example.looma.data.s3.S3ErrorKind
+import com.example.looma.data.s3.S3Exception
+import com.example.looma.data.s3.createLoomaHttpClient
 import com.example.looma.data.settings.AppSettings
 import com.example.looma.data.settings.ImageUploadTarget
 import com.example.looma.data.settings.S3ImageBedConfig
@@ -14,15 +19,13 @@ import com.example.looma.data.vault.VaultRepository
 import com.example.looma.data.vault.VaultWriteCoordinator
 import com.example.looma.domain.markdown.ImageSource
 import com.example.looma.domain.model.NotePath
+import io.ktor.client.HttpClient
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.security.MessageDigest
-import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -50,6 +53,7 @@ class ImageUploadException(
 class ImageUploader(
     private val context: Context,
     private val vaultRepository: VaultRepository,
+    private val httpClient: HttpClient = createLoomaHttpClient(),
 ) {
 
     suspend fun upload(uri: Uri, settings: AppSettings, notePath: NotePath? = null): ImageUpload = withContext(Dispatchers.IO) {
@@ -88,7 +92,7 @@ class ImageUploader(
         }
     }
 
-    private fun uploadToImageBed(
+    private suspend fun uploadToImageBed(
         config: S3ImageBedConfig,
         fileName: String,
         mimeType: String,
@@ -98,45 +102,32 @@ class ImageUploader(
         val key = listOf(config.pathPrefix.trim().trim('/'), fileName)
             .filter { it.isNotEmpty() }
             .joinToString("/")
-        val signed = runCatching { S3Signer.signPut(config, key, mimeType, bytes, Instant.now()) }
-            .getOrElse { throw ImageUploadException(ImageUploadFailure.NotConfigured, it.message, it) }
-        put(signed, bytes)
-        return ImageUpload.Remote(S3Signer.objectUrl(config, key))
-    }
-
-    private fun put(signed: SignedS3Put, bytes: ByteArray) {
-        val connection = try {
-            URL(signed.url).openConnection() as HttpURLConnection
-        } catch (e: Exception) {
-            throw ImageUploadException(ImageUploadFailure.NotConfigured, e.message, e)
-        }
+        val endpointConfig = S3EndpointConfig(
+            endpoint = config.endpoint,
+            region = config.region,
+            bucket = config.bucket,
+            accessKey = config.accessKey,
+            secretKey = config.secretKey,
+            pathStyle = config.pathStyle,
+        )
+        val extraHeaders = if (config.publicRead) mapOf("x-amz-acl" to "public-read") else emptyMap()
         try {
-            connection.requestMethod = "PUT"
-            connection.connectTimeout = CONNECT_TIMEOUT_MS
-            connection.readTimeout = READ_TIMEOUT_MS
-            connection.doOutput = true
-            signed.headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
-            connection.setFixedLengthStreamingMode(bytes.size)
-            connection.outputStream.use { it.write(bytes) }
-            val status = connection.responseCode
-            if (status !in 200..299) {
-                val body = (connection.errorStream ?: connection.inputStream)
-                    ?.use { it.readBytes() }
-                    ?.toString(Charsets.UTF_8)
-                    .orEmpty()
-                    .take(300)
-                throw ImageUploadException(
-                    ImageUploadFailure.Rejected,
-                    "HTTP $status $body".trim(),
-                )
+            S3Client(httpClient).uploadBytes(
+                config = endpointConfig,
+                objectKey = key,
+                bytes = bytes,
+                contentType = mimeType,
+                extraHeaders = extraHeaders,
+            )
+        } catch (e: S3Exception) {
+            val failure = when (e.kind) {
+                S3ErrorKind.InvalidConfig -> ImageUploadFailure.NotConfigured
+                S3ErrorKind.Network -> ImageUploadFailure.Network
+                else -> ImageUploadFailure.Rejected
             }
-        } catch (e: ImageUploadException) {
-            throw e
-        } catch (e: IOException) {
-            throw ImageUploadException(ImageUploadFailure.Network, e.message, e)
-        } finally {
-            connection.disconnect()
+            throw ImageUploadException(failure, e.message, e)
         }
+        return ImageUpload.Remote(S3Signer.objectUrl(config, key))
     }
 
     private fun readBytes(uri: Uri): ByteArray {
@@ -177,8 +168,6 @@ class ImageUploader(
 
     private companion object {
         const val MAX_IMAGE_BYTES = 12 * 1024 * 1024
-        const val CONNECT_TIMEOUT_MS = 15_000
-        const val READ_TIMEOUT_MS = 60_000
     }
 }
 

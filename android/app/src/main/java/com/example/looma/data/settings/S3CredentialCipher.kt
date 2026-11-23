@@ -16,22 +16,28 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 internal object S3CredentialCipher {
+    const val DEFAULT_KEY_ALIAS = "looma_s3_credentials_v1"
+    const val SYNC_KEY_ALIAS = "looma_sync_s3_credentials_v1"
     private const val KEYSTORE = "AndroidKeyStore"
-    private const val KEY_ALIAS = "looma_s3_credentials_v1"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val IV_BYTES = 12
     private const val TAG_BITS = 128
 
-    fun encrypt(accessKey: String, secretKey: String, replaceInvalidKey: Boolean): String = try {
+    fun encrypt(
+        accessKey: String,
+        secretKey: String,
+        replaceInvalidKey: Boolean,
+        keyAlias: String = DEFAULT_KEY_ALIAS,
+    ): String = try {
         val keyStore = openKeyStore()
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        val key = keyStore.getKey(KEY_ALIAS, null) as SecretKey? ?: generateKey()
+        val key = keyStore.getKey(keyAlias, null) as SecretKey? ?: generateKey(keyAlias)
         try {
             cipher.init(Cipher.ENCRYPT_MODE, key)
         } catch (exception: KeyPermanentlyInvalidatedException) {
             if (!replaceInvalidKey) throw exception
-            keyStore.deleteEntry(KEY_ALIAS)
-            cipher.init(Cipher.ENCRYPT_MODE, generateKey())
+            keyStore.deleteEntry(keyAlias)
+            cipher.init(Cipher.ENCRYPT_MODE, generateKey(keyAlias))
         }
         val payload = JSONArray().put(accessKey).put(secretKey).toString().toByteArray(Charsets.UTF_8)
         Base64.getEncoder().encodeToString(cipher.iv + cipher.doFinal(payload))
@@ -43,9 +49,12 @@ internal object S3CredentialCipher {
         throw IOException("Could not encrypt S3 credentials", exception)
     }
 
-    fun decrypt(encoded: String): Pair<String, String>? = try {
+    fun decrypt(
+        encoded: String,
+        keyAlias: String = DEFAULT_KEY_ALIAS,
+    ): Pair<String, String>? = try {
         val bytes = Base64.getDecoder().decode(encoded)
-        val key = openKeyStore().getKey(KEY_ALIAS, null) as SecretKey?
+        val key = openKeyStore().getKey(keyAlias, null) as SecretKey?
         if (key == null || bytes.size < IV_BYTES + TAG_BITS / 8) {
             null
         } else {
@@ -70,18 +79,19 @@ internal object S3CredentialCipher {
 
     private fun openKeyStore(): KeyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
 
-    private fun generateKey(): SecretKey = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
-        .apply {
-            init(
-                KeyGenParameterSpec.Builder(
-                    KEY_ALIAS,
-                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+    private fun generateKey(keyAlias: String = DEFAULT_KEY_ALIAS): SecretKey =
+        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
+            .apply {
+                init(
+                    KeyGenParameterSpec.Builder(
+                        keyAlias,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                    )
+                        .setKeySize(256)
+                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .build(),
                 )
-                    .setKeySize(256)
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .build(),
-            )
-        }
-        .generateKey()
+            }
+            .generateKey()
 }

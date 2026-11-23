@@ -305,6 +305,22 @@ class NoteRepository internal constructor(
         }
     }
 
+    internal suspend fun prepareForSync(vault: Vault): StalledRelocation? =
+        VaultWriteCoordinator.write(vault) {
+            recoverPendingRelocations(vault, retryStalled = true)
+        }
+
+    internal suspend fun applyExternalNoteChanges(
+        vault: Vault,
+        changedNotes: List<NotePath>,
+        removedNotes: List<NotePath>,
+    ) {
+        if (changedNotes.isEmpty() && removedNotes.isEmpty()) return
+        VaultWriteCoordinator.write(vault) {
+            reindex(vault, RelocationChanges(changedNotes = changedNotes, removedNotes = removedNotes))
+        }
+    }
+
     private suspend fun relocate(id: NoteId, operation: (VaultRelocation) -> RelocationResult<NotePath>): RenameOutcome =
         write(id.vaultId) { vault, store ->
             val result = runRelocation(vault, operation)

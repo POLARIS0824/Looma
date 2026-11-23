@@ -46,6 +46,10 @@ ICONS = {
     "dehaze": "ic_drag_handle",
     "history": "ic_history",
     "add_photo_alternate": "ic_editor_image",
+    "cloud_sync": "ic_cloud_sync",
+    "cloud_done": "ic_cloud_done",
+    "cloud_off": "ic_cloud_off",
+    "warning": "ic_warning",
 
     "undo": "ic_editor_undo",
     "redo": "ic_editor_redo",

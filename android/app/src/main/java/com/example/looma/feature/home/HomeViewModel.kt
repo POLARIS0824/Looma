@@ -16,9 +16,14 @@ import com.example.looma.data.search.SemanticIndexMissingException
 import com.example.looma.data.search.SemanticModelMissingException
 import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.search.SemanticWorkState
+import com.example.looma.data.sync.SyncActiveWork
+import com.example.looma.data.sync.SyncRepository
+import com.example.looma.data.sync.SyncStatus
 import com.example.looma.domain.model.FolderPath
 import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.domain.search.SearchMatch
+import com.example.looma.domain.sync.SyncPhase
+import com.example.looma.domain.sync.SyncRunOutcome
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +43,7 @@ class HomeViewModel(
     private val folderRepository: FolderRepository,
     private val searchHistoryRepository: SearchHistoryRepository,
     private val semanticSearchRepository: SemanticSearchRepository,
+    private val syncRepository: SyncRepository? = null,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -47,7 +53,26 @@ class HomeViewModel(
     private var revealGeneration = 0L
     private var messageGeneration = 0L
     private var dialogGeneration = 0L
+    private var dismissedSyncAtMillis: Long? = null
     private var index: HomeVaultIndex = HomeVaultIndex.Empty
+
+    init {
+        if (syncRepository != null) {
+            viewModelScope.launch {
+                syncRepository.vaultMutatedEvents.collect { vaultId ->
+                    if (_uiState.value.vaultId == vaultId) {
+                        refresh()
+                    }
+                }
+            }
+            viewModelScope.launch {
+                syncRepository.status.collect { status ->
+                    val banner = syncBannerFor(status)
+                    _uiState.update { it.copy(syncBanner = banner) }
+                }
+            }
+        }
+    }
 
     fun refresh(): Job {
         refreshJob?.cancel()
@@ -865,6 +890,37 @@ class HomeViewModel(
 
     private fun nextDialogId(): Long = ++dialogGeneration
 
+    fun dismissSyncBanner() {
+        val syncAtMillis = when (val banner = _uiState.value.syncBanner) {
+            is HomeSyncBanner.Failed -> banner.syncAtMillis
+            is HomeSyncBanner.Conflicts -> banner.syncAtMillis
+            is HomeSyncBanner.Syncing, null -> return
+        }
+        dismissedSyncAtMillis = syncAtMillis
+        _uiState.update { it.copy(syncBanner = null) }
+    }
+
+    private fun syncBannerFor(status: SyncStatus): HomeSyncBanner? {
+        when (val active = status.activeWork) {
+            SyncActiveWork.Queued -> return HomeSyncBanner.Syncing(completed = 0, total = 0)
+            is SyncActiveWork.Running -> {
+                val completed = if (active.phase == SyncPhase.SYNCING) active.completed else 0
+                val total = if (active.phase == SyncPhase.SYNCING) active.total else 0
+                return HomeSyncBanner.Syncing(completed = completed, total = total)
+            }
+            null -> Unit
+        }
+        val last = status.lastState ?: return null
+        val syncAtMillis = last.lastSyncAtMillis ?: return null
+        if (syncAtMillis == dismissedSyncAtMillis) return null
+        return when {
+            last.lastOutcome == SyncRunOutcome.FAILED.name -> HomeSyncBanner.Failed(syncAtMillis)
+            last.lastConflicts > 0 -> HomeSyncBanner.Conflicts(last.lastConflicts, syncAtMillis)
+            last.lastOutcome == SyncRunOutcome.PARTIAL.name -> HomeSyncBanner.Failed(syncAtMillis)
+            else -> null
+        }
+    }
+
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 180L
 
@@ -873,6 +929,7 @@ class HomeViewModel(
             folderRepository: FolderRepository,
             searchHistoryRepository: SearchHistoryRepository,
             semanticSearchRepository: SemanticSearchRepository,
+            syncRepository: SyncRepository? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 HomeViewModel(
@@ -880,6 +937,7 @@ class HomeViewModel(
                     folderRepository,
                     searchHistoryRepository,
                     semanticSearchRepository,
+                    syncRepository,
                 )
             }
         }

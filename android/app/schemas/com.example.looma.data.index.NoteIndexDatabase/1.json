@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "b37d82b2697fd9bbb7d00f5e132ef040",
+    "identityHash": "7ed3f25d1f41d27649970e1a00ec6647",
     "entities": [
       {
         "tableName": "indexed_note",
@@ -282,11 +282,173 @@
             "key"
           ]
         }
+      },
+      {
+        "tableName": "sync_entry",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`vaultId` TEXT NOT NULL, `targetKey` TEXT NOT NULL, `path` TEXT NOT NULL, `localSha256` TEXT NOT NULL, `localSizeBytes` INTEGER NOT NULL, `localModifiedAtMillis` INTEGER NOT NULL, `remoteEtag` TEXT NOT NULL, `remoteSizeBytes` INTEGER NOT NULL, `remoteModifiedAtMillis` INTEGER NOT NULL, `syncedAtMillis` INTEGER NOT NULL, PRIMARY KEY(`vaultId`, `targetKey`, `path`))",
+        "fields": [
+          {
+            "fieldPath": "vaultId",
+            "columnName": "vaultId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetKey",
+            "columnName": "targetKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localSha256",
+            "columnName": "localSha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localSizeBytes",
+            "columnName": "localSizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localModifiedAtMillis",
+            "columnName": "localModifiedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteEtag",
+            "columnName": "remoteEtag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteSizeBytes",
+            "columnName": "remoteSizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteModifiedAtMillis",
+            "columnName": "remoteModifiedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAtMillis",
+            "columnName": "syncedAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "vaultId",
+            "targetKey",
+            "path"
+          ]
+        }
+      },
+      {
+        "tableName": "sync_vault_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`vaultId` TEXT NOT NULL, `targetKey` TEXT NOT NULL, `hasCompletedInitialSync` INTEGER NOT NULL, `lastSyncAtMillis` INTEGER, `lastOutcome` TEXT, `lastUploaded` INTEGER NOT NULL, `lastDownloaded` INTEGER NOT NULL, `lastDeletedLocal` INTEGER NOT NULL, `lastDeletedRemote` INTEGER NOT NULL, `lastConflicts` INTEGER NOT NULL, `lastFailed` INTEGER NOT NULL, `lastSkipped` INTEGER NOT NULL, `lastErrorMessage` TEXT, PRIMARY KEY(`vaultId`, `targetKey`))",
+        "fields": [
+          {
+            "fieldPath": "vaultId",
+            "columnName": "vaultId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetKey",
+            "columnName": "targetKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasCompletedInitialSync",
+            "columnName": "hasCompletedInitialSync",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncAtMillis",
+            "columnName": "lastSyncAtMillis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastOutcome",
+            "columnName": "lastOutcome",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastUploaded",
+            "columnName": "lastUploaded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastDownloaded",
+            "columnName": "lastDownloaded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastDeletedLocal",
+            "columnName": "lastDeletedLocal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastDeletedRemote",
+            "columnName": "lastDeletedRemote",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastConflicts",
+            "columnName": "lastConflicts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastFailed",
+            "columnName": "lastFailed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSkipped",
+            "columnName": "lastSkipped",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastErrorMessage",
+            "columnName": "lastErrorMessage",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "vaultId",
+            "targetKey"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b37d82b2697fd9bbb7d00f5e132ef040')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7ed3f25d1f41d27649970e1a00ec6647')"
     ]
   }
 }

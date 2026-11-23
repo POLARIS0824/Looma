@@ -10,14 +10,18 @@ import com.example.looma.data.settings.ImageUploadTarget
 import com.example.looma.data.settings.S3ImageBedConfig
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.data.settings.ThemePreset
+import com.example.looma.data.sync.SyncRepository
+import com.example.looma.data.sync.SyncStatus
 import com.example.looma.domain.markdown.ToolbarItem
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     private val repository: SettingsRepository,
+    private val syncRepository: SyncRepository? = null,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = repository.settings.stateIn(
@@ -25,6 +29,13 @@ class SettingsViewModel(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = AppSettings(),
     )
+
+    internal val syncStatus: StateFlow<SyncStatus?> =
+        (syncRepository?.status ?: flowOf(null)).stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null,
+        )
 
     fun setDynamicColor(enabled: Boolean) {
         viewModelScope.launch { repository.setDynamicColor(enabled) }
@@ -58,8 +69,11 @@ class SettingsViewModel(
     }
 
     companion object {
-        fun factory(repository: SettingsRepository): ViewModelProvider.Factory = viewModelFactory {
-            initializer { SettingsViewModel(repository) }
+        fun factory(
+            repository: SettingsRepository,
+            syncRepository: SyncRepository? = null,
+        ): ViewModelProvider.Factory = viewModelFactory {
+            initializer { SettingsViewModel(repository, syncRepository) }
         }
     }
 }

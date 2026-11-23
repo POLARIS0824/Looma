@@ -41,6 +41,16 @@ class SettingsRepository(
                 ),
                 isLoaded = true,
                 s3CredentialsUnavailable = data.s3CredentialsUnavailable,
+                syncConfig = S3SyncConfig(
+                    endpoint = data.syncEndpoint.orEmpty(),
+                    region = data.syncRegion ?: "auto",
+                    bucket = data.syncBucket.orEmpty(),
+                    accessKey = data.syncAccessKey.orEmpty(),
+                    secretKey = data.syncSecretKey.orEmpty(),
+                    remotePrefix = data.syncRemotePrefix.orEmpty(),
+                    pathStyle = data.syncPathStyle ?: false,
+                ),
+                syncCredentialsUnavailable = data.syncCredentialsUnavailable,
             )
         }
 
@@ -70,5 +80,9 @@ class SettingsRepository(
 
     suspend fun setS3ImageBed(config: S3ImageBedConfig) {
         preferences.saveS3ImageBed(config)
+    }
+
+    suspend fun setSyncConfig(config: S3SyncConfig) {
+        preferences.saveSyncConfig(config)
     }
 }

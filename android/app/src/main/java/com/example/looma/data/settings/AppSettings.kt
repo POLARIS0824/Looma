@@ -13,6 +13,8 @@ data class AppSettings(
     val imageBed: S3ImageBedConfig = S3ImageBedConfig(),
     val isLoaded: Boolean = false,
     val s3CredentialsUnavailable: Boolean = false,
+    val syncConfig: S3SyncConfig = S3SyncConfig(),
+    val syncCredentialsUnavailable: Boolean = false,
 )
 
 enum class ThemePreset(val seed: Color?) {

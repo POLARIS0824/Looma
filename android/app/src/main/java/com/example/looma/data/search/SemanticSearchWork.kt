@@ -84,10 +84,20 @@ internal class SemanticSearchWork(
         check(supported)
         val vault = vaults.requireCurrentVault()
         if (!modelIsReady()) throw SemanticModelMissingException()
+        enqueueIndexWork(vault, ExistingWorkPolicy.KEEP)
+    }
+
+    suspend fun enqueueIncrementalIndex(vault: Vault) {
+        if (!supported || !modelIsReady()) return
+        if (vaults.getCurrentVault() != vault) return
+        enqueueIndexWork(vault, ExistingWorkPolicy.APPEND_OR_REPLACE)
+    }
+
+    private suspend fun enqueueIndexWork(vault: Vault, policy: ExistingWorkPolicy) {
         val request = OneTimeWorkRequestBuilder<SemanticVaultIndexWorker>()
             .setInputData(workDataOf(VAULT_ID to vault.id.value, VAULT_PATH to vault.rootPath))
             .build()
-        manager.enqueueUniqueWork(indexName(vault), ExistingWorkPolicy.KEEP, request).await()
+        manager.enqueueUniqueWork(indexName(vault), policy, request).await()
     }
 
     suspend fun cancelIndex() {

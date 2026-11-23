@@ -345,4 +345,96 @@
     <string name="note_image_error_network">Could not reach the image bed</string>
     <string name="note_image_error_rejected">Image bed rejected the upload: %1$s</string>
     <string name="note_image_error_unknown">Image upload failed</string>
+
+    <string name="settings_section_sync">Sync</string>
+    <string name="settings_sync_title">Vault sync</string>
+    <string name="settings_sync_desc">Sync notes with R2 or S3, compatible with Obsidian Remotely Save</string>
+    <string name="settings_sync_not_configured">Not configured</string>
+    <string name="settings_sync_credentials_unavailable">Saved credentials are unavailable. Enter your S3 keys again.</string>
+    <string name="settings_sync_configured">%1$s · %2$s</string>
+    <string name="settings_sync_status_syncing">Syncing…</string>
+    <string name="settings_sync_status_failed">Last sync failed</string>
+    <string name="settings_sync_status_conflicts">Conflicts · %1$d</string>
+
+    <string name="settings_sync_intro_title">Sync your vault across devices</string>
+    <string name="settings_sync_intro">Sync raw files directly with Cloudflare R2 or S3, compatible with Obsidian Remotely Save without encryption.</string>
+    <string name="settings_sync_status_section">Sync status</string>
+    <string name="settings_sync_storage_section">Remote storage</string>
+    <string name="settings_sync_guide_section">Setup guide</string>
+    <string name="settings_sync_vault">Vault: %1$s</string>
+    <string name="settings_sync_prefix_value">Remote prefix: %1$s</string>
+    <string name="settings_sync_prefix_root">Bucket root (no prefix)</string>
+    <string name="settings_sync_idle_first">Preview your first sync before transferring files.</string>
+    <string name="settings_sync_idle_ready">Ready to sync with your remote bucket.</string>
+    <string name="settings_sync_queued">Sync queued</string>
+    <string name="settings_sync_phase_local">Scanning local vault…</string>
+    <string name="settings_sync_phase_remote">Checking remote files…</string>
+    <string name="settings_sync_phase_syncing">Syncing files… %1$d of %2$d</string>
+    <string name="settings_sync_phase_indexing">Updating local note index…</string>
+    <string name="settings_sync_last_synced">Last synced %1$s</string>
+    <string name="settings_sync_summary_counts">Uploaded %1$d · Downloaded %2$d · Conflicts %3$d</string>
+    <string name="settings_sync_summary_up_to_date">Everything is up to date</string>
+    <string name="settings_sync_summary_partial">Sync completed with errors · %1$d failed</string>
+    <string name="settings_sync_summary_cancelled">Sync cancelled</string>
+    <string name="settings_sync_conflict_notice">Conflict copies were saved in your vault so no edits were lost.</string>
+    <string name="settings_sync_skipped_notice">%1$d item(s) were skipped during sync.</string>
+    <string name="settings_sync_preview_first">Preview first sync</string>
+    <string name="settings_sync_now">Sync now</string>
+    <string name="settings_sync_retry">Retry</string>
+    <string name="settings_sync_configure">Configure</string>
+    <string name="settings_sync_test">Test connection</string>
+    <string name="settings_sync_testing">Testing…</string>
+    <string name="settings_sync_test_ok">Connection succeeded</string>
+    <string name="settings_sync_action_failed">Couldn’t update sync. Try again.</string>
+
+    <string name="settings_sync_sheet_title">R2 / S3 sync</string>
+    <string name="settings_sync_endpoint">Endpoint</string>
+    <string name="settings_sync_endpoint_hint">Service URL without the bucket name, such as https://&lt;account&gt;.r2.cloudflarestorage.com</string>
+    <string name="settings_sync_region">Region</string>
+    <string name="settings_sync_bucket">Bucket</string>
+    <string name="settings_sync_access_key">Access key</string>
+    <string name="settings_sync_secret_key">Secret key</string>
+    <string name="settings_sync_remote_prefix">Remote prefix</string>
+    <string name="settings_sync_path_style">Path style access</string>
+    <string name="settings_sync_path_style_desc">Request endpoint/bucket/key instead of bucket.endpoint</string>
+    <string name="settings_sync_credentials_hint">Use a dedicated API key limited to reading, writing, and listing objects in this bucket and prefix.</string>
+    <string name="settings_sync_save_failed">Couldn’t save the sync settings. Try again.</string>
+    <string name="settings_sync_invalid_prefix">Enter a relative folder path without leading slashes or “..”.</string>
+
+    <string name="settings_sync_preview_title">First sync preview</string>
+    <string name="settings_sync_preview_loading">Comparing local and remote files…</string>
+    <string name="settings_sync_preview_no_delete">First sync will not delete any local or remote files. Files on both sides are merged, and differing files are kept as conflict copies.</string>
+    <string name="settings_sync_preview_upload">To upload</string>
+    <string name="settings_sync_preview_download">To download</string>
+    <string name="settings_sync_preview_matched">Already matched</string>
+    <string name="settings_sync_preview_conflicts">Conflicts</string>
+    <string name="settings_sync_preview_skipped">Skipped</string>
+    <string name="settings_sync_preview_samples">Sample files</string>
+    <string name="settings_sync_preview_empty">Nothing to transfer. Local and remote files already match.</string>
+    <string name="settings_sync_preview_confirm">Start sync</string>
+    <string name="settings_sync_preview_count_bytes">%1$d file(s) · %2$s</string>
+    <string name="settings_sync_preview_count">%1$d file(s)</string>
+
+    <string name="settings_sync_guide_title">Obsidian Remotely Save checklist</string>
+    <string name="settings_sync_guide_toggle_show">Show guide</string>
+    <string name="settings_sync_guide_toggle_hide">Hide guide</string>
+    <string name="settings_sync_guide_body">• Endpoint: enter your R2 service URL without the bucket name.\n• Region: enter “auto” for Cloudflare R2.\n• Path style access: leave off for Cloudflare R2 and AWS S3.\n• Obsidian Remotely Save: use the same remote prefix and turn off end-to-end encryption.\n• Excluded folders: .looma/ and .obsidian/ are never synced.</string>
+
+    <string name="settings_sync_err_invalid_config">Sync settings are incomplete or invalid. Check your endpoint, region, bucket, and keys.</string>
+    <string name="settings_sync_err_auth">Authentication failed. Check your access key, secret key, and bucket permissions.</string>
+    <string name="settings_sync_err_bucket_not_found">Bucket not found. Check the bucket name, region, and endpoint.</string>
+    <string name="settings_sync_err_clock_skew">Device clock differs from the server. Enable automatic date and time and try again.</string>
+    <string name="settings_sync_err_network">Could not reach the remote bucket. Check your network connection and endpoint.</string>
+    <string name="settings_sync_err_stalled_relocation">Finish or abandon the pending move on Home before syncing.</string>
+    <string name="settings_sync_err_vault_unavailable">The vault folder is not available. Check your vault and file access settings.</string>
+    <string name="settings_sync_err_generic">Sync failed. Try again.</string>
+
+    <string name="sync_work_channel">Vault sync</string>
+    <string name="sync_work_title">Syncing vault</string>
+    <string name="sync_work_cancel">Cancel</string>
+    <string name="home_sync_running">Syncing vault…</string>
+    <string name="home_sync_running_progress">Syncing vault… %1$d of %2$d</string>
+    <string name="home_sync_failed">Vault sync failed</string>
+    <string name="home_sync_conflicts">Sync finished with %1$d conflict(s)</string>
+    <string name="home_sync_view">View</string>
 </resources>

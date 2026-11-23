@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,8 +28,10 @@ import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButtonMenu
 import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
@@ -42,7 +45,9 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.material3.ToggleFloatingActionButtonDefaults
 import androidx.compose.material3.TopAppBarDefaults
@@ -125,6 +130,8 @@ data class HomeBrowseActions(
     val onSettingsClick: () -> Unit = {},
     val onRetryClick: () -> Unit = {},
     val onAbandonStalledRelocationClick: () -> Unit = {},
+    val onOpenSyncSettings: () -> Unit = {},
+    val onDismissSyncBanner: () -> Unit = {},
     val onUndo: (HomeUndo) -> Unit = {},
     val onMessageShown: () -> Unit = {},
 )
@@ -169,6 +176,7 @@ fun HomeRoute(
     onManageSemanticSearch: () -> Unit,
     modifier: Modifier = Modifier,
     loadingFeedbackEnabled: Boolean = true,
+    onOpenSyncSettings: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val untitledTitle = stringResource(R.string.home_untitled_note)
@@ -232,6 +240,8 @@ fun HomeRoute(
                 onSettingsClick = onSettingsClick,
                 onRetryClick = viewModel::refresh,
                 onAbandonStalledRelocationClick = viewModel::startAbandonStalledRelocation,
+                onOpenSyncSettings = onOpenSyncSettings,
+                onDismissSyncBanner = viewModel::dismissSyncBanner,
                 onUndo = viewModel::undo,
                 onMessageShown = viewModel::onMessageShown,
             ),
@@ -570,7 +580,8 @@ private fun HomeContent(
     Column(Modifier.fillMaxSize()) {
         val stalled = state.stalledRelocation
         val error = state.error
-        if (stalled != null || error != null) {
+        val syncBanner = state.syncBanner
+        if (stalled != null || error != null || syncBanner != null) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = pageMargin(), vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -583,6 +594,13 @@ private fun HomeContent(
                     )
                 }
                 error?.let { HomeErrorBanner(error = it, onRetryClick = actions.onRetryClick) }
+                syncBanner?.let {
+                    HomeSyncBannerView(
+                        banner = it,
+                        onViewClick = actions.onOpenSyncSettings,
+                        onDismissClick = actions.onDismissSyncBanner,
+                    )
+                }
             }
         }
         when {
@@ -656,6 +674,91 @@ private fun HomeErrorBanner(error: HomeError, onRetryClick: () -> Unit) {
         actionLabel = stringResource(R.string.home_retry),
         onAction = onRetryClick,
     )
+}
+
+@Composable
+private fun HomeSyncBannerView(
+    banner: HomeSyncBanner,
+    onViewClick: () -> Unit,
+    onDismissClick: () -> Unit,
+) {
+    when (banner) {
+        is HomeSyncBanner.Syncing -> {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                color = LoomaTokens.colors.card,
+            ) {
+                Column(
+                    modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        LoomaIcon(
+                            iconRes = R.drawable.ic_cloud_sync,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text(
+                            text = if (banner.total > 0) {
+                                stringResource(
+                                    R.string.home_sync_running_progress,
+                                    banner.completed,
+                                    banner.total,
+                                )
+                            } else {
+                                stringResource(R.string.home_sync_running)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = onViewClick,
+                            shapes = ButtonDefaults.shapes(),
+                        ) {
+                            Text(stringResource(R.string.home_sync_view))
+                        }
+                    }
+                    if (banner.total > 0) {
+                        LinearWavyProgressIndicator(
+                            progress = { (banner.completed.toFloat() / banner.total).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                        )
+                    } else {
+                        LinearWavyProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
+        is HomeSyncBanner.Failed -> {
+            ErrorBanner(
+                message = stringResource(R.string.home_sync_failed),
+                actionLabel = stringResource(R.string.home_sync_view),
+                onAction = {
+                    onDismissClick()
+                    onViewClick()
+                },
+            )
+        }
+        is HomeSyncBanner.Conflicts -> {
+            ErrorBanner(
+                message = stringResource(R.string.home_sync_conflicts, banner.count),
+                actionLabel = stringResource(R.string.home_sync_view),
+                onAction = {
+                    onDismissClick()
+                    onViewClick()
+                },
+            )
+        }
+    }
 }
 
 @Composable

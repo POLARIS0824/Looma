@@ -45,6 +45,10 @@ internal class SemanticVectorCache(private val root: File) {
     fun forNote(id: NoteId): NoteVectors =
         NoteVectors(directory(id.vaultId).resolve(cacheName(id)))
 
+    fun delete(id: NoteId) {
+        directory(id.vaultId).resolve(cacheName(id)).delete()
+    }
+
     private fun directory(vaultId: VaultId) = root.resolve(key(vaultId.value))
     private fun cacheName(id: NoteId) = "${key(id.path.relativePath)}.vec"
     private fun key(value: String) = (NoteRevision.of(value.toByteArray()) as NoteRevision.Known).sha256
