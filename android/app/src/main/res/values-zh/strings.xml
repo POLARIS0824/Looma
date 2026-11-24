@@ -147,7 +147,7 @@
     <string name="settings_semantic_model_details">EmbeddingGemma 2 会提取文字的语义。即使用词不同，Looma 也能找到意思相近的笔记。</string>
     <string name="settings_semantic_background_work">下载模型或建立索引时，可以离开此页面。</string>
     <string name="settings_semantic_model">EmbeddingGemma 2 模型</string>
-    <string name="settings_semantic_model_size">一次性下载 · 157 MiB</string>
+    <string name="settings_semantic_model_size">一次性下载 · %1$s</string>
     <string name="settings_semantic_download">下载模型</string>
     <string name="settings_semantic_download_queued">已排队等待下载模型</string>
     <string name="settings_semantic_downloading">正在下载模型… %1$d%%</string>
@@ -175,10 +175,10 @@
     <string name="settings_semantic_backend_cpu">CPU</string>
     <string name="settings_semantic_backend_npu">NPU</string>
     <string name="settings_semantic_backend_cpu_hint">通用兼容</string>
-    <string name="settings_semantic_backend_npu_hint">硬件加速 · 不支持时自动回退到 CPU</string>
+    <string name="settings_semantic_backend_npu_hint">硬件加速 · 芯片专用模型</string>
     <string name="settings_semantic_delete_model">删除模型</string>
     <string name="settings_semantic_delete_confirm_title">删除 Embedding 模型？</string>
-    <string name="settings_semantic_delete_confirm_message">将从设备中移除已下载的 EmbeddingGemma 2 模型（157 MiB），之后可随时重新下载。</string>
+    <string name="settings_semantic_delete_confirm_message">将从设备中移除已下载的 EmbeddingGemma 2 模型（%1$s），之后可随时重新下载。</string>
     <string name="settings_semantic_delete_confirm">删除</string>
     <string name="settings_semantic_status_ready">已就绪</string>
     <string name="settings_semantic_status_failed">失败</string>
@@ -358,6 +358,10 @@
     <string name="settings_sync_configured">%1$s · %2$s</string>
     <string name="settings_sync_status_syncing">正在同步…</string>
     <string name="settings_sync_status_failed">上次同步失败</string>
+    <string name="settings_sync_status_ready">已就绪</string>
+    <string name="settings_sync_status_unavailable">不可用</string>
+    <string name="settings_sync_status_partial">部分完成</string>
+    <string name="settings_sync_status_cancelled">已取消</string>
     <string name="settings_sync_status_conflicts">冲突 · %1$d</string>
 
     <string name="settings_sync_intro_title">跨设备同步笔记库</string>

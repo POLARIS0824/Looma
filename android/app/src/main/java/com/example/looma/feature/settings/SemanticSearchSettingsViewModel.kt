@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.looma.data.search.EmbeddingModelCatalog
 import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.search.SemanticWorkState
 import com.example.looma.embedding.EmbeddingBackend
@@ -21,10 +22,16 @@ internal class SemanticSearchSettingsViewModel(
     private val repository: SemanticSearchRepository,
 ) : ViewModel() {
     val supported = repository.supported
+    val npuSupported = repository.npuSupported
     val backend = repository.embeddingBackend.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         EmbeddingBackend.CPU,
+    )
+    val modelSizeBytes = repository.modelSizeBytes.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        EmbeddingModelCatalog.CPU_MODEL.bytes,
     )
     val model = SemanticSettingsOperation(
         viewModelScope,

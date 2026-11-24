@@ -42,30 +42,45 @@ class SemanticSearchRepository internal constructor(
     private val session: LocalModelSession = LocalModelSession(),
 ) {
     private val directory = context.noBackupFilesDir.resolve("semantic-search")
-    private val modelFile = EmbeddingModelFile(directory)
-    private val cache = SemanticVectorCache(directory.resolve("vectors-v1-${EmbeddingModelFile.MODEL_SHA256}"))
-    private val store = PassageVectorStore(context, directory.resolve("passages-" + EmbeddingModelFile.MODEL_SHA256 + ".db"))
+    @Volatile
+    private var currentBackend = EmbeddingBackend.CPU
+    private val modelFile = EmbeddingModelFile(directory) {
+        EmbeddingModelCatalog.resolve(currentBackend)
+    }
+    private val cache = SemanticVectorCache(directory.resolve("vectors-v1-${EmbeddingModelCatalog.VECTOR_SPACE_ID}"))
+    private val store = PassageVectorStore(context, directory.resolve("passages-" + EmbeddingModelCatalog.VECTOR_SPACE_ID + ".db"))
     private val work = SemanticSearchWork(context, vaults, modelFile, cache, store)
     private val indexMutex = Mutex()
     private var model: EmbeddingGemma? = null
 
     internal val supported: Boolean get() = work.supported
+    internal val npuSupported: Boolean get() = EmbeddingModelCatalog.supportsNpu()
     internal val modelState by lazy { work.modelState }
     internal val indexState = work.indexState
     internal val hasIndex = work.hasIndex
     internal val embeddingBackend: Flow<EmbeddingBackend> = settings.settings
-        .map { it.embeddingBackend }
+        .map { EmbeddingModelCatalog.effectiveBackend(it.embeddingBackend).also { effective -> currentBackend = effective } }
+        .distinctUntilChanged()
+    internal val modelSizeBytes: Flow<Long> = embeddingBackend
+        .map { EmbeddingModelCatalog.resolve(it).bytes }
         .distinctUntilChanged()
 
     internal suspend fun setEmbeddingBackend(backend: EmbeddingBackend) {
-        val current = settings.settings.first().embeddingBackend
-        if (current != backend) {
+        val target = EmbeddingModelCatalog.effectiveBackend(backend)
+        val current = EmbeddingModelCatalog.effectiveBackend(settings.settings.first().embeddingBackend)
+        currentBackend = target
+        if (current != target) {
+            work.cancelDownload()
             releaseModel()
-            settings.setEmbeddingBackend(backend)
+            settings.setEmbeddingBackend(target)
+            work.notifyModelChanged()
         }
     }
 
-    internal suspend fun enqueueModelDownload() = work.enqueueDownload()
+    internal suspend fun enqueueModelDownload() {
+        syncBackend()
+        work.enqueueDownload()
+    }
     internal suspend fun cancelModelDownload() = work.cancelDownload()
     internal suspend fun deleteModel() {
         work.cancelDownload()
@@ -76,7 +91,10 @@ class SemanticSearchRepository internal constructor(
         }
         work.notifyModelChanged()
     }
-    internal suspend fun enqueueIndex() = work.enqueueIndex()
+    internal suspend fun enqueueIndex() {
+        syncBackend()
+        work.enqueueIndex()
+    }
     internal suspend fun cancelIndex() = work.cancelIndex()
 
     internal fun recordChanges(delta: IndexDelta) {
@@ -98,7 +116,8 @@ class SemanticSearchRepository internal constructor(
     }
 
     internal suspend fun downloadModel(onProgress: suspend (Int) -> Unit) = withContext(Dispatchers.IO) {
-        modelFile.download(onProgress)
+        val backend = syncBackend()
+        modelFile.download(onProgress, EmbeddingModelCatalog.resolve(backend))
     }
 
     internal suspend fun releaseModel() = withContext(Dispatchers.IO) {
@@ -138,7 +157,8 @@ class SemanticSearchRepository internal constructor(
     }
 
     private suspend fun rebuildIndex(vault: Vault, onProgress: suspend (Int, Int) -> Unit) {
-        if (!modelFile.exists()) throw SemanticModelMissingException()
+        val backend = syncBackend()
+        if (!modelFile.exists(EmbeddingModelCatalog.resolve(backend))) throw SemanticModelMissingException()
         val scan = notes.listNotes(vault)
         val candidates = scan.items.map { it.summary.id }
         val checkActive = coroutineContext::ensureActive
@@ -292,17 +312,26 @@ class SemanticSearchRepository internal constructor(
         null
     }
 
+    private suspend fun syncBackend(): EmbeddingBackend =
+        EmbeddingModelCatalog.effectiveBackend(settings.settings.first().embeddingBackend).also {
+            currentBackend = it
+        }
+
     private suspend fun openEmbeddingModel(): EmbeddingGemma {
-        val file = modelFile.open() ?: throw SemanticModelMissingException()
-        val backend = settings.settings.first().embeddingBackend
+        val backend = syncBackend()
         if (backend == EmbeddingBackend.NPU) {
-            try {
-                return EmbeddingGemma(context, file, EmbeddingBackend.NPU)
-            } catch (_: Exception) {
-                // Fall back to CPU if NPU initialization is unavailable on this device.
+            val npuFile = modelFile.open(EmbeddingModelCatalog.resolve(EmbeddingBackend.NPU))
+            if (npuFile != null) {
+                try {
+                    return EmbeddingGemma(context, npuFile, EmbeddingBackend.NPU)
+                } catch (error: Exception) {
+                    val cpuFile = modelFile.open(EmbeddingModelCatalog.CPU_MODEL) ?: throw error
+                    return EmbeddingGemma(context, cpuFile, EmbeddingBackend.CPU)
+                }
             }
         }
-        return EmbeddingGemma(context, file, EmbeddingBackend.CPU)
+        val cpuFile = modelFile.open(EmbeddingModelCatalog.CPU_MODEL) ?: throw SemanticModelMissingException()
+        return EmbeddingGemma(context, cpuFile, EmbeddingBackend.CPU)
     }
 
     private suspend fun read(id: NoteId, vault: Vault): StoredMarkdown? = try {

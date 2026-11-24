@@ -42,6 +42,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.looma.R
+import com.example.looma.data.search.EmbeddingModelCatalog
 import com.example.looma.data.search.SemanticWorkState
 import com.example.looma.embedding.EmbeddingBackend
 import com.example.looma.ui.components.FeatureAction
@@ -53,6 +54,7 @@ import com.example.looma.ui.components.FeatureStatusCard
 import com.example.looma.ui.components.FeatureStatusTone
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.SectionHeader
+import com.example.looma.ui.format.formatFileSize
 import com.example.looma.ui.theme.LoomaTheme
 
 @Immutable
@@ -64,8 +66,10 @@ internal data class SemanticOperationUiState(
 @Immutable
 internal data class SemanticSearchSettingsUiState(
     val supported: Boolean,
+    val npuSupported: Boolean,
     val vaultName: String,
     val backend: EmbeddingBackend,
+    val modelSizeBytes: Long,
     val model: SemanticOperationUiState,
     val index: SemanticOperationUiState,
 )
@@ -84,6 +88,7 @@ internal fun SemanticSearchSettingsRoute(
     modifier: Modifier = Modifier,
 ) {
     val backend by viewModel.backend.collectAsStateWithLifecycle()
+    val modelSizeBytes by viewModel.modelSizeBytes.collectAsStateWithLifecycle()
     val modelStatus by viewModel.model.status.collectAsStateWithLifecycle()
     val modelAction by viewModel.model.action.collectAsStateWithLifecycle()
     val indexStatus by viewModel.index.status.collectAsStateWithLifecycle()
@@ -104,8 +109,10 @@ internal fun SemanticSearchSettingsRoute(
     SemanticSearchSettingsScreen(
         state = SemanticSearchSettingsUiState(
             supported = viewModel.supported,
+            npuSupported = viewModel.npuSupported,
             vaultName = vaultName,
             backend = backend,
+            modelSizeBytes = modelSizeBytes,
             model = SemanticOperationUiState(status = modelStatus, action = modelAction),
             index = SemanticOperationUiState(status = indexStatus, action = indexAction),
         ),
@@ -138,9 +145,11 @@ internal fun SemanticSearchSettingsScreen(
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val formattedModelSize = formatFileSize(LocalContext.current, state.modelSizeBytes)
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
     if (showDeleteConfirm) {
         ConfirmDeleteModelDialog(
+            modelSize = formattedModelSize,
             onConfirm = {
                 showDeleteConfirm = false
                 onDeleteModel()
@@ -198,12 +207,14 @@ internal fun SemanticSearchSettingsScreen(
             )
         }
         if (available) {
-            Spacer(Modifier.height(32.dp))
-            BackendGroup(
-                backend = state.backend,
-                enabled = !state.model.status.active && state.model.action != SemanticSettingsAction.Submitting,
-                onSelectBackend = onSelectBackend,
-            )
+            if (state.npuSupported) {
+                Spacer(Modifier.height(32.dp))
+                BackendGroup(
+                    backend = state.backend,
+                    enabled = !state.model.status.active && state.model.action != SemanticSettingsAction.Submitting,
+                    onSelectBackend = onSelectBackend,
+                )
+            }
             Spacer(Modifier.height(24.dp))
             Column(
                 modifier = Modifier.padding(horizontal = 4.dp),
@@ -237,12 +248,12 @@ private fun semanticStatus(state: SemanticSearchSettingsUiState): FeatureStatus?
     return when (model) {
         SemanticWorkState.Unavailable -> unavailable
         SemanticWorkState.Ready -> indexStatus(state.vaultName, state.index.status)
-        else -> modelStatus(model)
+        else -> modelStatus(model, formatFileSize(LocalContext.current, state.modelSizeBytes))
     }
 }
 
 @Composable
-private fun modelStatus(model: SemanticWorkState): FeatureStatus {
+private fun modelStatus(model: SemanticWorkState, modelSize: String): FeatureStatus {
     val step = stringResource(R.string.settings_semantic_step, 1, 2)
     val title = stringResource(R.string.settings_semantic_model)
     return when (model) {
@@ -272,7 +283,7 @@ private fun modelStatus(model: SemanticWorkState): FeatureStatus {
         else -> FeatureStatus(
             label = step,
             title = title,
-            detail = stringResource(R.string.settings_semantic_model_size),
+            detail = stringResource(R.string.settings_semantic_model_size, modelSize),
         )
     }
 }
@@ -446,13 +457,14 @@ private fun BackendGroup(
 
 @Composable
 private fun ConfirmDeleteModelDialog(
+    modelSize: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.settings_semantic_delete_confirm_title)) },
-        text = { Text(stringResource(R.string.settings_semantic_delete_confirm_message)) },
+        text = { Text(stringResource(R.string.settings_semantic_delete_confirm_message, modelSize)) },
         confirmButton = {
             TextButton(onClick = onConfirm, shapes = ButtonDefaults.shapes()) {
                 Text(
@@ -479,8 +491,10 @@ private fun PreviewScreen(
         SemanticSearchSettingsScreen(
             state = SemanticSearchSettingsUiState(
                 supported = true,
+                npuSupported = true,
                 vaultName = "My Notes",
                 backend = backend,
+                modelSizeBytes = EmbeddingModelCatalog.CPU_MODEL.bytes,
                 model = SemanticOperationUiState(model, SemanticSettingsAction.Idle),
                 index = SemanticOperationUiState(index, SemanticSettingsAction.Idle),
             ),
