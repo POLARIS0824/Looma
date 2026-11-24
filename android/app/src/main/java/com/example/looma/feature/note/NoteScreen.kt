@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
@@ -52,9 +51,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
@@ -270,6 +266,7 @@ private fun NoteWorkspace(
     LaunchedEffect(contentBuffer, mode, editorActive) {
         if (mode != NoteMode.Edit || !editorActive) return@LaunchedEffect
         snapshotFlow { contentBuffer.contentVersion to contentBuffer.selection }.collectLatest { (_, selection) ->
+            kotlinx.coroutines.delay(48)
             val text = contentBuffer.snapshot()
             formatState = withContext(Dispatchers.Default) {
                 MarkdownEditing.formatState(text, TextSelection(selection.start, selection.end), fences)
@@ -279,21 +276,8 @@ private fun NoteWorkspace(
     var passageOpened by rememberSaveable(passage) { mutableStateOf(false) }
     var linkPanelOpen by rememberSaveable { mutableStateOf(false) }
     var initialTitleFocusTaken by rememberSaveable { mutableStateOf(false) }
-    val readScroll = rememberLazyListState()
-    val modeScroll = remember(contentBuffer, readScroll) { NoteModeScroll(readScroll, contentBuffer) }
-    var pendingModeScroll by remember(contentBuffer) { mutableStateOf<ModeScrollRequest?>(null) }
-    var modeScrollReturn by remember(contentBuffer) { mutableStateOf<ModeScrollReturn?>(null) }
-    val modeScrollObserver = remember(contentBuffer) {
-        object : NestedScrollConnection {
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && consumed.y != 0f) {
-                    pendingModeScroll = null
-                    modeScrollReturn = null
-                }
-                return Offset.Zero
-            }
-        }
-    }
+    val modeScrollState = rememberNoteModeScrollState(contentBuffer)
+    val readScroll = modeScrollState.readScroll
     val titleFocus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -366,42 +350,15 @@ private fun NoteWorkspace(
         val reading = (preview as? PreparedMarkdown.Ready)?.takeIf { it.source == contentBuffer.snapshot() }
             ?: return@LaunchedEffect
         if (mode == NoteMode.Read) {
-            modeScroll.openPassage(passage.start, reading.blocks, reading.index.bodyStart, state.showInlineTitle)
+            modeScrollState.openPassage(passage.start, reading, state.showInlineTitle)
         }
         passageOpened = true
     }
 
-    val request = pendingModeScroll
-    val readRequest = request is ModeScrollRequest.Read || request is ModeScrollRequest.ReadOffset || request is ModeScrollRequest.ReadPassage
-    val requestedPreview = if (readRequest) preview else null
+    val request = modeScrollState.pendingModeScroll
+    val requestedPreview = if (request?.isReadRequest == true) preview else null
     LaunchedEffect(request, requestedPreview, state.showInlineTitle) {
-        val currentPreview = (requestedPreview as? PreparedMarkdown.Ready)?.takeIf {
-            it.source == contentBuffer.snapshot()
-        }
-        when (request) {
-            is ModeScrollRequest.ReadPassage -> {
-                currentPreview ?: return@LaunchedEffect
-                if (currentPreview.source == request.source) modeScroll.openPassage(
-                    request.offset, currentPreview.blocks, currentPreview.index.bodyStart, state.showInlineTitle)
-            }
-            is ModeScrollRequest.Read -> {
-                currentPreview ?: return@LaunchedEffect
-                modeScroll.restoreRead(
-                    position = request.position,
-                    blocks = currentPreview.blocks,
-                    bodyStart = currentPreview.index.bodyStart,
-                    hasHeader = state.showInlineTitle,
-                )
-            }
-            is ModeScrollRequest.ReadOffset -> {
-                currentPreview ?: return@LaunchedEffect
-                readScroll.scrollToItem(request.itemIndex, request.offset)
-            }
-            is ModeScrollRequest.Edit -> modeScroll.restoreEdit(request.anchor)
-            is ModeScrollRequest.EditOffset -> modeScroll.restoreEdit(request.offset)
-            null -> return@LaunchedEffect
-        }
-        if (pendingModeScroll === request) pendingModeScroll = null
+        modeScrollState.applyPendingScroll(request, requestedPreview, state.showInlineTitle)
     }
 
     LaunchedEffect(state.imageInsertion) {
@@ -454,59 +411,21 @@ private fun NoteWorkspace(
                 weaveAction = {
                     NoteNavigator(snapshot = { contentBuffer.snapshot() }, prepared = preview as? PreparedMarkdown.Ready) { source, range ->
                         if (source == contentBuffer.snapshot()) {
-                            modeScrollReturn = null
-                            if (mode == NoteMode.Edit) {
-                                contentBuffer.setSelection(range)
-                                pendingModeScroll = ModeScrollRequest.Edit(ReadingAnchor.edit(range.min, null, 0f, false))
-                            } else {
-                                pendingModeScroll = ModeScrollRequest.ReadPassage(source, range.min)
-                            }
+                            modeScrollState.navigateToRange(mode, source, range)
                         }
                     }
                     weaveAction {
-                        if (mode == NoteMode.Edit) contentBuffer.selection
-                        else preview?.visibleBlocks()?.let {
-                            modeScroll.captureRead(it.blocks, it.index.bodyStart, state.showInlineTitle)?.let { anchor ->
-                                TextRange(anchor.sourceOffset)
-                            }
-                        }
+                        modeScrollState.currentWeaveFocus(mode, preview, state.showInlineTitle)
                     }
                 },
                 onToggleMode = {
-                    val next = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
+                    val next = modeScrollState.prepareModeToggle(mode, preview, state.showInlineTitle)
                     if (next == NoteMode.Read) {
                         focusManager.clearFocus(force = true)
                         contentBuffer.clearFocus()
                         keyboard?.hide()
+                        if (preview?.source != contentBuffer.snapshot()) preview = null
                     }
-                    val text = contentBuffer.snapshot()
-                    val returnPosition = modeScrollReturn?.takeIf { it.source == text }?.position
-                    pendingModeScroll = returnPosition ?: run {
-                        when (mode) {
-                            NoteMode.Read -> preview?.visibleBlocks()?.let {
-                                modeScroll.captureRead(
-                                    blocks = it.blocks,
-                                    bodyStart = it.index.bodyStart,
-                                    hasHeader = state.showInlineTitle,
-                                )?.let { anchor -> ModeScrollRequest.Edit(anchor) }
-                            }
-                            NoteMode.Edit -> modeScroll.captureEdit()
-                                ?.let { position -> ModeScrollRequest.Read(position) }
-                        }
-                    }
-                    modeScrollReturn = if (returnPosition == null) {
-                        val position = when (mode) {
-                            NoteMode.Read -> ModeScrollRequest.ReadOffset(
-                                readScroll.firstVisibleItemIndex,
-                                readScroll.firstVisibleItemScrollOffset,
-                            )
-                            NoteMode.Edit -> ModeScrollRequest.EditOffset(contentBuffer.scrollOffsetY)
-                        }
-                        ModeScrollReturn(text, position)
-                    } else {
-                        null
-                    }
-                    if (next == NoteMode.Read && preview?.source != text) preview = null
                     mode = next
                 },
                 scrollBehavior = appBarScroll,
@@ -559,7 +478,7 @@ private fun NoteWorkspace(
 
             AnimatedContent(
                 targetState = mode,
-                modifier = Modifier.weight(1f).nestedScroll(modeScrollObserver),
+                modifier = Modifier.weight(1f).nestedScroll(modeScrollState.scrollObserver),
                 transitionSpec = { modeEnter togetherWith modeExit using null },
                 label = "note-mode",
             ) { shownMode ->
@@ -567,14 +486,13 @@ private fun NoteWorkspace(
                     NoteMode.Read -> {
                         val renderedPreview = preview
                         val previewIsCurrent = renderedPreview != null && renderedPreview.source == contentBuffer.snapshot()
-                        val canShowPreview = when {
-                            renderedPreview is PreparedMarkdown.Opening ->
-                                previewIsCurrent && (passage == null || passageOpened) && when (request) {
-                                    is ModeScrollRequest.Read -> request.position.atTop
-                                    is ModeScrollRequest.ReadOffset -> request.itemIndex == 0
-                                    else -> readScroll.firstVisibleItemIndex == 0
-                                }
-                            else -> previewIsCurrent
+                        val canShowPreview = when (renderedPreview) {
+                            is PreparedMarkdown.Opening ->
+                                modeScrollState.canShowOpeningPreview(
+                                    previewIsCurrent = previewIsCurrent,
+                                    passageReady = passage == null || passageOpened,
+                                )
+                            else -> true
                         }
                         NoteReadBody(
                             preview = renderedPreview.takeIf { canShowPreview },
@@ -625,8 +543,7 @@ private fun NoteWorkspace(
                             onScrollChanged = { offsetY, byUser ->
                                 appBarState.contentOffset = -offsetY.toFloat()
                                 if (byUser) {
-                                    pendingModeScroll = null
-                                    modeScrollReturn = null
+                                    modeScrollState.onUserScroll()
                                 }
                             },
                             header = if (state.showInlineTitle) {
@@ -789,12 +706,6 @@ private fun NoteReadBody(
     }
 }
 
-private fun PreparedMarkdown.visibleBlocks(): PreparedMarkdown.Ready? = when (this) {
-    is PreparedMarkdown.Ready -> this
-    is PreparedMarkdown.Opening -> preview
-    is PreparedMarkdown.Failed -> null
-}
-
 private fun insertWikiLink(buffer: NoteEditorState, reference: String) {
     insertSnippet(buffer, "[[$reference]]")
 }
@@ -826,16 +737,6 @@ private fun imageErrorText(resources: Resources, error: NoteImageError): String 
     )
     NoteImageError.Unknown -> resources.getString(R.string.note_image_error_unknown)
 }
-
-private sealed interface ModeScrollRequest {
-    data class ReadPassage(val source: String, val offset: Int) : ModeScrollRequest
-    data class Read(val position: EditScrollPosition) : ModeScrollRequest
-    data class ReadOffset(val itemIndex: Int, val offset: Int) : ModeScrollRequest
-    data class Edit(val anchor: ReadingAnchor) : ModeScrollRequest
-    data class EditOffset(val offset: Int) : ModeScrollRequest
-}
-
-private data class ModeScrollReturn(val source: String, val position: ModeScrollRequest)
 
 private const val LARGE_NOTE_READ_THRESHOLD = 256 * 1024
 private const val READ_PREVIEW_IDLE_MILLIS = 1_500L

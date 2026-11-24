@@ -36,6 +36,8 @@ internal fun MarkdownBody(
     footer: (@Composable () -> Unit)? = null,
 ) {
     val currentLinkClick = rememberUpdatedState(onWikiLinkClick)
+    val currentCheckboxToggle = rememberUpdatedState(onCheckboxToggle)
+    val hasCheckboxToggle = onCheckboxToggle != null
     val theme = loomaMarkdownTheme(
         base = LoomaTokens.type.noteBody,
     )
@@ -49,12 +51,31 @@ internal fun MarkdownBody(
     )
     val annotator = remember(math) { mathAnnotator(math) }
     val bodyStart = preview.index.bodyStart
-    val components = remember(theme, bodyStart, wiki, accent, muted, math, onCheckboxToggle, checkedText) {
+    val components = remember(
+        theme.colors.codeBackground,
+        theme.colors.inlineCodeBackground,
+        theme.colors.dividerColor,
+        theme.colors.tableBackground,
+        theme.codeShape,
+        theme.tableShape,
+        theme.tableHeader,
+        bodyStart,
+        wiki,
+        accent,
+        muted,
+        math,
+        hasCheckboxToggle,
+        checkedText,
+    ) {
         loomaMarkdownComponents(
             theme = theme,
             compact = false,
             bodyStart = bodyStart,
-            onCheckboxToggle = onCheckboxToggle,
+            onCheckboxToggle = if (hasCheckboxToggle) { pos, checked ->
+                currentCheckboxToggle.value?.invoke(pos, checked)
+            } else {
+                null
+            },
             wiki = wiki,
             onWikiLinkClick = { target -> currentLinkClick.value(target) },
             resolvedLink = SpanStyle(color = accent, textDecoration = TextDecoration.Underline),

@@ -1,9 +1,7 @@
 package com.example.looma.navigation
 
 import androidx.activity.compose.BackHandler
-import com.example.looma.data.assistant.LocalGenerator
-import com.example.looma.data.assistant.VaultAgent
-import com.example.looma.data.assistant.VaultEvidence
+import com.example.looma.LoomaApp
 import com.example.looma.feature.ask.AskScreen
 import com.example.looma.feature.ask.AskViewModel
 import com.example.looma.feature.note.components.WeaveAction
@@ -52,13 +50,6 @@ import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.NavigationEventState
 import androidx.navigationevent.compose.rememberNavigationEventState
 import com.example.looma.LaunchGate
-import com.example.looma.data.folder.FolderRepository
-import com.example.looma.data.note.NoteRepository
-import com.example.looma.data.image.ImageUploader
-import com.example.looma.data.search.SearchHistoryRepository
-import com.example.looma.data.search.SemanticSearchRepository
-import com.example.looma.data.settings.SettingsRepository
-import com.example.looma.data.sync.SyncRepository
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
@@ -90,16 +81,7 @@ private val LocalSceneBackState = compositionLocalOf<NavigationEventState<SceneI
 
 @Composable
 internal fun LoomaNavGraph(
-    evidence: VaultEvidence,
-    generator: LocalGenerator,
-    agent: VaultAgent,
-    noteRepository: NoteRepository,
-    folderRepository: FolderRepository,
-    searchHistoryRepository: SearchHistoryRepository,
-    semanticSearchRepository: SemanticSearchRepository,
-    settingsRepository: SettingsRepository,
-    imageUploader: ImageUploader,
-    syncRepository: SyncRepository,
+    app: LoomaApp,
     vaultSetupViewModel: VaultSetupViewModel,
     launchGate: LaunchGate,
     modifier: Modifier = Modifier,
@@ -182,15 +164,15 @@ internal fun LoomaNavGraph(
                 }
 
                 entry<LoomaRoute.Home>(clazzContentKey = { "home/${vault?.id?.value.orEmpty()}" }) {
-                    val homeViewModel: HomeViewModel = viewModel(
-                        factory = HomeViewModel.factory(
-                            noteRepository = noteRepository,
-                            folderRepository = folderRepository,
-                            searchHistoryRepository = searchHistoryRepository,
-                            semanticSearchRepository = semanticSearchRepository,
-                            syncRepository = syncRepository,
-                        ),
-                    )
+                    val homeViewModel: HomeViewModel = viewModel {
+                        HomeViewModel(
+                            noteRepository = app.noteRepository,
+                            folderRepository = app.folderRepository,
+                            searchHistoryRepository = app.searchHistoryRepository,
+                            semanticSearchRepository = app.semanticSearchRepository,
+                            syncRepository = app.syncRepository,
+                        )
+                    }
                     LaunchedEffect(homeViewModel) {
                         homeViewModel.uiState.first { !it.isLoading }
                         launchGate.release()
@@ -227,7 +209,7 @@ internal fun LoomaNavGraph(
                 entry<LoomaRoute.Ask>(clazzContentKey = { "ask/${vault?.id?.value.orEmpty()}" }) {
                     val active = vault ?: return@entry
                     val model = viewModel<AskViewModel> {
-                        AskViewModel(active, agent, evidence, generator, noteRepository)
+                        AskViewModel(active, app.vaultAgent, app.evidence, app.generator, app.noteRepository)
                     }
                     AskScreen(model,
                         openNote = { backStack.add(LoomaRoute.Note.from(it)) },
@@ -237,9 +219,9 @@ internal fun LoomaNavGraph(
                 }
 
                 entry<LoomaRoute.Trash> {
-                    val trashViewModel: TrashViewModel = viewModel(
-                        factory = TrashViewModel.factory(noteRepository),
-                    )
+                    val trashViewModel: TrashViewModel = viewModel {
+                        TrashViewModel(app.noteRepository)
+                    }
                     TrashRoute(
                         viewModel = trashViewModel,
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
@@ -247,9 +229,9 @@ internal fun LoomaNavGraph(
                 }
 
                 entry<LoomaRoute.Settings> {
-                    val settingsViewModel: SettingsViewModel = viewModel(
-                        factory = SettingsViewModel.factory(settingsRepository, syncRepository),
-                    )
+                    val settingsViewModel: SettingsViewModel = viewModel {
+                        SettingsViewModel(app.settingsRepository, app.syncRepository)
+                    }
                     SettingsRoute(
                         vaultViewModel = vaultSetupViewModel,
                         settingsViewModel = settingsViewModel,
@@ -273,9 +255,9 @@ internal fun LoomaNavGraph(
                 }
 
                 entry<LoomaRoute.SemanticSearchSettings> {
-                    val semanticSettingsViewModel: SemanticSearchSettingsViewModel = viewModel(
-                        factory = SemanticSearchSettingsViewModel.factory(semanticSearchRepository),
-                    )
+                    val semanticSettingsViewModel: SemanticSearchSettingsViewModel = viewModel {
+                        SemanticSearchSettingsViewModel(app.semanticSearchRepository)
+                    }
                     SemanticSearchSettingsRoute(
                         viewModel = semanticSettingsViewModel,
                         vaultName = vault?.name.orEmpty(),
@@ -284,9 +266,9 @@ internal fun LoomaNavGraph(
                 }
 
                 entry<LoomaRoute.SyncSettings> {
-                    val syncSettingsViewModel: SyncSettingsViewModel = viewModel(
-                        factory = SyncSettingsViewModel.factory(syncRepository, settingsRepository),
-                    )
+                    val syncSettingsViewModel: SyncSettingsViewModel = viewModel {
+                        SyncSettingsViewModel(app.syncRepository, app.settingsRepository)
+                    }
                     SyncSettingsRoute(
                         viewModel = syncSettingsViewModel,
                         vaultName = vault?.name.orEmpty(),
@@ -301,9 +283,9 @@ internal fun LoomaNavGraph(
                     )
                     val noteViewModel: NoteViewModel = viewModel(
                         factory = NoteViewModel.factory(
-                            repository = noteRepository,
-                            settingsRepository = settingsRepository,
-                            imageUploader = imageUploader,
+                            repository = app.noteRepository,
+                            settingsRepository = app.settingsRepository,
+                            imageUploader = app.imageUploader,
                             initialId = noteId,
                             isNewNote = route.isNew,
                         ),
@@ -337,7 +319,7 @@ internal fun LoomaNavGraph(
                         noteId = noteId,
                         weaveAction = { focus ->
                             if (vault != null) WeaveAction(
-                                vault, noteId, evidence, noteViewModel, focus,
+                                vault, noteId, app.evidence, noteViewModel, focus,
                                 open = { backStack.add(LoomaRoute.Note.from(it.id, passage = it.anchor)) },
                             )
                         },

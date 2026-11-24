@@ -47,6 +47,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class NoteViewModel(
     private val repository: NoteRepository,
@@ -366,15 +367,23 @@ class NoteViewModel(
         vault: Vault,
         suggestion: Connection,
         evidence: VaultEvidence,
-    ): Boolean = editorWrites.withLock {
-        val source = draft.content
-        val generation = operationGeneration
-        if (currentId != suggestion.source || uiState.value.saveProblem != null ||
-            !evidence.linkStillValid(vault, suggestion, source)) return@withLock false
-        if (source != draft.content || generation != operationGeneration || currentId != suggestion.source) return@withLock false
-        val at = suggestion.passage?.insertAt ?: source.length
-        editor.replaceRange(at, at, suggestion.addition(source))
-        saveCurrent(generation)
+    ): Boolean = withContext(viewModelScope.coroutineContext) {
+        editorWrites.withLock {
+            val source = draft.content
+            val generation = operationGeneration
+            if (currentId != suggestion.source || uiState.value.saveProblem != null ||
+                !evidence.linkStillValid(vault, suggestion, source)) return@withLock false
+            if (source != draft.content || generation != operationGeneration || currentId != suggestion.source) return@withLock false
+            scheduler.cancel()
+            val at = suggestion.passage?.insertAt ?: source.length
+            val addition = suggestion.addition(source)
+            editor.replaceRange(at, at, addition)
+            if (!saveCurrent(generation)) {
+                editor.replaceRange(at, at + addition.length, "")
+                return@withLock false
+            }
+            true
+        }
     }
 
     fun retrySave() {

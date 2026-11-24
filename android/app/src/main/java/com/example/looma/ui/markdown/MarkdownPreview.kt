@@ -54,7 +54,15 @@ internal fun MarkdownPreview(
         textColor = textColor,
         onSelectedContainer = onSelectedContainer,
     )
-    val components = remember(theme) {
+    val components = remember(
+        theme.colors.codeBackground,
+        theme.colors.inlineCodeBackground,
+        theme.colors.dividerColor,
+        theme.colors.tableBackground,
+        theme.codeShape,
+        theme.tableShape,
+        theme.tableHeader,
+    ) {
         loomaMarkdownComponents(
             theme = theme,
             compact = true,

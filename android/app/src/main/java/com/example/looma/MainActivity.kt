@@ -44,16 +44,7 @@ class MainActivity : AppCompatActivity() {
                 preset = settings.themePreset,
             ) {
                 LoomaNavGraph(
-                    evidence = container.evidence,
-                    generator = container.generator,
-                    agent = container.vaultAgent,
-                    noteRepository = container.noteRepository,
-                    folderRepository = container.folderRepository,
-                    searchHistoryRepository = container.searchHistoryRepository,
-                    semanticSearchRepository = container.semanticSearchRepository,
-                    settingsRepository = container.settingsRepository,
-                    imageUploader = container.imageUploader,
-                    syncRepository = container.syncRepository,
+                    app = container,
                     vaultSetupViewModel = vaultSetupViewModel,
                     launchGate = launchGate,
                 )
