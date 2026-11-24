@@ -59,6 +59,9 @@ class NoteRepository internal constructor(
     private val searchDispatcher = Dispatchers.IO.limitedParallelism(SEARCH_IO_PARALLELISM)
     private val stalledRelocations = ConcurrentHashMap<VaultId, StalledRelocation>()
 
+    private data class RecentScan(val result: NoteListResult, val at: Long)
+    @Volatile private var recentScan: RecentScan? = null
+
     internal suspend fun listNotes(expected: Vault? = null, force: Boolean = false): NoteListResult {
         val current = currentVault(expected?.id)
         if (expected != null && current.rootPath != expected.rootPath) {
@@ -71,16 +74,19 @@ class NoteRepository internal constructor(
             if (vault.rootPath != current.rootPath) throw VaultFileException(VaultFileFailure.NOT_FOUND)
             val scan = indexUpdater.scan(vault, force)
             if (expected == null) onVaultScanned(vault, !scan.complete || scan.unreadableCount > 0 || stalled != null)
+            val previous = recentScan?.result
+            val items = if (!force && previous != null && previous.vault == vault &&
+                scan.version != null && previous.version == scan.version) previous.items
+                else scan.notes.map { it.toListEntry() }.sortedByDescending { it.summary.modifiedAt }
             NoteListResult(
                 vault = vault,
-                items = scan.notes
-                    .map { it.toListEntry() }
-                    .sortedByDescending { it.summary.modifiedAt },
+                items = items,
                 folders = scan.folders,
                 unreadableCount = scan.unreadableCount,
                 stalledRelocation = stalled,
                 complete = scan.complete,
-            )
+                version = scan.version,
+            ).also { recentScan = RecentScan(it, System.nanoTime()) }
         }
     }
 
@@ -190,12 +196,17 @@ class NoteRepository internal constructor(
         parser.note(store.readNote(id, requireUtf8 = true))
     }
 
-    internal suspend fun readSearchSource(id: NoteId, expectedRoot: String): StoredMarkdown = read(id.vaultId) { vault, store ->
+    internal suspend fun readSearchSource(id: NoteId, expectedRoot: String, requireUtf8: Boolean = false): StoredMarkdown = read(id.vaultId) { vault, store ->
         if (vault.rootPath != expectedRoot) throw VaultFileException(VaultFileFailure.NOT_FOUND)
-        store.readNote(id)
+        store.readNote(id, requireUtf8 = requireUtf8)
     }
 
     suspend fun imageContext(id: NoteId): ImageContext? = read(id.vaultId) { _, store -> store.imageContext(id) }
+
+    internal suspend fun editorDocument(id: NoteId, recover: Boolean = false): StoredMarkdown {
+        return if (recover) write(id.vaultId) { _, store -> store.readNote(id, requireUtf8 = true) }
+        else read(id.vaultId) { _, store -> store.readNote(id, requireUtf8 = true) }
+    }
 
     suspend fun openNote(id: NoteId): Note = write(id.vaultId) { _, store ->
         parser.note(store.readNote(id, requireUtf8 = true))

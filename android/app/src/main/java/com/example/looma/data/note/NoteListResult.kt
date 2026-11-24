@@ -18,4 +18,5 @@ internal data class NoteListResult(
     val unreadableCount: Int = 0,
     val stalledRelocation: StalledRelocation? = null,
     val complete: Boolean = true,
+    val version: Long? = null,
 )

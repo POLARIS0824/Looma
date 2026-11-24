@@ -5,6 +5,7 @@ import com.example.looma.data.folder.FolderRepository
 import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.index.NoteIndexDatabase
 import com.example.looma.data.index.RoomNoteIndex
+import com.example.looma.data.inference.LocalModelSession
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.s3.createLoomaHttpClient
 import com.example.looma.data.search.SearchHistoryRepository
@@ -26,7 +27,7 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val noteRepository: NoteRepository by lazy {
         NoteRepository(
             vaultRepository,
-            RoomNoteIndex(indexDatabase),
+            RoomNoteIndex(indexDatabase) { delta -> semanticSearchRepository.recordChanges(delta) },
             onFilesChanged = { vault, delta -> updateSemanticIndex { semanticSearchRepository.filesChanged(vault, delta) } },
             onVaultScanned = { vault, partial ->
                 updateSemanticIndex { semanticSearchRepository.resumeUpdates(vault, partial) }
@@ -37,8 +38,9 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
         SearchHistoryRepository(vaultRepository, indexDatabase.searchHistoryDao())
     }
     val settingsRepository by lazy { SettingsRepository(this) }
+    private val modelSession = LocalModelSession()
     val semanticSearchRepository by lazy {
-        SemanticSearchRepository(this, noteRepository, vaultRepository, settingsRepository)
+        SemanticSearchRepository(this, noteRepository, vaultRepository, settingsRepository, modelSession)
     }
     val folderRepository by lazy { FolderRepository(noteRepository) }
     val imageUploader by lazy { ImageUploader(this, vaultRepository, httpClient) }

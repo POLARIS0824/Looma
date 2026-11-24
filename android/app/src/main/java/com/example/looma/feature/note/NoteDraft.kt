@@ -24,8 +24,12 @@ internal class NoteDraft {
         }
 
     fun replaceFromDisk(note: Note, selection: TextRange = TextRange(note.content.length)) {
-        editor = TextFieldState(note.content, selection)
-        markWritten(note.content, note.revision)
+        replaceFromDisk(note.content, note.revision, selection)
+    }
+
+    fun replaceFromDisk(content: String, revision: NoteRevision, selection: TextRange = TextRange(content.length)) {
+        editor = TextFieldState(content, selection)
+        markWritten(content, revision)
     }
 
     fun markWritten(content: String, revision: NoteRevision) {

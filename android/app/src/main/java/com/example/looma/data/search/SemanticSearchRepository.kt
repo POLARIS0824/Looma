@@ -2,8 +2,12 @@ package com.example.looma.data.search
 
 import android.content.Context
 import com.example.looma.data.index.IndexDelta
+import com.example.looma.data.inference.LocalModelSession
 import com.example.looma.data.note.NoteRepository
+import com.example.looma.data.note.NoteTooLargeException
 import com.example.looma.data.note.StoredMarkdown
+import com.example.looma.data.note.VaultFileException
+import com.example.looma.data.note.VaultFileFailure
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.model.NoteId
@@ -35,12 +39,13 @@ class SemanticSearchRepository internal constructor(
     private val notes: NoteRepository,
     private val vaults: VaultRepository = VaultRepository(context),
     private val settings: SettingsRepository = SettingsRepository(context),
+    private val session: LocalModelSession = LocalModelSession(),
 ) {
     private val directory = context.noBackupFilesDir.resolve("semantic-search")
     private val modelFile = EmbeddingModelFile(directory)
     private val cache = SemanticVectorCache(directory.resolve("vectors-v1-${EmbeddingModelFile.MODEL_SHA256}"))
-    private val work = SemanticSearchWork(context, vaults, modelFile, cache)
-    private val modelMutex = Mutex()
+    private val store = PassageVectorStore(context, directory.resolve("passages-" + EmbeddingModelFile.MODEL_SHA256 + ".db"))
+    private val work = SemanticSearchWork(context, vaults, modelFile, cache, store)
     private val indexMutex = Mutex()
     private var model: EmbeddingGemma? = null
 
@@ -74,17 +79,22 @@ class SemanticSearchRepository internal constructor(
     internal suspend fun enqueueIndex() = work.enqueueIndex()
     internal suspend fun cancelIndex() = work.cancelIndex()
 
+    internal fun recordChanges(delta: IndexDelta) {
+        if (!supported || !cache.enabled(delta.vaultId)) return
+        store.mark(delta.vaultId, (delta.removed + delta.upserts.map { it.id.path }).distinct())
+    }
+
     internal suspend fun filesChanged(vault: Vault, delta: IndexDelta) {
-        if (!supported || !cache.enabled(vault.id)) return
-        val paths = delta.removed + delta.upserts.map { it.id.path }
-        for (path in paths.distinct()) cache.markDirty(NoteId(vault.id, path))
-        if (paths.isNotEmpty()) work.enqueueUpdates(vault)
+        if (supported && (delta.removed.isNotEmpty() || delta.upserts.isNotEmpty()) && store.hasPending(vault.id)) {
+            work.enqueueUpdates(vault)
+        }
     }
 
     internal suspend fun resumeUpdates(vault: Vault, partial: Boolean) {
         if (!supported || !cache.enabled(vault.id)) return
         if (cache.markScanPartial(vault.id, partial)) work.cacheChanged()
-        if (cache.hasPending(vault.id)) work.enqueueUpdates(vault)
+        val needsMigration = !store.initialized(vault.id) && cache.hasSearchableIndex(vault.id)
+        if (needsMigration || store.hasPending(vault.id) || cache.hasPending(vault.id)) work.enqueueUpdates(vault)
     }
 
     internal suspend fun downloadModel(onProgress: suspend (Int) -> Unit) = withContext(Dispatchers.IO) {
@@ -92,11 +102,13 @@ class SemanticSearchRepository internal constructor(
     }
 
     internal suspend fun releaseModel() = withContext(Dispatchers.IO) {
-        modelMutex.withLock {
-            val closing = model
-            model = null
-            closing?.close()
-        }
+        session.release(LocalModelSession.Model.Embedding)
+    }
+
+    private fun closeModel() {
+        val closing = model
+        model = null
+        closing?.close()
     }
 
     internal suspend fun rebuildIndex(
@@ -113,9 +125,10 @@ class SemanticSearchRepository internal constructor(
                 indexMutex.withLock {
                     val vault = vaults.getCurrentVault()?.takeIf(target::matches) ?: throw SemanticVaultChangedException()
                     try {
-                        if (incremental) updatePending(vault, onProgress) else rebuildIndex(vault, onProgress)
+                        if (incremental && store.initialized(vault.id)) updatePending(vault, onProgress)
+                        else rebuildIndex(vault, onProgress)
                     } finally {
-                        withContext(NonCancellable) { releaseModel() }
+                        withContext(NonCancellable) { session.release(LocalModelSession.Model.Embedding) }
                     }
                 }
             } finally {
@@ -138,68 +151,104 @@ class SemanticSearchRepository internal constructor(
         }
         if (!SemanticVaultTarget(vault).matches(vaults.getCurrentVault())) throw SemanticVaultChangedException()
         checkActive()
-        if (scan.complete && scan.stalledRelocation == null) cache.prune(vault.id, candidates.toSet(), checkActive)
+        if (scan.complete && scan.stalledRelocation == null) {
+            val keep = candidates.toSet()
+            cache.prune(vault.id, keep, checkActive)
+            store.prune(vault.id, keep, checkActive)
+        }
         cache.markScanPartial(vault.id, !scan.complete || scan.unreadableCount > 0 || scan.stalledRelocation != null)
         updatePending(vault, onProgress)
         cache.complete(vault.id, checkActive)
+        store.finish(vault.id)
     }
 
     private suspend fun updatePending(vault: Vault, onProgress: suspend (Int, Int) -> Unit) {
         val pending = cache.pending(vault.id)
         val checkActive = coroutineContext::ensureActive
+        val dirty = store.pending(vault.id)
+        for ((index, entry) in dirty.entries.withIndex()) {
+            checkActive()
+            val id = NoteId(vault.id, entry.key)
+            updateNote(id, vault, checkActive)
+            store.acknowledge(id, entry.value)
+            onProgress(index + 1, dirty.size + pending.size)
+        }
         for ((index, entry) in pending.entries.withIndex()) {
             checkActive()
             val path = NotePath(entry.value.substringAfter('\n'))
             updateNote(NoteId(vault.id, path), vault, checkActive)
             cache.acknowledge(entry.key, entry.value)
-            onProgress(index + 1, pending.size)
+            onProgress(dirty.size + index + 1, pending.size + dirty.size)
         }
     }
 
     private suspend fun updateNote(id: NoteId, vault: Vault, checkActive: () -> Unit) {
-        val note = read(id, vault)
+        val note = readForIndex(id, vault)
         val revision = note?.revision as? NoteRevision.Known
         if (note == null || revision == null) {
+            store.remove(id)
             cache.forNote(id).delete()
             cache.markSkipped(id, java.io.File(vault.rootPath, id.path.relativePath).exists())
             return
         }
         val vectors = cache.forNote(id)
-        if (!vectors.isCurrent(revision, note.content, checkActive)) {
+        if (!store.current(id, revision)) {
             val chunks = semanticChunks(note.content, checkActive)
             val title = id.path.relativePath.substringAfterLast('/').removeMarkdownSuffix().cappedForModel(128)
-            vectors.replace(revision, chunks, beforeReplace = {
-                checkActive()
-                if (read(id, vault)?.revision != revision) throw SemanticIndexIncompleteException()
-            }) { chunk ->
-                checkActive()
+            fun prompt(chunk: SemanticChunk): String {
                 val text = note.content.substring(chunk.start, chunk.end)
-                val prompt = if (chunk.section.isEmpty()) text else "${chunk.section}\n$text"
-                withModel { it.document(prompt, title) }.also { checkActive() }
+                return if (chunk.section.isEmpty()) text else "${chunk.section}\n$text"
+            }
+            val hasher = java.security.MessageDigest.getInstance("SHA-256")
+            vectors.reusable(checkActive).use { legacy ->
+                store.replace(id, revision, chunks, key = { chunk ->
+                    val input = EmbeddingGemma.documentInput(prompt(chunk), title)
+                    hasher.digest(input.toByteArray(Charsets.UTF_8)).toHexString()
+                }, vector = { chunk, _ ->
+                    legacy?.get(chunk.let {
+                        val input = EmbeddingGemma.documentInput(prompt(it), title)
+                        hasher.digest(input.toByteArray(Charsets.UTF_8)).toHexString()
+                    }) ?: withModel { it.document(prompt(chunk), title) }
+                }, checkActive = checkActive, verify = {
+                    checkActive()
+                    if (readForIndex(id, vault)?.revision != revision) throw SemanticIndexIncompleteException()
+                })
             }
         }
+        vectors.delete()
         cache.markSkipped(id, false)
     }
 
     internal suspend fun search(
         query: String,
         candidates: List<SearchableNote>,
+        relatedDocumentTitle: String? = null,
     ): List<SemanticSearchHit> = withContext(Dispatchers.IO) {
         if (candidates.isEmpty()) return@withContext emptyList()
         val vault = vaults.requireCurrentVault()
-        if (!cache.hasSearchableIndex(vault.id)) throw SemanticIndexMissingException()
-        val ids = candidates.asSequence().map { it.id }.filter { it.vaultId == vault.id }.distinct()
-        val queryVector = withModel { it.query(query.cappedForModel(1024)) }
+        if (!store.hasDocuments(vault.id) && !cache.hasSearchableIndex(vault.id)) throw SemanticIndexMissingException()
+        val ids = candidates.asSequence().map { it.id }.filter { it.vaultId == vault.id }.toSet()
+        val queryVector = withModel(releaseWhenIdle = true) { embedder ->
+            val text = query.cappedForModel(1024)
+            if (relatedDocumentTitle == null) embedder.query(text)
+            else embedder.document(text, relatedDocumentTitle.cappedForModel(128))
+        }
         check(queryVector.size == EmbeddingGemma.DIMENSIONS && queryVector.all { it.isFinite() })
 
         val ranked = mutableListOf<RankedHit>()
         val checkActive = coroutineContext::ensureActive
-        for (id in ids) {
-            checkActive()
-            val passage = cache.forNote(id).rank(queryVector, checkActive) ?: continue
-            ranked += RankedHit(id, passage)
-        }
+        val current = store.rank(vault.id, ids, queryVector, checkActive)
+        current.forEach { (id, passage) -> ranked += RankedHit(id, passage) }
         val stale = mutableListOf<NoteId>()
+        if (store.initialized(vault.id)) {
+            stale += store.missing(vault.id, ids - current.keys, checkActive).filterNot(cache::isSkipped)
+        } else {
+            for (id in ids) {
+                checkActive()
+                if (id in current) continue
+                cache.forNote(id).rank(queryVector, checkActive)?.let { ranked += RankedHit(id, it) }
+            }
+        }
         val results = buildList {
             for ((id, passage) in ranked.sortedWith(RANKING)) {
                 if (size == MAX_RESULTS) break
@@ -213,22 +262,34 @@ class SemanticSearchRepository internal constructor(
                     id = id,
                     anchor = passage.anchor,
                     section = passage.section,
+                    similarity = passage.score,
                     excerpt = note.content.substring(passage.anchor.start, passage.anchor.end),
                 ))
             }
         }
         if (!SemanticVaultTarget(vault).matches(vaults.getCurrentVault())) return@withContext emptyList()
         if (stale.isNotEmpty()) {
-            stale.forEach(cache::markDirty)
+            store.mark(vault.id, stale.map { it.path }, replaceTicket = false)
             work.enqueueUpdates(vault)
         }
         results
     }
 
-    private suspend fun <T> withModel(block: (EmbeddingGemma) -> T): T = modelMutex.withLock {
-        val active = model ?: openEmbeddingModel().also { model = it }
-        coroutineContext.ensureActive()
-        block(active)
+    private suspend fun <T> withModel(releaseWhenIdle: Boolean = false, block: (EmbeddingGemma) -> T): T =
+        session.use(LocalModelSession.Model.Embedding, if (releaseWhenIdle) 15_000 else null, ::closeModel) {
+            val active = model ?: openEmbeddingModel().also { model = it }
+            coroutineContext.ensureActive()
+            block(active)
+        }
+
+    private suspend fun readForIndex(id: NoteId, vault: Vault): StoredMarkdown? = try {
+        notes.readSearchSource(id, vault.rootPath)
+    } catch (_: NoteTooLargeException) {
+        null
+    } catch (error: VaultFileException) {
+        if (error.failure != VaultFileFailure.NOT_FOUND) throw error
+        if (!SemanticVaultTarget(vault).matches(vaults.getCurrentVault())) throw SemanticVaultChangedException()
+        null
     }
 
     private suspend fun openEmbeddingModel(): EmbeddingGemma {
@@ -263,6 +324,7 @@ internal data class SemanticSearchHit(
     val anchor: PassageAnchor,
     val section: String,
     val excerpt: String,
+    val similarity: Double = 0.0,
 )
 
 internal class SemanticModelMissingException : IOException()

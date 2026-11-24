@@ -7,6 +7,8 @@ data class TextSelection(val start: Int, val end: Int) {
 
 data class MarkdownEdit(val text: String, val selection: TextSelection)
 
+internal data class MarkdownReplacement(val from: Int, val to: Int, val replacement: String, val selection: TextSelection)
+
 enum class MarkdownCommand {
     Bold, Italic, Strikethrough, Highlight, InlineCode, Link,
     Heading1, Heading2, Heading3,
@@ -28,6 +30,11 @@ data class MarkdownFormatState(
 object MarkdownEditing {
 
     fun apply(command: MarkdownCommand, text: String, selection: TextSelection): MarkdownEdit {
+        val edit = replacement(command, text, selection)
+        return MarkdownEdit(text.replaceRange(edit.from, edit.to, edit.replacement), edit.selection)
+    }
+
+    internal fun replacement(command: MarkdownCommand, text: CharSequence, selection: TextSelection): MarkdownReplacement {
         val from = selection.from.coerceIn(0, text.length)
         val to = selection.to.coerceIn(0, text.length)
         return when (command) {
@@ -89,11 +96,11 @@ object MarkdownEditing {
     }
 
     private fun toggleInline(
-        text: String,
+        text: CharSequence,
         from: Int,
         to: Int,
         style: MarkdownInlineStyle,
-    ): MarkdownEdit {
+    ): MarkdownReplacement {
         val marker = style.marker
         val length = marker.length
 
@@ -123,19 +130,19 @@ object MarkdownEditing {
         }
 
         if (from == to) {
-            val updated = text.substring(0, from) + marker + marker + text.substring(from)
-            return MarkdownEdit(updated, TextSelection(from + length, from + length))
+            val updated = marker + marker
+            return MarkdownReplacement(from, to, updated, TextSelection(from + length, from + length))
         }
-        val updated = text.substring(0, from) + marker + text.substring(from, to) + marker + text.substring(to)
-        return MarkdownEdit(updated, TextSelection(from + length, to + length))
+        val updated = marker + text.substring(from, to) + marker
+        return MarkdownReplacement(from, to, updated, TextSelection(from + length, to + length))
     }
 
-    private fun isWrappedOutside(text: String, from: Int, to: Int, style: MarkdownInlineStyle): Boolean {
+    private fun isWrappedOutside(text: CharSequence, from: Int, to: Int, style: MarkdownInlineStyle): Boolean {
         val marker = style.marker
         val length = marker.length
         if (from < length || to + length > text.length) return false
-        if (!text.regionMatches(from - length, marker, 0, length)) return false
-        if (!text.regionMatches(to, marker, 0, length)) return false
+        if (!text.startsWith(marker, from - length)) return false
+        if (!text.startsWith(marker, to)) return false
         val char = marker[0]
         val before = runEndingAt(text, from, char)
         val after = runStartingAt(text, to, char)
@@ -146,12 +153,12 @@ object MarkdownEditing {
         }
     }
 
-    private fun isWrappedInside(text: String, from: Int, to: Int, style: MarkdownInlineStyle): Boolean {
+    private fun isWrappedInside(text: CharSequence, from: Int, to: Int, style: MarkdownInlineStyle): Boolean {
         val marker = style.marker
         val length = marker.length
         if (to - from < 2 * length) return false
-        if (!text.regionMatches(from, marker, 0, length)) return false
-        if (!text.regionMatches(to - length, marker, 0, length)) return false
+        if (!text.startsWith(marker, from)) return false
+        if (!text.startsWith(marker, to - length)) return false
         return when (style) {
             MarkdownInlineStyle.Italic, MarkdownInlineStyle.Code -> {
                 val next = text.getOrNull(from + length)
@@ -163,7 +170,7 @@ object MarkdownEditing {
     }
 
     private fun findSpan(
-        text: String,
+        text: CharSequence,
         from: Int,
         to: Int,
         style: MarkdownInlineStyle,
@@ -177,19 +184,22 @@ object MarkdownEditing {
     }
 
     private fun removeRanges(
-        text: String,
+        text: CharSequence,
         selection: TextSelection,
         ranges: List<IntRange>,
-    ): MarkdownEdit {
-        val sorted = ranges.filter { it.first <= it.last }.sortedByDescending { it.first }
-        var updated = text
-        for (range in sorted) {
-            updated = updated.removeRange(range.first, range.last + 1)
+    ): MarkdownReplacement {
+        val ordered = ranges.sortedBy { it.first }
+        val start = ordered.first().first
+        val end = ordered.last().last + 1
+        val middle = buildString {
+            var cursor = start
+            for (range in ordered) {
+                append(text, cursor, range.first)
+                cursor = range.last + 1
+            }
         }
-        return MarkdownEdit(
-            text = updated,
-            selection = TextSelection(mapRemoved(selection.from, ranges), mapRemoved(selection.to, ranges)),
-        )
+        return MarkdownReplacement(start, end, middle,
+            TextSelection(mapRemoved(selection.from, ranges), mapRemoved(selection.to, ranges)))
     }
 
     private fun mapRemoved(position: Int, ranges: List<IntRange>): Int {
@@ -205,25 +215,25 @@ object MarkdownEditing {
         return mapped.coerceAtLeast(0)
     }
 
-    private fun applyLink(text: String, from: Int, to: Int): MarkdownEdit {
+    private fun applyLink(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val label = text.substring(from, to)
         val existing = LINK.matchEntire(label)
         if (existing != null) {
             val inner = existing.groupValues[1]
-            return MarkdownEdit(
-                text = text.substring(0, from) + inner + text.substring(to),
+            return MarkdownReplacement(
+                from, to, inner,
                 selection = TextSelection(from, from + inner.length),
             )
         }
         val inserted = if (from == to) "[]()" else "[$label]()"
         val caret = if (from == to) from + 1 else from + label.length + 3
-        return MarkdownEdit(
-            text = text.substring(0, from) + inserted + text.substring(to),
+        return MarkdownReplacement(
+            from, to, inserted,
             selection = TextSelection(caret, caret),
         )
     }
 
-    private fun applyHeading(text: String, from: Int, to: Int, level: Int): MarkdownEdit {
+    private fun applyHeading(text: CharSequence, from: Int, to: Int, level: Int): MarkdownReplacement {
         val lines = linesInRange(text, from, to)
         val parsed = lines.map { parseLine(it.text) }
         val nonBlank = parsed.filterIndexed { index, _ -> lines[index].text.isNotBlank() }
@@ -244,7 +254,7 @@ object MarkdownEditing {
 
     private enum class ListKind { Bullet, Numbered, Checklist }
 
-    private fun applyList(text: String, from: Int, to: Int, kind: ListKind): MarkdownEdit {
+    private fun applyList(text: CharSequence, from: Int, to: Int, kind: ListKind): MarkdownReplacement {
         val lines = linesInRange(text, from, to)
         val parsed = lines.map { parseLine(it.text) }
         val nonBlank = parsed.filterIndexed { index, _ -> lines[index].text.isNotBlank() }
@@ -272,7 +282,7 @@ object MarkdownEditing {
         return rewriteLines(text, from, to, rewrites)
     }
 
-    private fun applyQuote(text: String, from: Int, to: Int): MarkdownEdit {
+    private fun applyQuote(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val lines = linesInRange(text, from, to)
         val parsed = lines.map { parseLine(it.text) }
         val nonBlank = parsed.filterIndexed { index, _ -> lines[index].text.isNotBlank() }
@@ -291,37 +301,37 @@ object MarkdownEditing {
         return rewriteLines(text, from, to, rewrites)
     }
 
-    private fun applyCodeBlock(text: String, from: Int, to: Int): MarkdownEdit {
+    private fun applyCodeBlock(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val leading = if (from > 0 && text[from - 1] != '\n') "\n" else ""
         if (from == to) {
             val trailing = if (to < text.length && text[to] != '\n') "\n" else ""
             val block = "$leading```\n\n```$trailing"
             val caret = from + leading.length + 4
-            return MarkdownEdit(
-                text = text.substring(0, from) + block + text.substring(to),
+            return MarkdownReplacement(
+                from, to, block,
                 selection = TextSelection(caret, caret),
             )
         }
         val trailing = if (to < text.length && text[to] != '\n') "\n" else ""
         val block = "$leading```\n" + text.substring(from, to) + "\n```$trailing"
-        return MarkdownEdit(
-            text = text.substring(0, from) + block + text.substring(to),
+        return MarkdownReplacement(
+            from, to, block,
             selection = TextSelection(from + leading.length + 4, to + leading.length + 4),
         )
     }
 
-    private fun insertTable(text: String, from: Int, to: Int): MarkdownEdit {
+    private fun insertTable(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val leading = if (from > 0 && text[from - 1] != '\n') "\n" else ""
         val trailing = if (to < text.length && text[to] != '\n') "\n" else ""
         val table = "|  |  |\n| --- | --- |\n|  |  |$trailing"
         val caret = from + leading.length + 2
-        return MarkdownEdit(
-            text = text.substring(0, from) + leading + table + text.substring(to),
+        return MarkdownReplacement(
+            from, to, leading + table,
             selection = TextSelection(caret, caret),
         )
     }
 
-    private fun insertDivider(text: String, from: Int, to: Int): MarkdownEdit {
+    private fun insertDivider(text: CharSequence, from: Int, to: Int): MarkdownReplacement {
         val leading = when {
             from == 0 -> "\n"
             text[from - 1] != '\n' -> "\n\n"
@@ -330,8 +340,8 @@ object MarkdownEditing {
         val trailing = if (to < text.length && text[to] != '\n') "\n" else ""
         val block = "${leading}---\n$trailing"
         val caret = from + block.length
-        return MarkdownEdit(
-            text = text.substring(0, from) + block + text.substring(to),
+        return MarkdownReplacement(
+            from, to, block,
             selection = TextSelection(caret, caret),
         )
     }
@@ -408,10 +418,10 @@ object MarkdownEditing {
         return null
     }
 
-    private fun linesInRange(text: String, from: Int, to: Int): List<LineSlice> =
+    private fun linesInRange(text: CharSequence, from: Int, to: Int): List<LineSlice> =
         lineSlices(text, from, to).toList()
 
-    private fun lineSlices(text: String, from: Int, to: Int): Sequence<LineSlice> = sequence {
+    private fun lineSlices(text: CharSequence, from: Int, to: Int): Sequence<LineSlice> = sequence {
         val firstStart = text.lastIndexOf('\n', from - 1) + 1
         val lastPosition = if (to > from) (to - 1).coerceAtLeast(from) else to
         val lastStart = text.lastIndexOf('\n', lastPosition - 1) + 1
@@ -425,14 +435,15 @@ object MarkdownEditing {
     }
 
     private fun rewriteLines(
-        text: String,
+        text: CharSequence,
         from: Int,
         to: Int,
         rewrites: List<Rewrite>,
-    ): MarkdownEdit {
-        if (rewrites.isEmpty()) return MarkdownEdit(text, TextSelection(from, to))
+    ): MarkdownReplacement {
+        if (rewrites.isEmpty()) return MarkdownReplacement(from, from, "", TextSelection(from, to))
         val builder = StringBuilder()
-        var cursor = 0
+        val start = rewrites.first().slice.start
+        var cursor = start
         var newFrom = from
         var newTo = to
         var fromMapped = false
@@ -441,7 +452,7 @@ object MarkdownEditing {
         for (rewrite in rewrites) {
             val slice = rewrite.slice
             builder.append(text, cursor, slice.start)
-            val lineStartInNew = builder.length
+            val lineStartInNew = start + builder.length
             builder.append(rewrite.newLine)
             cursor = slice.end
 
@@ -463,7 +474,6 @@ object MarkdownEditing {
                 toMapped = true
             }
         }
-        builder.append(text, cursor, text.length)
 
         fun deltaBefore(position: Int): Int = rewrites
             .filter { it.slice.end < position }
@@ -471,7 +481,7 @@ object MarkdownEditing {
 
         if (!fromMapped) newFrom = from + deltaBefore(from)
         if (!toMapped) newTo = to + deltaBefore(to)
-        return MarkdownEdit(builder.toString(), TextSelection(newFrom, newTo))
+        return MarkdownReplacement(start, cursor, builder.toString(), TextSelection(newFrom, newTo))
     }
 
     private data class Span(
@@ -482,7 +492,7 @@ object MarkdownEditing {
         val closeEnd: Int,
     )
 
-    private fun spansInLine(text: String, lineStart: Int, lineEnd: Int): List<Span> {
+    private fun spansInLine(text: CharSequence, lineStart: Int, lineEnd: Int): List<Span> {
         val spans = mutableListOf<Span>()
         val open = mutableMapOf<MarkdownInlineStyle, IntRange>()
         var index = lineStart
@@ -542,7 +552,7 @@ object MarkdownEditing {
         }
     }
 
-    private fun runEndingAt(text: String, position: Int, char: Char): Int {
+    private fun runEndingAt(text: CharSequence, position: Int, char: Char): Int {
         var count = 0
         var index = position - 1
         while (index >= 0 && text[index] == char) {
@@ -552,7 +562,7 @@ object MarkdownEditing {
         return count
     }
 
-    private fun runStartingAt(text: String, position: Int, char: Char): Int {
+    private fun runStartingAt(text: CharSequence, position: Int, char: Char): Int {
         var count = 0
         var index = position
         while (index < text.length && text[index] == char) {
@@ -587,11 +597,22 @@ internal class FenceIndex {
     private val states = mutableListOf<FenceMarker?>(null)
     private var previous: CharSequence = ""
 
+    @Synchronized
     fun isInside(text: CharSequence, end: Int): Boolean {
         if (text !== previous) {
             val limit = minOf(starts.last(), text.length, previous.length)
+            val old = previous
             var prefix = 0
-            while (prefix < limit && previous[prefix] == text[prefix]) prefix++
+            // Verify common blocks off the input thread. Only the first differing block
+            // needs character-by-character comparison to find the exact invalidation point.
+            if (old is String && text is String) {
+                while (prefix < limit) {
+                    val size = minOf(8 * 1024, limit - prefix)
+                    if (!text.regionMatches(prefix, old, prefix, size)) break
+                    prefix += size
+                }
+            }
+            while (prefix < limit && old[prefix] == text[prefix]) prefix++
             val retained = starts.binarySearch(prefix).let { if (it >= 0) it + 1 else -it - 1 }
             starts.subList(retained, starts.size).clear()
             states.subList(retained, states.size).clear()

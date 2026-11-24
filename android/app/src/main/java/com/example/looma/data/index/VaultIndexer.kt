@@ -30,6 +30,7 @@ internal data class IndexScan(
     val unreadableCount: Int,
     val report: ScanReport,
     val complete: Boolean,
+    val version: Long? = null,
 )
 
 internal class VaultIndexer(
@@ -152,6 +153,7 @@ internal class VaultIndexer(
                 filesRemoved = if (applied) plan.removed.size else 0,
             ),
             complete = complete && applied,
+            version = if (applied) version + (if (fresh.isEmpty() && plan.removed.isEmpty()) 0 else 1) else null,
         )
     }
 

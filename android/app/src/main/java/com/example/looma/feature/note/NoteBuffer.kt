@@ -7,40 +7,10 @@ import com.example.looma.domain.markdown.MarkdownEditing
 import com.example.looma.domain.markdown.TextSelection
 
 internal fun applyMarkdownCommand(buffer: TextFieldState, command: MarkdownCommand) {
-    val oldText = buffer.text.toString()
     val caret = buffer.selection
-    val result = MarkdownEditing.apply(
-        command = command,
-        text = oldText,
-        selection = TextSelection(caret.start, caret.end),
-    )
-
-    val prefix = commonPrefixLength(oldText, result.text)
-    val suffix = commonSuffixLength(oldText, result.text, prefix)
-    val replacement = result.text.substring(prefix, result.text.length - suffix)
-    val newStart = result.selection.start.coerceIn(0, result.text.length)
-    val newEnd = result.selection.end.coerceIn(0, result.text.length)
-
+    val edit = MarkdownEditing.replacement(command, buffer.text, TextSelection(caret.start, caret.end))
     buffer.edit {
-        replace(prefix, oldText.length - suffix, replacement)
-        selection = TextRange(newStart, newEnd)
+        replace(edit.from, edit.to, edit.replacement)
+        selection = TextRange(edit.selection.start, edit.selection.end)
     }
-}
-
-private fun commonPrefixLength(first: String, second: String): Int {
-    var index = 0
-    while (index < first.length && index < second.length && first[index] == second[index]) index++
-    return index
-}
-
-private fun commonSuffixLength(first: String, second: String, prefix: Int): Int {
-    var index = 0
-    while (
-        index < first.length - prefix &&
-        index < second.length - prefix &&
-        first[first.length - 1 - index] == second[second.length - 1 - index]
-    ) {
-        index++
-    }
-    return index
 }

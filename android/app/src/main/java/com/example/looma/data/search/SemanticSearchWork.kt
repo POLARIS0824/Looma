@@ -51,6 +51,7 @@ internal class SemanticSearchWork(
     private val vaults: VaultRepository,
     private val model: EmbeddingModelFile,
     private val cache: SemanticVectorCache,
+    private val store: PassageVectorStore,
 ) {
     private val scheduling = kotlinx.coroutines.sync.Mutex()
     private val manager by lazy { WorkManager.getInstance(context) }
@@ -71,13 +72,13 @@ internal class SemanticSearchWork(
 
     val indexState: Flow<SemanticWorkState> = currentVaultWork(SemanticWorkState.Unavailable) { vault, info ->
         val state = info.state(cache.hasCompletedIndex(vault.id))
-        if (state == SemanticWorkState.Ready && (cache.hasPending(vault.id) || cache.partial(vault.id))) {
+        if (state == SemanticWorkState.Ready && (!store.initialized(vault.id) || store.hasPending(vault.id) || cache.hasPending(vault.id) || cache.partial(vault.id))) {
             SemanticWorkState.Partial
         } else state
     }
 
     val hasIndex: Flow<Boolean> = currentVaultWork(false) { vault, _ ->
-        cache.hasSearchableIndex(vault.id)
+        store.hasDocuments(vault.id) || cache.hasSearchableIndex(vault.id)
     }
 
     suspend fun enqueueDownload() {

@@ -115,14 +115,8 @@ class NoteViewModel(
             if (draft.isDirty) return@enqueue
             _uiState.update { it.copy(isLoading = true, loadFailed = false, readOnlyPreview = null) }
             try {
-                val note = repository.openNote(currentId)
+                val note = repository.editorDocument(currentId, recover = true)
                 val keepEmptyNotes = settingsRepository.settings.first().keepEmptyNotes
-                val wiki = runCatching { repository.wikiContext(currentId) }
-                    .onFailure { if (it is CancellationException) throw it }
-                    .getOrDefault(WikiContext.Empty)
-                val imageContext = runCatching { repository.imageContext(currentId) }
-                    .onFailure { if (it is CancellationException) throw it }
-                    .getOrNull()
                 if (generation != operationGeneration) return@enqueue
                 if (draft.isDirty) {
                     _uiState.update { it.copy(isLoading = false) }
@@ -132,7 +126,7 @@ class NoteViewModel(
                 val selection = restoredSelection?.let { (start, end) ->
                     TextRange(start.coerceIn(0, note.content.length), end.coerceIn(0, note.content.length))
                 } ?: TextRange(note.content.length)
-                draft.replaceFromDisk(note, selection)
+                draft.replaceFromDisk(note.content, note.revision, selection)
                 restoredSelection = null
                 _uiState.update {
                     it.copy(
@@ -141,10 +135,24 @@ class NoteViewModel(
                         loadFailed = false,
                         keepEmptyNotes = keepEmptyNotes,
                         fileName = fileNameOf(currentId),
-                        wiki = wiki,
-                        imageContext = imageContext,
+                        wiki = WikiContext.Empty,
+                        imageContext = null,
                         conflictCopy = null,
                     )
+                }
+                refreshWiki()
+                val id = currentId
+                viewModelScope.launch {
+                    val images = try {
+                        repository.imageContext(id)
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (id == currentId && generation == operationGeneration) {
+                        _uiState.update { it.copy(imageContext = images) }
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -177,9 +185,9 @@ class NoteViewModel(
             }
             try {
                 if (canRefreshDraft()) {
-                    val disk = repository.readNote(currentId)
+                    val disk = repository.editorDocument(currentId)
                     if (disk.revision != draft.revision && canRefreshDraft()) {
-                        draft.replaceFromDisk(disk)
+                        draft.replaceFromDisk(disk.content, disk.revision)
                         _uiState.update { it.copy(fileName = fileNameOf(currentId)) }
                     }
                 }
@@ -371,10 +379,10 @@ class NoteViewModel(
         _uiState.update { it.copy(isLoading = true, leave = NoteLeave.Idle) }
         loadJob = enqueue { generation ->
             try {
-                val note = repository.reloadNote(currentId)
+                val note = repository.editorDocument(currentId, recover = true)
                 if (generation != operationGeneration) return@enqueue
                 lastConflictCopy = null
-                draft.replaceFromDisk(note)
+                draft.replaceFromDisk(note.content, note.revision)
                 _uiState.update {
                     it.copy(
                         isLoading = false,

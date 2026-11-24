@@ -107,10 +107,10 @@ import com.example.looma.ui.markdown.LocalImageSourceRetryResolver
 import com.example.looma.ui.markdown.MarkdownBody
 import com.example.looma.ui.theme.LoomaTheme
 import com.example.looma.ui.theme.LoomaTokens
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 @Composable
@@ -261,24 +261,26 @@ private fun NoteWorkspace(
     matchesPassage: (PassageAnchor) -> Boolean = { false },
 ) {
     var formatState by remember(contentBuffer) { mutableStateOf(MarkdownFormatState()) }
-    LaunchedEffect(contentBuffer) {
-        val fences = FenceIndex()
+    var mode by rememberSaveable {
+        mutableStateOf(
+            if (passage != null || contentBuffer.text.length >= LARGE_NOTE_READ_THRESHOLD) NoteMode.Read else NoteMode.Edit,
+        )
+    }
+    val fences = remember(contentBuffer) { FenceIndex() }
+    LaunchedEffect(contentBuffer, mode, editorActive) {
+        if (mode != NoteMode.Edit || !editorActive) return@LaunchedEffect
         snapshotFlow { contentBuffer.text to contentBuffer.selection }.collectLatest { (text, selection) ->
             formatState = withContext(Dispatchers.Default) {
                 MarkdownEditing.formatState(text, TextSelection(selection.start, selection.end), fences)
             }
         }
     }
-    var mode by rememberSaveable {
-        mutableStateOf(
-            if (passage != null || contentBuffer.text.length >= LARGE_NOTE_READ_THRESHOLD) NoteMode.Read else NoteMode.Edit,
-        )
-    }
     var passageOpened by rememberSaveable(passage) { mutableStateOf(false) }
     var linkPanelOpen by rememberSaveable { mutableStateOf(false) }
     var initialTitleFocusTaken by rememberSaveable { mutableStateOf(false) }
     val readScroll = rememberLazyListState()
     val editScroll = rememberScrollState()
+    val boundedEditor = remember(contentBuffer) { contentBuffer.text.length >= LARGE_NOTE_READ_THRESHOLD }
     val modeScroll = remember(contentBuffer, readScroll, editScroll) { NoteModeScroll(readScroll, editScroll) }
     var pendingModeScroll by remember(contentBuffer) { mutableStateOf<ModeScrollRequest?>(null) }
     var modeScrollReturn by remember(contentBuffer) { mutableStateOf<ModeScrollReturn?>(null) }
@@ -350,15 +352,15 @@ private fun NoteWorkspace(
     }
 
     var preview by remember(contentBuffer) { mutableStateOf<PreparedMarkdown?>(null) }
-    LaunchedEffect(contentBuffer, editorActive) {
+    LaunchedEffect(contentBuffer, editorActive, mode) {
         if (!editorActive) return@LaunchedEffect
-        snapshotFlow { contentBuffer.text.toString() }.collectLatest { source ->
+        snapshotFlow {
+            val text = contentBuffer.text
+            if (mode == NoteMode.Edit && text.length >= LARGE_NOTE_READ_THRESHOLD) null else text.toString()
+        }.collectLatest { source ->
+            if (source == null) return@collectLatest
             if (preview?.source == source && preview !is PreparedMarkdown.Opening) return@collectLatest
-            if (mode == NoteMode.Edit) {
-                withTimeoutOrNull(READ_PREVIEW_IDLE_MILLIS) {
-                    snapshotFlow { mode }.first { it == NoteMode.Read }
-                }
-            }
+            if (mode == NoteMode.Edit) delay(READ_PREVIEW_IDLE_MILLIS)
             if (source.length >= LARGE_NOTE_READ_THRESHOLD && preview?.source != source) {
                 prepareMarkdownOpening(source)?.let { preview = it }
             }
@@ -576,8 +578,7 @@ private fun NoteWorkspace(
                                     is ModeScrollRequest.ReadOffset -> request.itemIndex == 0
                                     else -> readScroll.firstVisibleItemIndex == 0
                                 }
-                            readRequest -> previewIsCurrent
-                            else -> true
+                            else -> previewIsCurrent
                         }
                         NoteReadBody(
                             preview = renderedPreview.takeIf { canShowPreview },
@@ -623,7 +624,7 @@ private fun NoteWorkspace(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .verticalScroll(editScroll),
+                                .then(if (boundedEditor) Modifier else Modifier.verticalScroll(editScroll)),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             if (state.showInlineTitle) {
@@ -651,8 +652,9 @@ private fun NoteWorkspace(
                                 buffer = contentBuffer,
                                 focusRequester = bodyFocus,
                                 onTextLayout = { modeScroll.editLayout = it },
-                                onTextTopInContent = { modeScroll.editTextOffset = it },
-                                modifier = Modifier.fillMaxWidth(),
+                                onTextTopInContent = { modeScroll.editTextOffset = if (boundedEditor) 0 else it },
+                                scrollState = if (boundedEditor) editScroll else rememberScrollState(),
+                                modifier = if (boundedEditor) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
                             )
                         }
                         if (linkPanelOpen) {
@@ -715,6 +717,7 @@ private fun NoteBodyEditor(
     focusRequester: FocusRequester,
     onTextLayout: (TextLayoutResult) -> Unit,
     onTextTopInContent: (Int) -> Unit,
+    scrollState: androidx.compose.foundation.ScrollState,
     modifier: Modifier = Modifier,
 ) {
     val placeholder = stringResource(R.string.editor_placeholder)
@@ -730,6 +733,7 @@ private fun NoteBodyEditor(
             color = MaterialTheme.colorScheme.onSurface,
         ),
         onTextLayout = onTextLayout,
+        scrollState = scrollState,
         decorator = TextFieldDecorator { innerTextField ->
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                 Box(Modifier.widthIn(max = PageMaxWidth).fillMaxWidth()) {
