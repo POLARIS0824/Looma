@@ -11,6 +11,7 @@ import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.removeMarkdownSuffix
+import com.example.looma.domain.wiki.LocalNoteLink
 import com.example.looma.domain.wiki.WikiGraph
 import com.example.looma.domain.wiki.WikiNote
 import java.io.ByteArrayOutputStream
@@ -349,7 +350,7 @@ internal class VaultRelocation(private val vault: Vault) {
             val referrer = readReferrer(path) ?: continue
             val content = referrer.content
             val movedNote = folder == null && path.substringBeforeLast('/', "") != newPath.substringBeforeLast('/', "")
-            if ("[[" !in content && !((movedNote || folderMove != null) && "![" in content)) continue
+            if ("[[" !in content && "](" !in content && !((movedNote || folderMove != null) && "![" in content)) continue
             val relinked = relink(content, path, newPath, paths, before, after, movedNote, folderMove)
             linksFailed += relinked.failed
             val rewrittenContent = relinked.content ?: continue
@@ -401,17 +402,29 @@ internal class VaultRelocation(private val vault: Vault) {
         val checkImages = movedNote || folderMove != null
         val images = if (checkImages && "![[" in body) MarkdownIndex.wikiImageLinks(body) else emptyList()
         val standardImages = if (checkImages && "![" in body) MarkdownIndex.markdownImageLinks(body) else emptyList()
+        val noteLinks = if ("](" in body) MarkdownIndex.markdownNoteLinks(body) else emptyList()
+        val localDestinations = noteLinks.associateBy { it.range.first }
         val standardOffsets = standardImages.mapTo(hashSetOf()) { it.range.first }
         val imageOffsets = images.mapTo(hashSetOf()) { it.range.first }
         var imageIndex = 0
         val spans = wikiLinks.filter { link ->
             while (imageIndex < images.size && images[imageIndex].range.last < link.range.first) imageIndex++
             imageIndex == images.size || images[imageIndex].range.first > link.range.last
-        } + images + standardImages
+        } + images + standardImages + noteLinks
         var updated = 0
         var failed = 0
         val rewritten = WikiLinks.retargetSpans(body, spans) { span ->
             val target = span.target
+            if (localDestinations[span.range.first] === span) {
+                val original = LocalNoteLink.resolve(NotePath(oldPath), target)
+                    ?: return@retargetSpans null
+                val destination = paths[original.relativePath] ?: return@retargetSpans null
+                if (LocalNoteLink.resolve(NotePath(newPath), target)?.relativePath == destination)
+                    return@retargetSpans null
+                updated++
+                val fragment = target.indexOf('#').let { if (it < 0) "" else target.substring(it) }
+                return@retargetSpans LocalNoteLink.destination(NotePath(newPath), NotePath(destination)) + fragment
+            }
             val standard = span.range.first in standardOffsets
             if (standard || span.range.first in imageOffsets) {
                 val imageTarget = if (standard) target else EntityConverter.replaceEntities(

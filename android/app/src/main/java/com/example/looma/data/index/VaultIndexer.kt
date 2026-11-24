@@ -109,7 +109,7 @@ internal class VaultIndexer(
             readCount++
             val parsed = try {
                 val text = readMarkdown(file)
-                val metadata = parser.parseForIndex(text, file.nameWithoutExtension)
+                val metadata = parser.parseForIndex(text, file.nameWithoutExtension, path)
                 val note = indexedNote(vault.id, rootDir, file, text, metadata, fingerprint)
                 val signature = SearchSignature.fromBody(text)
                 val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)

@@ -23,6 +23,11 @@ data class WikiContext(
     private val byPath: Map<String, WikiNote>? = null,
     private val byName: Map<String, List<WikiNote>>? = null,
 ) {
+    internal fun localNote(destination: String): NoteId? {
+        val path = LocalNoteLink.resolve(sourcePath ?: return null, destination) ?: return null
+        return notes.firstOrNull { it.id.path == path }?.id
+    }
+
     fun resolve(target: String): NoteId? {
         targets[normalizeWikiName(target)]?.let { return it }
         val from = sourcePath ?: return null

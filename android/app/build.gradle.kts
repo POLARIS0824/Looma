@@ -54,6 +54,7 @@ ksp {
 
 dependencies {
     implementation(project(":embedding"))
+    implementation(libs.litertlm.android)
     implementation(project(":markdown-core"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

@@ -130,6 +130,7 @@ fun NoteRoute(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val navigateUp by rememberUpdatedState(onNavigateUp)
+    val export = rememberDraftExport()
     val leaveReady = state.leave == NoteLeave.Ready
     LaunchedEffect(state.rename, leaveReady) {
         state.rename?.let { rename ->
@@ -218,6 +219,7 @@ fun NoteRoute(
                     onPickImage = pickImage,
                     onImageInserted = viewModel::onImageInserted,
                     onImageErrorShown = viewModel::onImageErrorShown,
+                    onExport = { export(state.fileName, viewModel.editor.text.toString()) },
                     editorActive = editorActive,
                     passage = passage,
                     matchesPassage = viewModel::matchesPassage,
@@ -257,6 +259,7 @@ private fun NoteWorkspace(
     onPickImage: () -> Unit,
     onImageInserted: () -> Unit,
     onImageErrorShown: () -> Unit,
+    onExport: () -> Unit = {},
     weaveAction: @Composable (() -> TextRange?) -> Unit = {},
     onTitleFocusChange: (Boolean) -> Unit = {},
     editorActive: Boolean = true,
@@ -314,27 +317,6 @@ private fun NoteWorkspace(
     )
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
-    val resolver = androidx.compose.ui.platform.LocalContext.current.contentResolver
-    var exportText by remember { mutableStateOf<String?>(null) }
-    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
-        val snapshot = exportText
-        exportText = null
-        if (uri != null) scope.launch {
-            val saved = withContext(Dispatchers.IO) {
-                if (snapshot == null) return@withContext false
-                try {
-                    val output = resolver.openOutputStream(uri, "wt") ?: return@withContext false
-                    output.bufferedWriter(Charsets.UTF_8).use { it.write(snapshot) }
-                    true
-                } catch (_: java.io.IOException) {
-                    false
-                } catch (_: SecurityException) {
-                    false
-                }
-            }
-            snackbarHostState.showSnackbar(resources.getString(if (saved) R.string.editor_exported else R.string.editor_export_failed))
-        }
-    }
     val leaveWorkspace = {
         onRequestLeave {
             focusManager.clearFocus(force = true)
@@ -583,10 +565,7 @@ private fun NoteWorkspace(
             NoteSaveBanner(
                 state = state,
                 onRetry = onRetrySave,
-                onExport = {
-                    exportText = contentBuffer.text.toString()
-                    export.launch("${state.fileName} (copy).md")
-                },
+                onExport = onExport,
                 onReload = onReloadFromDisk,
                 onOverwrite = onOverwrite,
             )
@@ -617,6 +596,7 @@ private fun NoteWorkspace(
                             wiki = state.wiki,
                             onWikiLinkClick = onWikiLinkClick,
                             onOpenNote = onOpenNote,
+                            onMissingLink = { uri -> scope.launch { snackbarHostState.showSnackbar(resources.getString(R.string.note_link_missing, uri)) } },
                             title = if (state.showInlineTitle) {
                                 {
                                     Text(
@@ -789,6 +769,7 @@ private fun NoteReadBody(
     wiki: WikiContext,
     onWikiLinkClick: (String) -> Unit,
     onOpenNote: (NoteId) -> Unit,
+    onMissingLink: (String) -> Unit,
     title: (@Composable () -> Unit)?,
     onCheckboxToggle: (PreparedMarkdown.Ready, position: Int, checked: Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -810,30 +791,49 @@ private fun NoteReadBody(
         is PreparedMarkdown.Ready -> preview
     }
     Box(modifier = modifier, contentAlignment = Alignment.TopCenter) {
-        MarkdownBody(
-            preview = ready,
-            onCheckboxToggle = if (previewIsCurrent && preview is PreparedMarkdown.Ready) {
-                { position, checked -> onCheckboxToggle(preview, position, checked) }
-            } else {
-                null
-            },
-            modifier = Modifier
-                .widthIn(max = PageMaxWidth)
-                .fillMaxWidth(),
-            wiki = wiki,
-            onWikiLinkClick = if (previewIsCurrent) onWikiLinkClick else { _ -> },
-            scrollState = scrollState,
-            header = title,
-            footer = if (preview is PreparedMarkdown.Opening || wiki.backlinks.isEmpty()) null else {
-                {
-                    BacklinksSection(
-                        backlinks = wiki.backlinks,
-                        onOpen = onOpenNote,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+        val platform = androidx.compose.ui.platform.LocalUriHandler.current
+        val handler = remember(wiki, platform, onOpenNote, onMissingLink) {
+            object : androidx.compose.ui.platform.UriHandler {
+                override fun openUri(uri: String) {
+                    val target = wiki.localNote(uri)
+                    when {
+                        target != null -> onOpenNote(target)
+                        android.net.Uri.parse(uri).isRelative -> onMissingLink(uri)
+                        else -> try {
+                            platform.openUri(uri)
+                        } catch (_: IllegalArgumentException) {
+                            onMissingLink(uri)
+                        }
+                    }
                 }
-            },
-        )
+            }
+        }
+        CompositionLocalProvider(androidx.compose.ui.platform.LocalUriHandler provides handler) {
+            MarkdownBody(
+                preview = ready,
+                onCheckboxToggle = if (previewIsCurrent && preview is PreparedMarkdown.Ready) {
+                    { position, checked -> onCheckboxToggle(preview, position, checked) }
+                } else {
+                    null
+                },
+                modifier = Modifier
+                    .widthIn(max = PageMaxWidth)
+                    .fillMaxWidth(),
+                wiki = wiki,
+                onWikiLinkClick = if (previewIsCurrent) onWikiLinkClick else { _ -> },
+                scrollState = scrollState,
+                header = title,
+                footer = if (preview is PreparedMarkdown.Opening || wiki.backlinks.isEmpty()) null else {
+                    {
+                        BacklinksSection(
+                            backlinks = wiki.backlinks,
+                            onOpen = onOpenNote,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                },
+            )
+        }
     }
 }
 

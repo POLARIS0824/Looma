@@ -18,6 +18,9 @@ sealed interface LoomaRoute : NavKey {
     data object Home : LoomaRoute
 
     @Serializable
+    data object Ask : LoomaRoute
+
+    @Serializable
     data object Trash : LoomaRoute
 
     @Serializable

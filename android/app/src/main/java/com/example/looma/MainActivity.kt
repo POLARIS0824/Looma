@@ -45,6 +45,8 @@ class MainActivity : AppCompatActivity() {
             ) {
                 LoomaNavGraph(
                     evidence = container.evidence,
+                    generator = container.generator,
+                    agent = container.vaultAgent,
                     noteRepository = container.noteRepository,
                     folderRepository = container.folderRepository,
                     searchHistoryRepository = container.searchHistoryRepository,

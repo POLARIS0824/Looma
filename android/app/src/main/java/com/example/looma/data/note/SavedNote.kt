@@ -17,7 +17,7 @@ internal fun MarkdownParser.savedNote(stored: StoredMarkdown): SavedNote =
     SavedNote(stored, parse(stored.content, stored.file.nameWithoutExtension))
 
 internal fun MarkdownParser.indexSavedNote(stored: StoredMarkdown): SavedNote =
-    SavedNote(stored, parseForIndex(stored.content, stored.file.nameWithoutExtension))
+    SavedNote(stored, parseForIndex(stored.content, stored.file.nameWithoutExtension, stored.id.path))
 
 internal fun MarkdownParser.note(stored: StoredMarkdown): Note {
     val metadata = com.example.looma.domain.markdown.MarkdownIndex.extractMetadata(stored.content)

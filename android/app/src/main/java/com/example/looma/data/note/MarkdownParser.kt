@@ -2,6 +2,8 @@ package com.example.looma.data.note
 
 import com.example.looma.domain.markdown.MarkdownIndex
 import com.example.looma.domain.markdown.forEachLineRange
+import com.example.looma.domain.model.NotePath
+import com.example.looma.domain.wiki.LocalNoteLink
 
 data class MarkdownChecklistItem(
     val text: String,
@@ -35,10 +37,14 @@ internal class MarkdownParser {
 
     fun tags(text: String): Set<String> = MarkdownIndex.extractMetadata(text).tags
 
-    fun parseForIndex(text: String, fallbackTitle: String): MarkdownMetadata {
+    fun parseForIndex(text: String, fallbackTitle: String, path: NotePath? = null): MarkdownMetadata {
         val ast = MarkdownIndex.extractMetadata(text, forIndex = true)
         val visibleLines = nonCodeLines(text.substring(ast.bodyStart), ast.blockCodeRanges)
-        val links = ast.indexedLinks.map { MarkdownLink(target = it.target, embedded = it.embedded) }
+        val links = ast.indexedLinks.map { MarkdownLink(it.target, it.embedded) } +
+            ast.inlineDestinations.mapNotNull { link ->
+                path?.let { LocalNoteLink.resolve(it, link.target) }
+                    ?.let { MarkdownLink(it.relativePath, false) }
+            }
         return MarkdownMetadata(
             title = extractTitle(visibleLines.asSequence(), fallbackTitle),
             excerpt = "",

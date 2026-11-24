@@ -9,7 +9,7 @@ import com.example.looma.domain.search.plainText
 internal object SearchSignature {
     private const val BIT_COUNT = 4096
     private const val BIT_MASK = BIT_COUNT - 1
-    internal const val FORMAT_VERSION: Byte = 2
+    internal const val FORMAT_VERSION: Byte = 3
     const val STORED_BYTE_SIZE = BIT_COUNT / 8 + 1
 
     fun fromBody(source: String): ByteArray {

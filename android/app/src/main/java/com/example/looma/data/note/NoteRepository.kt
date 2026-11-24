@@ -266,6 +266,12 @@ class NoteRepository internal constructor(
         record(vault, fileStore.saveNote(id, content, mode))
     }
 
+    internal suspend fun createWithContent(expected: Vault, title: String, content: String): Note =
+        write(expected.id) { vault, store ->
+            if (vault.rootPath != expected.rootPath) throw VaultFileException(VaultFileFailure.NOT_FOUND)
+            record(vault, store.createWithContent(title, content))
+        }
+
     internal suspend fun saveConflictCopy(
         id: NoteId,
         content: String,
@@ -473,7 +479,7 @@ class NoteRepository internal constructor(
                 val before = file.fingerprint()
                 val text = readMarkdown(file)
                 if (before != file.fingerprint()) continue
-                val metadata = parser.parseForIndex(text, file.nameWithoutExtension)
+                val metadata = parser.parseForIndex(text, file.nameWithoutExtension, path)
                 indexedNote(vault.id, ops.rootDir, file, text, metadata, before) to SearchSignature.fromBody(text)
             } catch (error: CancellationException) {
                 throw error
