@@ -213,7 +213,10 @@ fun TrashScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = LoomaTokens.colors.page),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = LoomaTokens.colors.page,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
                 scrollBehavior = scrollBehavior,
             )
         },
@@ -294,7 +297,10 @@ private fun TrashDeleteDialog(
         text = { Text(stringResource(R.string.trash_delete_message)) },
         confirmButton = {
             TextButton(onClick = onConfirm, shapes = ButtonDefaults.shapes()) {
-                Text(stringResource(R.string.trash_delete_confirm))
+                Text(
+                    text = stringResource(R.string.trash_delete_confirm),
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         },
         dismissButton = {
@@ -317,7 +323,10 @@ private fun TrashEmptyDialog(
         },
         confirmButton = {
             TextButton(onClick = onConfirm, shapes = ButtonDefaults.shapes()) {
-                Text(stringResource(R.string.trash_empty_confirm))
+                Text(
+                    text = stringResource(R.string.trash_empty_confirm),
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         },
         dismissButton = {

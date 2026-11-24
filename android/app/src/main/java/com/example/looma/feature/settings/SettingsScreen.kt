@@ -154,7 +154,10 @@ internal fun SettingsScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = LoomaTokens.colors.page),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = LoomaTokens.colors.page,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
                 scrollBehavior = scrollBehavior,
             )
         },

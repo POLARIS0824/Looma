@@ -90,16 +90,17 @@ fun FeatureStatusCard(
 @Composable
 private fun StatusCard(status: FeatureStatus) {
     val colors = MaterialTheme.colorScheme
-    val (labelContainer, labelContent) = when (status.tone) {
-        FeatureStatusTone.Default -> colors.primary to colors.onPrimary
-        FeatureStatusTone.Error -> colors.errorContainer to colors.onErrorContainer
-    }
+    val isError = status.tone == FeatureStatusTone.Error
+    val cardContainer = if (isError) colors.errorContainer else colors.primaryContainer
+    val cardContent = if (isError) colors.onErrorContainer else colors.onPrimaryContainer
+    val labelContainer = if (isError) colors.error else colors.primary
+    val labelContent = if (isError) colors.onError else colors.onPrimary
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(
-            containerColor = colors.primaryContainer,
-            contentColor = colors.onPrimaryContainer,
+            containerColor = cardContainer,
+            contentColor = cardContent,
         ),
     ) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

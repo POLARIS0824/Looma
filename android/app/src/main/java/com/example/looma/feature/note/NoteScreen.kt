@@ -425,11 +425,7 @@ private fun NoteWorkspace(
         modifier = modifier
             .fillMaxSize()
             .nestedScroll(appBarScroll.nestedScrollConnection),
-        containerColor = if (mode == NoteMode.Read) {
-            MaterialTheme.colorScheme.surfaceContainerLowest
-        } else {
-            LoomaTokens.colors.noteCanvas
-        },
+        containerColor = LoomaTokens.colors.noteCanvas,
         snackbarHost = {
             SnackbarHost(
                 hostState = snackbarHostState,

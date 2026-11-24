@@ -60,7 +60,7 @@ fun loomaColors(scheme: ColorScheme): LoomaColors {
         noteCanvas = scheme.surface,
         card = raised,
         cardInset = if (dark) scheme.surfaceContainerHighest else scheme.surfaceContainer,
-        sheet = scheme.surfaceContainerLow,
+        sheet = if (dark) scheme.surfaceContainerLow else scheme.surfaceContainer,
         searchField = raised,
     )
 }
