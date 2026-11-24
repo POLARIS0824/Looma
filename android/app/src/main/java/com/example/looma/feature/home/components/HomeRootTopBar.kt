@@ -6,7 +6,6 @@ package com.example.looma.feature.home.components
 
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -82,8 +81,8 @@ private fun HomeAvatarButton(onClick: () -> Unit) {
             .size(40.dp)
             .semantics { contentDescription = avatarDescription },
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(

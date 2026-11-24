@@ -61,7 +61,7 @@ internal fun WikiLinkPanel(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = LoomaTokens.colors.sheet,
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -136,7 +136,7 @@ internal fun WikiLinkPanel(
                             onClick = { onPick(note) },
                             shapes = ListItemDefaults.segmentedShapes(index, matches.size),
                             colors = ListItemDefaults.segmentedColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                containerColor = LoomaTokens.colors.card,
                             ),
                             supportingContent = if (folder.isNotEmpty()) {
                                 {

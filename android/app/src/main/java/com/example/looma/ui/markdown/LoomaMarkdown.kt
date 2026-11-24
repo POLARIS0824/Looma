@@ -95,7 +95,6 @@ data class LoomaMarkdownTheme(
     val codeShape: Shape,
     val tableShape: Shape,
     val tableHeader: Color,
-    val accent: Color,
     val extendedSpans: MarkdownExtendedSpans,
 )
 
@@ -174,7 +173,10 @@ fun loomaMarkdownTheme(
             list = base.copy(color = textColor),
             ordered = base.copy(color = textColor),
             bullet = base.copy(color = textColor),
-            quote = base.copy(fontStyle = FontStyle.Italic, color = textColor),
+            quote = base.copy(
+                fontStyle = FontStyle.Italic,
+                color = if (selectedCompact) textColor else scheme.onSurfaceVariant,
+            ),
             code = scale.code.copy(color = textColor),
             inlineCode = scale.inlineCode.copy(color = textColor),
             table = base.copy(color = textColor),
@@ -197,7 +199,6 @@ fun loomaMarkdownTheme(
         codeShape = if (compact) shapes.medium else shapes.large,
         tableShape = if (compact) shapes.small else shapes.medium,
         tableHeader = inset,
-        accent = scheme.primary,
         extendedSpans = extendedSpans,
     )
 }
@@ -257,7 +258,7 @@ internal fun loomaMarkdownComponents(
     return markdownComponents(
         table = { model -> LoomaMarkdownTable(model, theme, compact) },
         blockQuote = { model ->
-            MarkdownBlockQuote(model.content, model.node, style = theme.typography.quote.copy(color = theme.accent))
+            MarkdownBlockQuote(model.content, model.node, style = theme.typography.quote)
         },
         codeFence = { model -> MarkdownCodeFence(model.content, model.node, theme.typography.code, code) },
         codeBlock = { model -> MarkdownCodeBlock(model.content, model.node, theme.typography.code, code) },

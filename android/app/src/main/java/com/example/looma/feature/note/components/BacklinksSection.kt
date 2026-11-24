@@ -38,7 +38,7 @@ fun BacklinksSection(
                     onClick = { onOpen(backlink.id) },
                     shapes = ListItemDefaults.segmentedShapes(index, backlinks.size),
                     colors = ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ),
                     leadingContent = {
                         LoomaIcon(

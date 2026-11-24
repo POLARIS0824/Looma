@@ -94,6 +94,7 @@ internal fun ImageBedSheet(
     ModalBottomSheet(
         onDismissRequest = { if (!saving) onDismiss() },
         sheetState = sheetState,
+        containerColor = LoomaTokens.colors.sheet,
     ) {
         Column(
             modifier = Modifier
@@ -262,7 +263,11 @@ internal fun ToolbarOrderSheet(
     }
 
     val sheetState = rememberExpandedSheetState()
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = LoomaTokens.colors.sheet,
+    ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),

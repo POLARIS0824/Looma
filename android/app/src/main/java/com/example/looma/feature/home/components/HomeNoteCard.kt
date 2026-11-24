@@ -228,13 +228,13 @@ private fun SearchMatch.highlighted(style: SpanStyle): AnnotatedString = buildAn
 private fun HomeChip(label: AnnotatedString, onSelectedCard: Boolean, maxLines: Int) {
     Surface(
         shape = MaterialTheme.shapes.small,
-        color = if (onSelectedCard) LoomaTokens.colors.card else MaterialTheme.colorScheme.secondaryContainer,
+        color = if (onSelectedCard) LoomaTokens.colors.card else LoomaTokens.colors.cardInset,
     ) {
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             style = LoomaTokens.type.cardMeta,
-            color = if (onSelectedCard) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSecondaryContainer,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
         )
