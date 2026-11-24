@@ -1,7 +1,6 @@
 package com.example.looma.feature.home.components
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,11 +53,10 @@ internal fun HomeSearchResults(
             }
             items(recentSearches) { search ->
                 ListItem(
+                    onClick = { onRecentSearchClick(search) },
                     leadingContent = { LoomaIcon(R.drawable.ic_search, contentDescription = null) },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onRecentSearchClick(search) },
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         text = search,

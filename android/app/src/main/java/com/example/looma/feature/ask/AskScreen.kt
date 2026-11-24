@@ -37,7 +37,7 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, openNote: (N
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(model::install) }
     Scaffold(containerColor = LoomaTokens.colors.page, topBar = {
         TopAppBar(title = { Text(stringResource(R.string.ask_title)) }, navigationIcon = {
-            IconButton(onClick = navigateUp, enabled = !state.saving) {
+            IconButton(onClick = navigateUp, enabled = !state.saving, shapes = IconButtonDefaults.shapes()) {
                 LoomaIcon(R.drawable.ic_arrow_back, stringResource(R.string.nav_back))
             }
         })
@@ -45,28 +45,40 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, openNote: (N
         LazyColumn(Modifier.fillMaxSize().padding(padding).imePadding(), horizontalAlignment = Alignment.CenterHorizontally) {
             item {
                 Column(Modifier.widthIn(max = PageMaxWidth).fillMaxWidth().padding(horizontal = pageMargin())) {
-                    OutlinedTextField(state = question, label = { Text(stringResource(R.string.ask_question)) },
-                        modifier = Modifier.fillMaxWidth(), enabled = !state.busy,
+                    OutlinedTextField(
+                        state = question,
+                        label = { Text(stringResource(R.string.ask_question)) },
+                        labelPosition = TextFieldLabelPosition.Inside(),
+                        shape = OutlinedTextFieldDefaults.roundedShape,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.busy,
                         isError = question.text.length > 1000,
                         supportingText = if (question.text.length > 1000) {
                             { Text(stringResource(R.string.ask_length)) }
                         } else null,
                     )
-                    ListItem(trailingContent = { Switch(checked = investigate, enabled = !state.busy && state.hasModel,
-                        onCheckedChange = { investigate = it }) }) { Text(stringResource(R.string.ask_investigate)) }
+                    ListItem(
+                        checked = investigate,
+                        onCheckedChange = { investigate = it },
+                        enabled = !state.busy && state.hasModel,
+                        trailingContent = {
+                            Switch(checked = investigate, enabled = !state.busy && state.hasModel, onCheckedChange = null)
+                        },
+                    ) { Text(stringResource(R.string.ask_investigate)) }
                     if (!state.busy) {
                         Button(onClick = { model.ask(question.text.toString(), investigate) },
-                            enabled = question.text.isNotBlank() && question.text.length <= 1000) {
+                            enabled = question.text.isNotBlank() && question.text.length <= 1000,
+                            shapes = ButtonDefaults.shapes()) {
                             Text(stringResource(R.string.ask_submit))
                         }
-                        TextButton(onClick = { picker.launch(arrayOf("*/*")) }) {
+                        TextButton(onClick = { picker.launch(arrayOf("*/*")) }, shapes = ButtonDefaults.shapes()) {
                             Text(stringResource(if (state.hasModel) R.string.ask_replace else R.string.ask_import))
                         }
                     } else {
                         if (rememberDelayedVisibility(true)) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
                         if (state.step.isNotEmpty()) Text(stringResource(R.string.ask_tool, state.step))
                         if (state.saving) Text(stringResource(R.string.ask_saving))
-                        else TextButton(onClick = model::cancel) { Text(stringResource(android.R.string.cancel)) }
+                        else TextButton(onClick = model::cancel, shapes = ButtonDefaults.shapes()) { Text(stringResource(android.R.string.cancel)) }
                     }
                     state.issue?.let {
                         Text(stringResource(when (it) {
@@ -89,14 +101,14 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, openNote: (N
                         for (claim in answer.claims) {
                             Text(claim.text)
                             for (id in claim.citations) {
-                                TextButton(onClick = { model.open(answer.sources[id - 1], open) }, enabled = !state.busy) {
+                                TextButton(onClick = { model.open(answer.sources[id - 1], open) }, enabled = !state.busy, shapes = ButtonDefaults.shapes()) {
                                     Text("[$id] " + answer.sources[id - 1].id.path.relativePath)
                                 }
                             }
                         }
                         if (answer.claims.isNotEmpty()) {
                             val saved = state.saved
-                            TextButton(enabled = !state.busy, onClick = {
+                            TextButton(enabled = !state.busy, shapes = ButtonDefaults.shapes(), onClick = {
                                 if (saved == null) preview = true else openNote(saved)
                             }) { Text(stringResource(if (saved == null) R.string.ask_save_note else R.string.ask_open_saved)) }
                         }
@@ -107,7 +119,7 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, openNote: (N
             }
             itemsIndexed(state.answer?.sources.orEmpty()) { index, source ->
                 Column(Modifier.widthIn(max = PageMaxWidth).fillMaxWidth().padding(horizontal = pageMargin())) {
-                    TextButton(onClick = { model.open(source, open) }, enabled = !state.busy) {
+                    TextButton(onClick = { model.open(source, open) }, enabled = !state.busy, shapes = ButtonDefaults.shapes()) {
                         Text("[" + (index + 1) + "] " + source.id.path.relativePath)
                     }
                     Text(source.text, style = MaterialTheme.typography.bodyMedium)
@@ -123,18 +135,23 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, openNote: (N
         AlertDialog(onDismissRequest = { preview = false }, title = { Text(stringResource(R.string.ask_save_note)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    OutlinedTextField(state = title, label = { Text(stringResource(R.string.ask_filename)) },
-                        lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.SingleLine)
+                    OutlinedTextField(
+                        state = title,
+                        label = { Text(stringResource(R.string.ask_filename)) },
+                        labelPosition = TextFieldLabelPosition.Inside(),
+                        shape = OutlinedTextFieldDefaults.roundedShape,
+                        lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.SingleLine,
+                    )
                     Text(markdown, style = MaterialTheme.typography.bodyMedium)
                 }
             },
             confirmButton = {
-                TextButton(enabled = title.text.isNotBlank() && !state.busy, onClick = {
+                TextButton(enabled = title.text.isNotBlank() && !state.busy, shapes = ButtonDefaults.shapes(), onClick = {
                     model.save(title.text.toString(), markdown)
                     preview = false
                 }) { Text(stringResource(R.string.ask_save_note)) }
             },
-            dismissButton = { TextButton(onClick = { preview = false }) { Text(stringResource(android.R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { preview = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(android.R.string.cancel)) } },
         )
     }
 

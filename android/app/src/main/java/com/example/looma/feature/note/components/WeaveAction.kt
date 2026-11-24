@@ -73,8 +73,12 @@ internal fun WeaveAction(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (proposal == null && passage != null) {
-                    FilterChip(selected = scoped, onClick = { scoped = !scoped },
-                        label = { Text(stringResource(R.string.weave_focus)) })
+                    FilterChip(
+                        selected = scoped,
+                        onClick = { scoped = !scoped },
+                        label = { Text(stringResource(R.string.weave_focus)) },
+                        shapes = FilterChipDefaults.shapes(),
+                    )
                     if (scoped) passage?.let { Text(it.excerpt(160)) }
                 }
                 when {
@@ -100,12 +104,12 @@ internal fun WeaveAction(
                                 } catch (cancel: CancellationException) { throw cancel }
                                 catch (_: Exception) { failed = true }
                             }
-                        }) { Text(item.evidence.id.path.relativePath) }
+                        }, shapes = ButtonDefaults.shapes()) { Text(item.evidence.id.path.relativePath) }
                         item.evidence.similarity?.let { Text(stringResource(R.string.weave_similarity, it)) }
                         if (item.keywords.isNotEmpty()) Text(stringResource(R.string.weave_keywords, item.keywords.joinToString(" · ")))
                         if (item.tags.isNotEmpty()) Text(item.tags.joinToString(" ") { "#$it" })
                         Text(item.evidence.text, style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = { selected = item }) { Text(stringResource(R.string.weave_preview)) }
+                        TextButton(onClick = { selected = item }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.weave_preview)) }
                         HorizontalDivider()
                     }
                 }
@@ -113,8 +117,8 @@ internal fun WeaveAction(
         },
         confirmButton = {
             when {
-                failed -> TextButton(onClick = { selected = null; refresh++ }) { Text(stringResource(R.string.weave_retry)) }
-                proposal != null -> Button(enabled = !applying, onClick = {
+                failed -> TextButton(onClick = { selected = null; refresh++ }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.weave_retry)) }
+                proposal != null -> Button(enabled = !applying, shapes = ButtonDefaults.shapes(), onClick = {
                     applying = true
                     scope.launch {
                         try {
@@ -127,7 +131,7 @@ internal fun WeaveAction(
             }
         },
         dismissButton = {
-            TextButton(enabled = !applying, onClick = { showing = false }) { Text(stringResource(android.R.string.cancel)) }
+            TextButton(enabled = !applying, onClick = { showing = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(android.R.string.cancel)) }
         },
     )
 }

@@ -26,8 +26,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextFieldLabelPosition
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -143,6 +145,8 @@ internal fun SyncConfigSheet(
             OutlinedSecureTextField(
                 state = secretKey,
                 label = { Text(stringResource(R.string.settings_sync_secret_key)) },
+                labelPosition = TextFieldLabelPosition.Inside(),
+                shape = OutlinedTextFieldDefaults.roundedShape,
                 modifier = Modifier.fillMaxWidth(),
             )
             SyncTextField(
@@ -222,6 +226,8 @@ private fun SyncTextField(
     OutlinedTextField(
         state = state,
         label = { Text(label) },
+        labelPosition = TextFieldLabelPosition.Inside(),
+        shape = OutlinedTextFieldDefaults.roundedShape,
         lineLimits = TextFieldLineLimits.SingleLine,
         isError = isError,
         supportingText = supportingText?.let { text -> { Text(text) } },

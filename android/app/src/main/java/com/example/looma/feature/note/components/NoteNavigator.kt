@@ -57,8 +57,13 @@ internal fun NoteNavigator(
     AlertDialog(onDismissRequest = { visible = false }, title = { Text(stringResource(R.string.note_navigate)) },
         text = {
             Column {
-                OutlinedTextField(state = field, label = { Text(stringResource(R.string.note_find)) },
-                    lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.SingleLine)
+                OutlinedTextField(
+                    state = field,
+                    label = { Text(stringResource(R.string.note_find)) },
+                    labelPosition = TextFieldLabelPosition.Inside(),
+                    shape = OutlinedTextFieldDefaults.roundedShape,
+                    lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.SingleLine,
+                )
                 if (query.isEmpty()) {
                     val headings = outline?.headings
                     when {
@@ -66,7 +71,7 @@ internal fun NoteNavigator(
                         headings.isEmpty() -> Text(stringResource(R.string.note_no_headings))
                         else -> LazyColumn(Modifier.weight(1f, fill = false)) {
                             items(headings, key = { it.start }) { heading ->
-                                TextButton(onClick = { go(TextRange(heading.start)) }) {
+                                TextButton(onClick = { go(TextRange(heading.start)) }, shapes = ButtonDefaults.shapes()) {
                                     Text("H" + heading.level + "  " + heading.title)
                                 }
                             }
@@ -80,17 +85,17 @@ internal fun NoteNavigator(
                     Text(source.substring((at - 45).coerceAtLeast(0),
                         (at + query.length + 75).coerceAtMost(source.length)))
                     Row {
-                        TextButton(onClick = { backwards = true; start = at - 1 }) { Text(stringResource(R.string.note_previous)) }
-                        TextButton(onClick = { backwards = false; start = at + query.length }) { Text(stringResource(R.string.note_next)) }
+                        TextButton(onClick = { backwards = true; start = at - 1 }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.note_previous)) }
+                        TextButton(onClick = { backwards = false; start = at + query.length }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.note_next)) }
                     }
                 }
             }
         },
         confirmButton = {
             if (query.isNotEmpty() && at != null && at >= 0) {
-                TextButton(onClick = { go(TextRange(at, at + query.length)) }) { Text(stringResource(R.string.note_locate)) }
+                TextButton(onClick = { go(TextRange(at, at + query.length)) }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.note_locate)) }
             }
         },
-        dismissButton = { TextButton(onClick = { visible = false }) { Text(stringResource(android.R.string.cancel)) } },
+        dismissButton = { TextButton(onClick = { visible = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(android.R.string.cancel)) } },
     )
 }

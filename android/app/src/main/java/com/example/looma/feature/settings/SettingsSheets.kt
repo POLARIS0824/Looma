@@ -26,9 +26,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextFieldLabelPosition
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -126,6 +128,8 @@ internal fun ImageBedSheet(
             OutlinedSecureTextField(
                 state = secretKey,
                 label = { Text(stringResource(R.string.settings_image_bed_secret_key)) },
+                labelPosition = TextFieldLabelPosition.Inside(),
+                shape = OutlinedTextFieldDefaults.roundedShape,
                 modifier = Modifier.fillMaxWidth(),
             )
             ImageBedField(state = pathPrefix, label = stringResource(R.string.settings_image_bed_path_prefix))
@@ -198,6 +202,8 @@ private fun ImageBedField(state: TextFieldState, label: String) {
     OutlinedTextField(
         state = state,
         label = { Text(label) },
+        labelPosition = TextFieldLabelPosition.Inside(),
+        shape = OutlinedTextFieldDefaults.roundedShape,
         lineLimits = TextFieldLineLimits.SingleLine,
         modifier = Modifier.fillMaxWidth(),
     )
