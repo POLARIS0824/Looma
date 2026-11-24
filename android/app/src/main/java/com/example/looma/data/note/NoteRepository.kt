@@ -442,8 +442,9 @@ class NoteRepository internal constructor(
         operation: (VaultRelocation) -> RelocationResult<P>,
     ): RelocationResult<P> {
         recoverPendingRelocations(vault, retryStalled = true)?.let { throw RelocationStalledException(it) }
+        val indexed = index.load(vault.id).associateBy { it.id.path.relativePath }
         val result = try {
-            operation(VaultRelocation(vault))
+            operation(VaultRelocation(vault, indexedNotes = indexed))
         } catch (error: RelocationStalledException) {
             stalledRelocations[vault.id] = error.stalled
             throw error

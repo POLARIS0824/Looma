@@ -1,6 +1,7 @@
 package com.example.looma.data.note
 
 import com.example.looma.data.index.FileFingerprint
+import com.example.looma.data.index.IndexedNote
 import com.example.looma.data.index.fingerprint
 import com.example.looma.domain.markdown.ImageSource
 import com.example.looma.domain.markdown.MarkdownIndex
@@ -51,7 +52,10 @@ internal data class RelocationResult<P>(
     val changes: RelocationChanges,
 )
 
-internal class VaultRelocation(private val vault: Vault) {
+internal class VaultRelocation(
+    private val vault: Vault,
+    private val indexedNotes: Map<String, IndexedNote> = emptyMap(),
+) {
     private val ops = VaultFileOps(File(vault.rootPath))
     private val root = ops.rootDir
 
@@ -339,6 +343,8 @@ internal class VaultRelocation(private val vault: Vault) {
     ): RelocationResult<Unit> {
         val folderMove = if (folder == null) null else moving.entries.single()
         val notePaths = paths.keys.toList()
+        val scannedByPath = scannedNotes.associateBy { it.path }
+        val movedPaths = paths.filter { it.key != it.value }.keys
         val before = graph(notePaths)
         val after = graph(paths.values.toList())
         val writes = mutableListOf<WriteRecord>()
@@ -347,6 +353,9 @@ internal class VaultRelocation(private val vault: Vault) {
         var linksFailed = 0
         for (path in notePaths) {
             val newPath = paths.getValue(path)
+            if (canSkipReferrer(path, newPath, folderMove, scannedByPath, paths, movedPaths, before, after)) {
+                continue
+            }
             val referrer = readReferrer(path) ?: continue
             val content = referrer.content
             val movedNote = folder == null && path.substringBeforeLast('/', "") != newPath.substringBeforeLast('/', "")
@@ -379,6 +388,31 @@ internal class VaultRelocation(private val vault: Vault) {
             throw RelocationStalledException(stalledOf(journal), error)
         }
         return RelocationResult(Unit, linksUpdated, linksFailed, recovered + changesOf(plan))
+    }
+
+    private fun canSkipReferrer(
+        path: String,
+        newPath: String,
+        folderMove: Map.Entry<File, File>?,
+        scannedByPath: Map<String, ScannedNote>,
+        paths: Map<String, String>,
+        movedPaths: Set<String>,
+        before: WikiGraph,
+        after: WikiGraph,
+    ): Boolean {
+        if (path != newPath) return false
+        val indexed = indexedNotes[path] ?: return false
+        if (indexed.fingerprint != scannedByPath[path]?.fingerprint) return false
+        if (folderMove != null && indexed.coverPath != null) return false
+        for (link in indexed.links) {
+            if (link.target in movedPaths) return false
+            val original = before.resolve(link.target, NotePath(path))
+            if (original != null) {
+                val intended = NoteId(vault.id, NotePath(paths.getValue(original.path.relativePath)))
+                if (after.resolve(link.target, NotePath(newPath)) != intended) return false
+            }
+        }
+        return true
     }
 
     private fun graph(paths: List<String>) = WikiGraph(
