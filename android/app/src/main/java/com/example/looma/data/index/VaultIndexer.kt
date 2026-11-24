@@ -8,6 +8,7 @@ import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultFolder
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
@@ -102,34 +103,35 @@ internal class VaultIndexer(
         val retained = mutableListOf<IndexedNote>()
         var unreadable = 0
         var readCount = 0
+        var sawConcurrentChange = false
         for (path in plan.toRead) {
             coroutineContext.ensureActive()
             val file = File(rootDir, path.relativePath)
             val fingerprint = onDisk.getValue(path)
             readCount++
-            val parsed = try {
-                val text = readMarkdown(file)
-                val metadata = parser.parseForIndex(text, file.nameWithoutExtension, path)
-                val note = indexedNote(vault.id, rootDir, file, text, metadata, fingerprint)
-                val signature = SearchSignature.fromBody(text)
-                val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
-                if (attributes.isRegularFile && attributes.fingerprint() == fingerprint) {
-                    note to signature
-                } else {
-                    null
+            when (val outcome = readStableNote(rootDir, file, path, fingerprint)) {
+                is ReadOutcome.Parsed -> {
+                    fresh += outcome.note
+                    signatures[path] = outcome.signature
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                null
+                ReadOutcome.Missing -> {
+                    sawConcurrentChange = true
+                    indexedByPath[path]?.let(retained::add)
+                }
+                ReadOutcome.Changed -> {
+                    sawConcurrentChange = true
+                    if (!retryOnConflict) unreadable++
+                    indexedByPath[path]?.let(retained::add)
+                }
+                ReadOutcome.Unreadable -> {
+                    unreadable++
+                    indexedByPath[path]?.let(retained::add)
+                }
             }
-            if (parsed != null) {
-                fresh += parsed.first
-                signatures[path] = parsed.second
-            } else {
-                unreadable++
-                indexedByPath[path]?.let(retained::add)
-            }
+        }
+
+        if (sawConcurrentChange && retryOnConflict) {
+            return scanAttempt(retryOnConflict = false, force = force)
         }
 
         val delta = IndexDelta(
@@ -157,7 +159,50 @@ internal class VaultIndexer(
         )
     }
 
+    private suspend fun readStableNote(
+        rootDir: File,
+        file: File,
+        path: NotePath,
+        initialFingerprint: FileFingerprint,
+    ): ReadOutcome {
+        var fingerprint = initialFingerprint
+        repeat(MAX_READ_ATTEMPTS) {
+            coroutineContext.ensureActive()
+            try {
+                val text = readMarkdown(file)
+                val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
+                if (!attributes.isRegularFile) return ReadOutcome.Unreadable
+                val currentFingerprint = attributes.fingerprint()
+                if (currentFingerprint != fingerprint) {
+                    fingerprint = currentFingerprint
+                    return@repeat
+                }
+                val metadata = parser.parseForIndex(text, file.nameWithoutExtension, path)
+                val note = indexedNote(vault.id, rootDir, file, text, metadata, fingerprint)
+                val signature = SearchSignature.fromBody(text)
+                return ReadOutcome.Parsed(note, signature)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: NoSuchFileException) {
+                return ReadOutcome.Missing
+            } catch (_: FileNotFoundException) {
+                return if (!Files.exists(file.toPath())) ReadOutcome.Missing else ReadOutcome.Unreadable
+            } catch (_: Exception) {
+                return if (!Files.exists(file.toPath())) ReadOutcome.Missing else ReadOutcome.Unreadable
+            }
+        }
+        return ReadOutcome.Changed
+    }
+
+    private sealed interface ReadOutcome {
+        data class Parsed(val note: IndexedNote, val signature: ByteArray) : ReadOutcome
+        data object Missing : ReadOutcome
+        data object Changed : ReadOutcome
+        data object Unreadable : ReadOutcome
+    }
+
     private companion object {
         const val MAX_DEPTH = 40
+        const val MAX_READ_ATTEMPTS = 3
     }
 }

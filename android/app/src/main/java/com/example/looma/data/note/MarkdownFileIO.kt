@@ -1,6 +1,7 @@
 package com.example.looma.data.note
 
 import com.example.looma.data.index.FileFingerprint
+import com.example.looma.data.index.fingerprint
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -11,6 +12,7 @@ import java.io.InputStreamReader
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
+import java.nio.file.attribute.BasicFileAttributes
 
 internal const val MAX_MARKDOWN_BYTES = 2L * 1024 * 1024
 
@@ -95,7 +97,16 @@ internal fun writeBytesAtomically(
         val fingerprint = FileFingerprint(bytes.size.toLong(), temporary.toFile().lastModified())
         beforeReplace()
         Files.move(temporary, destination, ATOMIC_MOVE, REPLACE_EXISTING)
-        return fingerprint
+        return try {
+            val attributes = Files.readAttributes(destination, BasicFileAttributes::class.java)
+            if (attributes.isRegularFile && attributes.size() == bytes.size.toLong()) {
+                attributes.fingerprint()
+            } else {
+                fingerprint
+            }
+        } catch (_: IOException) {
+            fingerprint
+        }
     } catch (failure: Exception) {
         try {
             Files.deleteIfExists(temporary)
