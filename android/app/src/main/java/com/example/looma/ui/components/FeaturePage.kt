@@ -71,11 +71,16 @@ fun FeaturePage(
                 .padding(
                     start = pageMargin(),
                     end = pageMargin(),
-                    top = if (topBar == null) 24.dp else 8.dp,
                     bottom = 24.dp,
                 ),
         ) {
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = if (topBar == null) 24.dp else 8.dp),
+            ) {
                 FeatureHeader(iconRes = iconRes, title = title, subtitle = subtitle)
                 Spacer(Modifier.height(32.dp))
                 content()
