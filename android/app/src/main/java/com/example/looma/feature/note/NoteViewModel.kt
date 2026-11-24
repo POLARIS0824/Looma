@@ -14,6 +14,9 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.looma.data.assistant.Connection
+import com.example.looma.data.assistant.VaultEvidence
+import com.example.looma.data.assistant.addition
 import com.example.looma.data.image.ImageUpload
 import com.example.looma.data.image.ImageUploadException
 import com.example.looma.data.image.ImageUploadFailure
@@ -28,6 +31,7 @@ import com.example.looma.data.note.VaultFileException
 import com.example.looma.data.note.VaultFileFailure
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.NoteWriteMode
 import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.wiki.WikiContext
@@ -356,6 +360,21 @@ class NoteViewModel(
         if (state.isRenaming || state.rename != null || state.leave == NoteLeave.Saving) return false
         onEnterBackground()
         return true
+    }
+
+    internal suspend fun confirmWeave(
+        vault: Vault,
+        suggestion: Connection,
+        evidence: VaultEvidence,
+    ): Boolean = editorWrites.withLock {
+        val source = draft.content
+        val generation = operationGeneration
+        if (currentId != suggestion.source || uiState.value.saveProblem != null ||
+            !evidence.linkStillValid(vault, suggestion, source)) return@withLock false
+        if (source != draft.content || generation != operationGeneration || currentId != suggestion.source) return@withLock false
+        val at = suggestion.passage?.insertAt ?: source.length
+        editor.edit { replace(at, at, suggestion.addition(source)) }
+        saveCurrent(generation)
     }
 
     fun retrySave() {

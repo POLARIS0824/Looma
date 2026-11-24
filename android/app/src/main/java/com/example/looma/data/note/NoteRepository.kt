@@ -62,6 +62,15 @@ class NoteRepository internal constructor(
     private data class RecentScan(val result: NoteListResult, val at: Long)
     @Volatile private var recentScan: RecentScan? = null
 
+    internal suspend fun evidenceNotes(vault: Vault): NoteListResult {
+        val recent = recentScan
+        if (recent != null && recent.result.vault == vault && recent.result.complete &&
+            System.nanoTime() - recent.at < 5_000_000_000L && recent.result.version == index.version(vault.id)) {
+            return recent.result
+        }
+        return listNotes(vault)
+    }
+
     internal suspend fun listNotes(expected: Vault? = null, force: Boolean = false): NoteListResult {
         val current = currentVault(expected?.id)
         if (expected != null && current.rootPath != expected.rootPath) {
@@ -190,6 +199,28 @@ class NoteRepository internal constructor(
     private fun metadataMatch(candidate: SearchableNote, keyword: String): NoteSearchMatch? {
         val hit = searchNote(candidate.title, candidate.tags, text = "", query = keyword)
         return hit?.let { NoteSearchMatch(candidate.id, it) }
+    }
+
+    internal fun lexicalReader(vault: Vault): LexicalReader = LexicalReader(vault)
+
+    internal inner class LexicalReader(vault: Vault) {
+        private val files = VaultFileOps(File(vault.rootPath))
+        private val store = NoteFileStore(vault)
+        suspend fun read(id: NoteId, tests: List<SearchSignature.Query?>, metadataMatch: Boolean): StoredMarkdown? {
+            val file = files.noteFile(id.path)
+            val stamp = signatureStamp(file)
+            val known = synchronized(verifiedSignatures) { verifiedSignatures[file] }
+            if (!metadataMatch && stamp != null && known != null && known.stamp == stamp &&
+                tests.all { it != null && !it.mayContain(known.bytes) }) return null
+            val source = store.readNote(id, requireUtf8 = true)
+            if (stamp != null && known?.stamp != stamp) {
+                val signature = SearchSignature.fromBody(source.content)
+                if (signatureStamp(file) == stamp) synchronized(verifiedSignatures) {
+                    verifiedSignatures[file] = VerifiedSignature(stamp, signature)
+                }
+            }
+            return source
+        }
     }
 
     suspend fun readNote(id: NoteId): Note = read(id.vaultId) { _, store ->

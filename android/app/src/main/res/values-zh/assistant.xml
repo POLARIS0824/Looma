@@ -1,0 +1,12 @@
+<resources>
+    <string name="weave_title">Weave 关联</string>
+    <string name="weave_confirm">添加此关联？</string>
+    <string name="weave_changed">关联加载或写入失败，请检查笔记状态并刷新推荐</string>
+    <string name="weave_empty">这篇笔记暂无新的关联推荐</string>
+    <string name="weave_preview">预览链接</string>
+    <string name="weave_diff">将在本笔记末尾追加\n+ [[%1$s]]</string>
+    <string name="weave_insert">确认插入</string>
+    <string name="weave_retry">刷新推荐</string>
+    <string name="weave_similarity">段落余弦相似度 · %1$.2f</string>
+    <string name="weave_keywords">共同词语 · %1$s</string>
+</resources>

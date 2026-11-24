@@ -1,0 +1,12 @@
+<resources>
+    <string name="weave_title">Weave connections</string>
+    <string name="weave_confirm">Add this connection?</string>
+    <string name="weave_changed">The connection could not be applied or loaded. Check the note and refresh suggestions.</string>
+    <string name="weave_empty">No new connections found for this note.</string>
+    <string name="weave_preview">Preview link</string>
+    <string name="weave_diff">Append to this note\n+ [[%1$s]]</string>
+    <string name="weave_insert">Insert link</string>
+    <string name="weave_retry">Refresh suggestions</string>
+    <string name="weave_similarity">Passage similarity · %1$.2f</string>
+    <string name="weave_keywords">Shared terms · %1$s</string>
+</resources>

@@ -1,6 +1,8 @@
 package com.example.looma.navigation
 
 import androidx.activity.compose.BackHandler
+import com.example.looma.data.assistant.VaultEvidence
+import com.example.looma.feature.note.components.WeaveAction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -83,7 +85,8 @@ private val LocalSceneBackState = compositionLocalOf<NavigationEventState<SceneI
 }
 
 @Composable
-fun LoomaNavGraph(
+internal fun LoomaNavGraph(
+    evidence: VaultEvidence,
     noteRepository: NoteRepository,
     folderRepository: FolderRepository,
     searchHistoryRepository: SearchHistoryRepository,
@@ -314,6 +317,12 @@ fun LoomaNavGraph(
                         titleBuffer = titleBuffer,
                         onTitleFocusChange = { titleFocused.value = it },
                         noteId = noteId,
+                        weaveAction = { focus ->
+                            if (vault != null) WeaveAction(
+                                vault, noteId, evidence, noteViewModel, focus,
+                                open = { backStack.add(LoomaRoute.Note.from(it.id, passage = it.anchor)) },
+                            )
+                        },
                         retargetVersion = route.retargetVersion,
                         passage = route.passage,
                         onNavigateUp = navigateUp,

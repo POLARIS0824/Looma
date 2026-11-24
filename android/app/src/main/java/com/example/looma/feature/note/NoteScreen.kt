@@ -90,6 +90,7 @@ import com.example.looma.domain.wiki.WikiNote
 import com.example.looma.feature.note.components.BacklinksSection
 import com.example.looma.feature.note.components.NoteFormatBar
 import com.example.looma.feature.note.components.NoteLeaveDialog
+import com.example.looma.feature.note.components.NoteNavigator
 import com.example.looma.feature.note.components.NoteSaveBanner
 import com.example.looma.feature.note.components.NoteTitleField
 import com.example.looma.feature.note.components.NoteTopBar
@@ -123,6 +124,7 @@ fun NoteRoute(
     onNavigateUp: () -> Unit,
     onOpenNote: (NoteId) -> Unit,
     onRenameNavigate: (NoteId, NoteId) -> Unit,
+    weaveAction: @Composable (() -> TextRange?) -> Unit = {},
     modifier: Modifier = Modifier,
     passage: PassageAnchor? = null,
 ) {
@@ -212,6 +214,7 @@ fun NoteRoute(
                     onOpenNote = { id ->
                         if (viewModel.prepareToOpenLinkedNote()) onOpenNote(id)
                     },
+                    weaveAction = weaveAction,
                     onPickImage = pickImage,
                     onImageInserted = viewModel::onImageInserted,
                     onImageErrorShown = viewModel::onImageErrorShown,
@@ -254,6 +257,7 @@ private fun NoteWorkspace(
     onPickImage: () -> Unit,
     onImageInserted: () -> Unit,
     onImageErrorShown: () -> Unit,
+    weaveAction: @Composable (() -> TextRange?) -> Unit = {},
     onTitleFocusChange: (Boolean) -> Unit = {},
     editorActive: Boolean = true,
     modifier: Modifier = Modifier,
@@ -393,7 +397,7 @@ private fun NoteWorkspace(
     }
 
     val request = pendingModeScroll
-    val readRequest = request is ModeScrollRequest.Read || request is ModeScrollRequest.ReadOffset
+    val readRequest = request is ModeScrollRequest.Read || request is ModeScrollRequest.ReadOffset || request is ModeScrollRequest.ReadPassage
     val requestedPreview = if (readRequest) preview else null
     val editRestoreSource = when (request) {
         is ModeScrollRequest.Edit, is ModeScrollRequest.EditOffset -> contentBuffer.text.toString()
@@ -404,6 +408,11 @@ private fun NoteWorkspace(
             it.source == contentBuffer.text.toString()
         }
         when (request) {
+            is ModeScrollRequest.ReadPassage -> {
+                currentPreview ?: return@LaunchedEffect
+                if (currentPreview.source == request.source) modeScroll.openPassage(
+                    request.offset, currentPreview.blocks, currentPreview.index.bodyStart, state.showInlineTitle)
+            }
             is ModeScrollRequest.Read -> {
                 currentPreview ?: return@LaunchedEffect
                 modeScroll.restoreRead(
@@ -474,6 +483,27 @@ private fun NoteWorkspace(
             NoteTopBar(
                 mode = mode,
                 onNavigateUp = leaveWorkspace,
+                weaveAction = {
+                    NoteNavigator(snapshot = { contentBuffer.text.toString() }, prepared = preview as? PreparedMarkdown.Ready) { source, range ->
+                        if (source == contentBuffer.text.toString()) {
+                            modeScrollReturn = null
+                            if (mode == NoteMode.Edit) {
+                                contentBuffer.edit { selection = range }
+                                pendingModeScroll = ModeScrollRequest.Edit(ReadingAnchor.edit(range.min, null, 0f, false))
+                            } else {
+                                pendingModeScroll = ModeScrollRequest.ReadPassage(source, range.min)
+                            }
+                        }
+                    }
+                    weaveAction {
+                        if (mode == NoteMode.Edit) contentBuffer.selection
+                        else preview?.visibleBlocks()?.let {
+                            modeScroll.captureRead(it.blocks, it.index.bodyStart, state.showInlineTitle)?.let { anchor ->
+                                TextRange(anchor.sourceOffset)
+                            }
+                        }
+                    }
+                },
                 onToggleMode = {
                     val next = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
                     if (next == NoteMode.Read) {
@@ -851,6 +881,7 @@ private fun imageErrorText(resources: Resources, error: NoteImageError): String 
 }
 
 private sealed interface ModeScrollRequest {
+    data class ReadPassage(val source: String, val offset: Int) : ModeScrollRequest
     data class Read(val position: EditScrollPosition) : ModeScrollRequest
     data class ReadOffset(val itemIndex: Int, val offset: Int) : ModeScrollRequest
     data class Edit(val anchor: ReadingAnchor) : ModeScrollRequest

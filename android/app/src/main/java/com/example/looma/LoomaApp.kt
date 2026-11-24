@@ -1,6 +1,7 @@
 package com.example.looma
 
 import android.app.Application
+import com.example.looma.data.assistant.VaultEvidence
 import com.example.looma.data.folder.FolderRepository
 import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.index.NoteIndexDatabase
@@ -42,6 +43,7 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val semanticSearchRepository by lazy {
         SemanticSearchRepository(this, noteRepository, vaultRepository, settingsRepository, modelSession)
     }
+    internal val evidence by lazy { VaultEvidence(vaultRepository, noteRepository, semanticSearchRepository) }
     val folderRepository by lazy { FolderRepository(noteRepository) }
     val imageUploader by lazy { ImageUploader(this, vaultRepository, httpClient) }
     val syncRepository by lazy {

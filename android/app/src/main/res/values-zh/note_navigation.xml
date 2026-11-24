@@ -1,0 +1,10 @@
+<resources>
+    <string name="note_navigate">笔记导航</string>
+    <string name="note_find">篇内查找</string>
+    <string name="note_no_headings">这篇笔记没有标题</string>
+    <string name="note_no_matches">没有匹配结果</string>
+    <string name="note_previous">上一个</string>
+    <string name="note_next">下一个</string>
+    <string name="note_locate">定位到结果</string>
+    <string name="weave_focus">围绕当前段落推荐</string>
+</resources>

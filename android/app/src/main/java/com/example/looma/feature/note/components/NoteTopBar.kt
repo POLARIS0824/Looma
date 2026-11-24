@@ -21,6 +21,7 @@ internal fun NoteTopBar(
     onToggleMode: (() -> Unit)?,
     modifier: Modifier = Modifier,
     scrollBehavior: TopAppBarScrollBehavior? = null,
+    weaveAction: @Composable () -> Unit = {},
     title: @Composable () -> Unit = {},
 ) {
     TopAppBar(
@@ -35,6 +36,7 @@ internal fun NoteTopBar(
             }
         },
         actions = {
+            weaveAction()
             val toggle = onToggleMode
             if (toggle != null) {
                 IconButton(onClick = toggle, shapes = IconButtonDefaults.shapes()) {
