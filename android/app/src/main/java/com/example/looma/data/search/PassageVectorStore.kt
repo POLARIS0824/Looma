@@ -27,6 +27,17 @@ internal class PassageVectorStore(context: Context, private val file: File) :
         db.execSQL("CREATE INDEX passage_inputs ON passages(vault,path,input)")
         db.execSQL("CREATE TABLE dirty (vault TEXT, path TEXT, ticket TEXT NOT NULL, PRIMARY KEY(vault,path))")
         db.execSQL("CREATE TABLE initialized (vault TEXT PRIMARY KEY)")
+        ensureStateTables(db)
+    }
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        if (!db.isReadOnly) ensureStateTables(db)
+    }
+
+    private fun ensureStateTables(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS vault_state (vault TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, completed INTEGER NOT NULL DEFAULT 0, partial INTEGER NOT NULL DEFAULT 0)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS skipped (vault TEXT, path TEXT, PRIMARY KEY(vault, path))")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) =
@@ -41,6 +52,53 @@ internal class PassageVectorStore(context: Context, private val file: File) :
     fun finish(vault: VaultId) = writableDatabase.execSQL("INSERT OR IGNORE INTO initialized VALUES(?)", arrayOf(vault.value))
     fun current(id: NoteId, rev: NoteRevision.Known) =
         any("SELECT 1 FROM documents WHERE vault=? AND path=? AND revision=?", id.vaultId.value, id.path.relativePath, rev.sha256)
+
+    fun enable(vault: VaultId) = transaction { db ->
+        db.execSQL("INSERT OR IGNORE INTO vault_state (vault) VALUES (?)", arrayOf(vault.value))
+        db.execSQL("UPDATE vault_state SET enabled = 1 WHERE vault = ?", arrayOf(vault.value))
+    }
+
+    fun enabled(vault: VaultId): Boolean =
+        any("SELECT 1 FROM vault_state WHERE vault=? AND enabled=1", vault.value) || hasDocuments(vault)
+
+    fun hasCompletedIndex(vault: VaultId): Boolean =
+        any("SELECT 1 FROM vault_state WHERE vault=? AND completed=1", vault.value)
+
+    fun complete(vault: VaultId) = transaction { db ->
+        db.execSQL("INSERT OR IGNORE INTO vault_state (vault) VALUES (?)", arrayOf(vault.value))
+        db.execSQL("UPDATE vault_state SET enabled = 1, completed = 1 WHERE vault = ?", arrayOf(vault.value))
+    }
+
+    fun markScanPartial(vault: VaultId, partial: Boolean): Boolean {
+        val next = if (partial) 1 else 0
+        var changed = false
+        transaction { db ->
+            val current = db.rawQuery("SELECT partial FROM vault_state WHERE vault=?", arrayOf(vault.value)).use { cursor ->
+                if (cursor.moveToFirst()) cursor.getInt(0) else 0
+            }
+            if (current != next) {
+                db.execSQL("INSERT OR IGNORE INTO vault_state (vault) VALUES (?)", arrayOf(vault.value))
+                db.execSQL("UPDATE vault_state SET partial = ? WHERE vault = ?", arrayOf<Any>(next, vault.value))
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    fun partial(vault: VaultId): Boolean =
+        any("SELECT 1 FROM vault_state WHERE vault=? AND partial=1", vault.value) ||
+            any("SELECT 1 FROM skipped WHERE vault=? LIMIT 1", vault.value)
+
+    fun isSkipped(id: NoteId): Boolean =
+        any("SELECT 1 FROM skipped WHERE vault=? AND path=?", id.vaultId.value, id.path.relativePath)
+
+    fun markSkipped(id: NoteId, skipped: Boolean) {
+        if (skipped) {
+            writableDatabase.execSQL("INSERT OR IGNORE INTO skipped VALUES(?,?)", arrayOf(id.vaultId.value, id.path.relativePath))
+        } else {
+            writableDatabase.delete("skipped", "vault=? AND path=?", arrayOf(id.vaultId.value, id.path.relativePath))
+        }
+    }
 
     private inline fun transaction(action: (SQLiteDatabase) -> Unit) {
         val db = writableDatabase
@@ -89,11 +147,14 @@ internal class PassageVectorStore(context: Context, private val file: File) :
 
     fun remove(id: NoteId) = transaction { db ->
         val args = arrayOf(id.vaultId.value, id.path.relativePath)
-        for (table in listOf("passages", "vectors", "documents")) db.delete(table, "vault=? AND path=?", args)
+        for (table in listOf("passages", "vectors", "documents", "skipped")) db.delete(table, "vault=? AND path=?", args)
     }
 
     fun prune(vault: VaultId, keep: Set<NoteId>, checkActive: () -> Unit) {
-        val retired = readableDatabase.rawQuery("SELECT path FROM documents WHERE vault=?", arrayOf(vault.value)).use { cursor ->
+        val retired = readableDatabase.rawQuery(
+            "SELECT path FROM documents WHERE vault=? UNION SELECT path FROM skipped WHERE vault=?",
+            arrayOf(vault.value, vault.value),
+        ).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
                     val id = NoteId(vault, NotePath(cursor.getString(0)))
@@ -182,3 +243,5 @@ internal class PassageVectorStore(context: Context, private val file: File) :
         }
     }
 }
+
+internal data class ScoredPassage(val anchor: PassageAnchor, val section: String, val score: Double)

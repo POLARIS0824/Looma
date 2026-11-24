@@ -30,7 +30,13 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val noteRepository: NoteRepository by lazy {
         NoteRepository(
             vaultRepository,
-            RoomNoteIndex(indexDatabase) { delta -> semanticSearchRepository.recordChanges(delta) },
+            RoomNoteIndex(indexDatabase) { delta ->
+                try {
+                    semanticSearchRepository.recordChanges(delta)
+                } catch (error: Exception) {
+                    android.util.Log.w("SemanticIndex", "Could not record derived index changes", error)
+                }
+            },
             onFilesChanged = { vault, delta -> updateSemanticIndex { semanticSearchRepository.filesChanged(vault, delta) } },
             onVaultScanned = { vault, partial ->
                 updateSemanticIndex { semanticSearchRepository.resumeUpdates(vault, partial) }

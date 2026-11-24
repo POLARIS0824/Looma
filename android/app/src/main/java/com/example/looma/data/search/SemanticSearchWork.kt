@@ -13,6 +13,7 @@ import androidx.work.workDataOf
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.model.Vault
 import com.example.looma.domain.model.VaultId
+import com.example.looma.embedding.EmbeddingBackend
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -50,8 +51,8 @@ internal class SemanticSearchWork(
     context: Context,
     private val vaults: VaultRepository,
     private val model: EmbeddingModelFile,
-    private val cache: SemanticVectorCache,
     private val store: PassageVectorStore,
+    private val embeddingBackend: Flow<EmbeddingBackend>,
 ) {
     private val scheduling = kotlinx.coroutines.sync.Mutex()
     private val manager by lazy { WorkManager.getInstance(context) }
@@ -62,7 +63,7 @@ internal class SemanticSearchWork(
 
     val modelState: Flow<SemanticWorkState>
         get() = if (supported) {
-            combine(observe(MODEL_WORK_NAME), modelVersion) { info, _ ->
+            combine(observe(MODEL_WORK_NAME), modelVersion, embeddingBackend) { info, _, _ ->
                 val ready = (info == null || info.state.isFinished) && modelIsReady()
                 if (ready) SemanticWorkState.Ready else info.state(false)
             }.distinctUntilChanged()
@@ -71,14 +72,14 @@ internal class SemanticSearchWork(
         }
 
     val indexState: Flow<SemanticWorkState> = currentVaultWork(SemanticWorkState.Unavailable) { vault, info ->
-        val state = info.state(cache.hasCompletedIndex(vault.id))
-        if (state == SemanticWorkState.Ready && (!store.initialized(vault.id) || store.hasPending(vault.id) || cache.hasPending(vault.id) || cache.partial(vault.id))) {
+        val state = info.state(store.hasCompletedIndex(vault.id))
+        if (state == SemanticWorkState.Ready && (!store.initialized(vault.id) || store.hasPending(vault.id) || store.partial(vault.id))) {
             SemanticWorkState.Partial
         } else state
     }
 
     val hasIndex: Flow<Boolean> = currentVaultWork(false) { vault, _ ->
-        store.hasDocuments(vault.id) || cache.hasSearchableIndex(vault.id)
+        store.hasDocuments(vault.id)
     }
 
     suspend fun enqueueDownload() {
@@ -103,7 +104,7 @@ internal class SemanticSearchWork(
         check(supported)
         val vault = vaults.requireCurrentVault()
         if (!modelIsReady()) throw SemanticModelMissingException()
-        withContext(Dispatchers.IO) { cache.enable(vault.id) }
+        withContext(Dispatchers.IO) { store.enable(vault.id) }
         val request = OneTimeWorkRequestBuilder<SemanticVaultIndexWorker>()
             .setInputData(workDataOf(VAULT_ID to vault.id.value, VAULT_PATH to vault.rootPath))
             .build()
@@ -144,7 +145,7 @@ internal class SemanticSearchWork(
 
     private fun observe(name: String): Flow<WorkInfo?> =
         manager.getWorkInfosForUniqueWorkFlow(name).map { jobs ->
-            jobs.firstOrNull { it.state == WorkInfo.State.RUNNING } ?: jobs.firstOrNull { !it.state.isFinished } ?: jobs.singleOrNull()
+            jobs.firstOrNull { it.state == WorkInfo.State.RUNNING } ?: jobs.firstOrNull { !it.state.isFinished } ?: jobs.firstOrNull { it.state == WorkInfo.State.FAILED } ?: jobs.lastOrNull()
         }
 
     private fun WorkInfo?.state(ready: Boolean): SemanticWorkState = when (this?.state) {
