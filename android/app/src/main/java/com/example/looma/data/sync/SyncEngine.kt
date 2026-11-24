@@ -140,6 +140,7 @@ internal class SyncEngine(
         var deletedRemote = 0
         var conflicts = 0
         var failed = 0
+        var consecutiveTransientErrors = 0
         var firstErrorMessage: String? = null
         val changedLocalPaths = LinkedHashSet<SyncRelativePath>()
         val removedLocalPaths = LinkedHashSet<SyncRelativePath>()
@@ -164,211 +165,48 @@ internal class SyncEngine(
             }
         }
 
+        fun recordFailure(message: String) {
+            failed++
+            if (firstErrorMessage == null) {
+                firstErrorMessage = message
+            }
+        }
+
         try {
             val totalItems = plan.items.size
             onProgress(SyncPhase.SYNCING, 0, totalItems)
             for ((index, item) in plan.items.withIndex()) {
                 checkVaultStillActive()
                 try {
-                    when (item) {
-                        is SyncPlanItem.ClearBaseline -> {
-                            syncStateDao.deleteEntry(vault.id.value, targetKey, item.path.value)
-                        }
-                        is SyncPlanItem.RefreshBaselineStats -> {
-                            val sha256 = item.local.sha256 ?: item.baseline.localSha256
-                            saveBaseline(
-                                vaultId = vault.id,
-                                targetKey = targetKey,
-                                path = item.path,
-                                localSha256 = sha256,
-                                localSizeBytes = item.local.sizeBytes,
-                                localModifiedAtMillis = item.local.modifiedAtMillis,
-                                remoteEtag = item.baseline.remoteEtag,
-                                remoteSizeBytes = item.baseline.remoteSizeBytes,
-                                remoteModifiedAtMillis = item.baseline.remoteModifiedAtMillis,
-                            )
-                        }
-                        is SyncPlanItem.AdoptMatched -> {
-                            val sha256 = item.local.sha256 ?: SyncLocalStore.computeFileDigests(
-                                SyncLocalStore.resolveSafeTarget(root, item.path),
-                            ) { callerContext.ensureActive() }.sha256
-                            saveBaseline(
-                                vaultId = vault.id,
-                                targetKey = targetKey,
-                                path = item.path,
-                                localSha256 = sha256,
-                                localSizeBytes = item.local.sizeBytes,
-                                localModifiedAtMillis = item.local.modifiedAtMillis,
-                                remoteEtag = item.remote.etag,
-                                remoteSizeBytes = item.remote.sizeBytes,
-                                remoteModifiedAtMillis = item.remote.lastModifiedMillis,
-                            )
-                        }
-                        is SyncPlanItem.UploadNew, is SyncPlanItem.UploadUpdate -> {
-                            val localFile = SyncLocalStore.resolveSafeTarget(root, item.path)
-                            val beforeDigests = SyncLocalStore.computeFileDigests(localFile) {
-                                callerContext.ensureActive()
-                            }
-                            if (beforeDigests.sizeBytes > SyncFileFilter.MAX_SYNC_FILE_BYTES) {
-                                throw S3Exception(
-                                    kind = S3ErrorKind.FileTooLarge,
-                                    message = "File exceeds max sync size (${SyncFileFilter.MAX_SYNC_FILE_BYTES} bytes)",
-                                )
-                            }
-                            val condition = when (item) {
-                                is SyncPlanItem.UploadNew -> S3PutCondition.IfNotExists
-                                is SyncPlanItem.UploadUpdate -> S3PutCondition.IfMatch(item.expectedRemoteEtag)
-                            }
-                            val putResult = s3Client.uploadFile(
-                                config = endpointConfig,
-                                objectKey = prefix.toObjectKey(item.path),
-                                file = localFile,
-                                contentType = SyncFileFilter.inferContentType(item.path),
-                                condition = condition,
-                                mtimeMillis = beforeDigests.modifiedAtMillis,
-                            )
-                            val changedDuringUpload = !localFile.isFile ||
-                                localFile.length() != beforeDigests.sizeBytes ||
-                                localFile.lastModified() != beforeDigests.modifiedAtMillis ||
-                                putResult.sizeBytes != beforeDigests.sizeBytes ||
-                                !putResult.sha256.equals(beforeDigests.sha256, ignoreCase = true)
-                            val persistedModified = if (changedDuringUpload) 0L else beforeDigests.modifiedAtMillis
-                            uploaded++
-                            if (putResult.etag.isNotBlank()) {
-                                saveBaseline(
-                                    vaultId = vault.id,
-                                    targetKey = targetKey,
-                                    path = item.path,
-                                    localSha256 = putResult.sha256,
-                                    localSizeBytes = putResult.sizeBytes,
-                                    localModifiedAtMillis = persistedModified,
-                                    remoteEtag = putResult.etag,
-                                    remoteSizeBytes = putResult.sizeBytes,
-                                    remoteModifiedAtMillis = System.currentTimeMillis(),
-                                )
-                            }
-                        }
-                        is SyncPlanItem.DownloadNew -> {
-                            downloadAndCommit(
-                                vault = vault,
-                                root = root,
-                                targetKey = targetKey,
-                                endpointConfig = endpointConfig,
-                                prefix = prefix,
-                                path = item.path,
-                                remote = item.remote,
-                                commit = { stagedFile, downloadedSha256 ->
-                                    SyncLocalStore.commitDownloadedNew(
-                                        root = root,
-                                        path = item.path,
-                                        stagedFile = stagedFile,
-                                        downloadedSha256 = downloadedSha256,
-                                    )
-                                },
-                                markLocalChanged = ::markLocalChanged,
-                                onDownloaded = { downloaded++ },
-                                onConflict = { conflicts++ },
-                                onConflictUploaded = { uploaded++ },
-                            )
-                        }
-                        is SyncPlanItem.DownloadUpdate -> {
-                            downloadAndCommit(
-                                vault = vault,
-                                root = root,
-                                targetKey = targetKey,
-                                endpointConfig = endpointConfig,
-                                prefix = prefix,
-                                path = item.path,
-                                remote = item.remote,
-                                commit = { stagedFile, downloadedSha256 ->
-                                    SyncLocalStore.commitDownloadedUpdate(
-                                        root = root,
-                                        path = item.path,
-                                        stagedFile = stagedFile,
-                                        downloadedSha256 = downloadedSha256,
-                                        expectedLocalSha256 = item.expectedLocalSha256,
-                                    )
-                                },
-                                markLocalChanged = ::markLocalChanged,
-                                onDownloaded = { downloaded++ },
-                                onConflict = { conflicts++ },
-                                onConflictUploaded = { uploaded++ },
-                            )
-                        }
-                        is SyncPlanItem.ResolveConflict -> {
-                            downloadAndCommit(
-                                vault = vault,
-                                root = root,
-                                targetKey = targetKey,
-                                endpointConfig = endpointConfig,
-                                prefix = prefix,
-                                path = item.path,
-                                remote = item.remote,
-                                commit = { stagedFile, downloadedSha256 ->
-                                    SyncLocalStore.commitConflictResolution(
-                                        root = root,
-                                        path = item.path,
-                                        stagedRemoteFile = stagedFile,
-                                        downloadedSha256 = downloadedSha256,
-                                    )
-                                },
-                                markLocalChanged = ::markLocalChanged,
-                                onDownloaded = { downloaded++ },
-                                onConflict = { conflicts++ },
-                                onConflictUploaded = { uploaded++ },
-                            )
-                        }
-                        is SyncPlanItem.DeleteLocal -> {
-                            val deleteResult = VaultWriteCoordinator.write(vault) {
-                                SyncLocalStore.deleteLocalIfUnchanged(
-                                    root = root,
-                                    path = item.path,
-                                    expectedLocalSha256 = item.expectedLocalSha256,
-                                )
-                            }
-                            when (deleteResult) {
-                                LocalDeleteResult.Deleted -> {
-                                    markLocalRemoved(item.path)
-                                    deletedLocal++
-                                    syncStateDao.deleteEntry(vault.id.value, targetKey, item.path.value)
-                                }
-                                LocalDeleteResult.AlreadyDeleted -> {
-                                    syncStateDao.deleteEntry(vault.id.value, targetKey, item.path.value)
-                                }
-                                LocalDeleteResult.LocalModifiedAbort -> {
-                                    failed++
-                                    if (firstErrorMessage == null) {
-                                        firstErrorMessage = "Local file modified before delete: ${item.path.value}"
-                                    }
-                                }
-                            }
-                        }
-                        is SyncPlanItem.DeleteRemote -> {
-                            val localTarget = SyncLocalStore.resolveSafeTarget(root, item.path)
-                            val stillAbsent = !Files.exists(localTarget.toPath(), NOFOLLOW_LINKS)
-                            if (!stillAbsent) {
-                                failed++
-                                if (firstErrorMessage == null) {
-                                    firstErrorMessage = "Local file reappeared before remote delete: ${item.path.value}"
-                                }
-                            } else {
-                                s3Client.deleteObject(
-                                    config = endpointConfig,
-                                    objectKey = item.objectKey,
-                                    expectedEtag = item.expectedRemoteEtag,
-                                )
-                                deletedRemote++
-                                syncStateDao.deleteEntry(vault.id.value, targetKey, item.path.value)
-                            }
-                        }
-                    }
+                    executePlanItem(
+                        item = item,
+                        vault = vault,
+                        root = root,
+                        targetKey = targetKey,
+                        endpointConfig = endpointConfig,
+                        prefix = prefix,
+                        checkActive = { callerContext.ensureActive() },
+                        markLocalChanged = ::markLocalChanged,
+                        markLocalRemoved = ::markLocalRemoved,
+                        onUploaded = { uploaded++ },
+                        onDownloaded = { downloaded++ },
+                        onDeletedLocal = { deletedLocal++ },
+                        onDeletedRemote = { deletedRemote++ },
+                        onConflict = { conflicts++ },
+                        onFailed = ::recordFailure,
+                    )
+                    consecutiveTransientErrors = 0
                 } catch (t: Throwable) {
                     if (isFatalError(t)) throw t
                     if (t is IOException) {
-                        failed++
-                        if (firstErrorMessage == null) {
-                            firstErrorMessage = formatError(t)
+                        val isTransient = t !is S3Exception || t.kind in TRANSIENT_S3_ERROR_KINDS
+                        if (isTransient) {
+                            consecutiveTransientErrors++
+                            if (consecutiveTransientErrors >= MAX_CONSECUTIVE_TRANSIENT_ERRORS) {
+                                throw t
+                            }
                         }
+                        recordFailure(formatError(t))
                     } else {
                         throw t
                     }
@@ -778,6 +616,209 @@ internal class SyncEngine(
         syncedAtMillis = syncedAtMillis,
     )
 
+    private suspend fun executePlanItem(
+        item: SyncPlanItem,
+        vault: Vault,
+        root: File,
+        targetKey: String,
+        endpointConfig: S3EndpointConfig,
+        prefix: RemotePrefix,
+        checkActive: () -> Unit,
+        markLocalChanged: (SyncRelativePath) -> Unit,
+        markLocalRemoved: (SyncRelativePath) -> Unit,
+        onUploaded: () -> Unit,
+        onDownloaded: () -> Unit,
+        onDeletedLocal: () -> Unit,
+        onDeletedRemote: () -> Unit,
+        onConflict: () -> Unit,
+        onFailed: (String) -> Unit,
+    ) {
+        when (item) {
+            is SyncPlanItem.ClearBaseline -> {
+                syncStateDao.deleteEntry(vault.id.value, targetKey, item.path.value)
+            }
+            is SyncPlanItem.RefreshBaselineStats -> {
+                val sha256 = item.local.sha256 ?: item.baseline.localSha256
+                saveBaseline(
+                    vaultId = vault.id,
+                    targetKey = targetKey,
+                    path = item.path,
+                    localSha256 = sha256,
+                    localSizeBytes = item.local.sizeBytes,
+                    localModifiedAtMillis = item.local.modifiedAtMillis,
+                    remoteEtag = item.baseline.remoteEtag,
+                    remoteSizeBytes = item.baseline.remoteSizeBytes,
+                    remoteModifiedAtMillis = item.baseline.remoteModifiedAtMillis,
+                )
+            }
+            is SyncPlanItem.AdoptMatched -> {
+                val sha256 = item.local.sha256 ?: SyncLocalStore.computeFileDigests(
+                    SyncLocalStore.resolveSafeTarget(root, item.path),
+                ) { checkActive() }.sha256
+                saveBaseline(
+                    vaultId = vault.id,
+                    targetKey = targetKey,
+                    path = item.path,
+                    localSha256 = sha256,
+                    localSizeBytes = item.local.sizeBytes,
+                    localModifiedAtMillis = item.local.modifiedAtMillis,
+                    remoteEtag = item.remote.etag,
+                    remoteSizeBytes = item.remote.sizeBytes,
+                    remoteModifiedAtMillis = item.remote.lastModifiedMillis,
+                )
+            }
+            is SyncPlanItem.UploadNew, is SyncPlanItem.UploadUpdate -> {
+                val localFile = SyncLocalStore.resolveSafeTarget(root, item.path)
+                val beforeDigests = SyncLocalStore.computeFileDigests(localFile) { checkActive() }
+                if (beforeDigests.sizeBytes > SyncFileFilter.MAX_SYNC_FILE_BYTES) {
+                    throw S3Exception(
+                        kind = S3ErrorKind.FileTooLarge,
+                        message = "File exceeds max sync size (${SyncFileFilter.MAX_SYNC_FILE_BYTES} bytes)",
+                    )
+                }
+                val condition = when (item) {
+                    is SyncPlanItem.UploadNew -> S3PutCondition.IfNotExists
+                    is SyncPlanItem.UploadUpdate -> S3PutCondition.IfMatch(item.expectedRemoteEtag)
+                }
+                val putResult = s3Client.uploadFile(
+                    config = endpointConfig,
+                    objectKey = prefix.toObjectKey(item.path),
+                    file = localFile,
+                    contentType = SyncFileFilter.inferContentType(item.path),
+                    condition = condition,
+                    mtimeMillis = beforeDigests.modifiedAtMillis,
+                )
+                val changedDuringUpload = !localFile.isFile ||
+                    localFile.length() != beforeDigests.sizeBytes ||
+                    localFile.lastModified() != beforeDigests.modifiedAtMillis ||
+                    putResult.sizeBytes != beforeDigests.sizeBytes ||
+                    !putResult.sha256.equals(beforeDigests.sha256, ignoreCase = true)
+                val persistedModified = if (changedDuringUpload) 0L else beforeDigests.modifiedAtMillis
+                onUploaded()
+                if (putResult.etag.isNotBlank()) {
+                    saveBaseline(
+                        vaultId = vault.id,
+                        targetKey = targetKey,
+                        path = item.path,
+                        localSha256 = putResult.sha256,
+                        localSizeBytes = putResult.sizeBytes,
+                        localModifiedAtMillis = persistedModified,
+                        remoteEtag = putResult.etag,
+                        remoteSizeBytes = putResult.sizeBytes,
+                        remoteModifiedAtMillis = System.currentTimeMillis(),
+                    )
+                }
+            }
+            is SyncPlanItem.DownloadNew -> {
+                downloadAndCommit(
+                    vault = vault,
+                    root = root,
+                    targetKey = targetKey,
+                    endpointConfig = endpointConfig,
+                    prefix = prefix,
+                    path = item.path,
+                    remote = item.remote,
+                    commit = { stagedFile, downloadedSha256 ->
+                        SyncLocalStore.commitDownloadedNew(
+                            root = root,
+                            path = item.path,
+                            stagedFile = stagedFile,
+                            downloadedSha256 = downloadedSha256,
+                        )
+                    },
+                    markLocalChanged = markLocalChanged,
+                    onDownloaded = onDownloaded,
+                    onConflict = onConflict,
+                    onConflictUploaded = onUploaded,
+                )
+            }
+            is SyncPlanItem.DownloadUpdate -> {
+                downloadAndCommit(
+                    vault = vault,
+                    root = root,
+                    targetKey = targetKey,
+                    endpointConfig = endpointConfig,
+                    prefix = prefix,
+                    path = item.path,
+                    remote = item.remote,
+                    commit = { stagedFile, downloadedSha256 ->
+                        SyncLocalStore.commitDownloadedUpdate(
+                            root = root,
+                            path = item.path,
+                            stagedFile = stagedFile,
+                            downloadedSha256 = downloadedSha256,
+                            expectedLocalSha256 = item.expectedLocalSha256,
+                        )
+                    },
+                    markLocalChanged = markLocalChanged,
+                    onDownloaded = onDownloaded,
+                    onConflict = onConflict,
+                    onConflictUploaded = onUploaded,
+                )
+            }
+            is SyncPlanItem.ResolveConflict -> {
+                downloadAndCommit(
+                    vault = vault,
+                    root = root,
+                    targetKey = targetKey,
+                    endpointConfig = endpointConfig,
+                    prefix = prefix,
+                    path = item.path,
+                    remote = item.remote,
+                    commit = { stagedFile, downloadedSha256 ->
+                        SyncLocalStore.commitConflictResolution(
+                            root = root,
+                            path = item.path,
+                            stagedRemoteFile = stagedFile,
+                            downloadedSha256 = downloadedSha256,
+                        )
+                    },
+                    markLocalChanged = markLocalChanged,
+                    onDownloaded = onDownloaded,
+                    onConflict = onConflict,
+                    onConflictUploaded = onUploaded,
+                )
+            }
+            is SyncPlanItem.DeleteLocal -> {
+                val deleteResult = VaultWriteCoordinator.write(vault) {
+                    SyncLocalStore.deleteLocalIfUnchanged(
+                        root = root,
+                        path = item.path,
+                        expectedLocalSha256 = item.expectedLocalSha256,
+                    )
+                }
+                when (deleteResult) {
+                    LocalDeleteResult.Deleted -> {
+                        markLocalRemoved(item.path)
+                        onDeletedLocal()
+                        syncStateDao.deleteEntry(vault.id.value, targetKey, item.path.value)
+                    }
+                    LocalDeleteResult.AlreadyDeleted -> {
+                        syncStateDao.deleteEntry(vault.id.value, targetKey, item.path.value)
+                    }
+                    LocalDeleteResult.LocalModifiedAbort -> {
+                        onFailed("Local file modified before delete: ${item.path.value}")
+                    }
+                }
+            }
+            is SyncPlanItem.DeleteRemote -> {
+                val localTarget = SyncLocalStore.resolveSafeTarget(root, item.path)
+                val stillAbsent = !Files.exists(localTarget.toPath(), NOFOLLOW_LINKS)
+                if (!stillAbsent) {
+                    onFailed("Local file reappeared before remote delete: ${item.path.value}")
+                } else {
+                    s3Client.deleteObject(
+                        config = endpointConfig,
+                        objectKey = item.objectKey,
+                        expectedEtag = item.expectedRemoteEtag,
+                    )
+                    onDeletedRemote()
+                    syncStateDao.deleteEntry(vault.id.value, targetKey, item.path.value)
+                }
+            }
+        }
+    }
+
     private fun isFatalError(error: Throwable): Boolean = when (error) {
         is CancellationException,
         is SyncVaultChangedException,
@@ -787,5 +828,14 @@ internal class SyncEngine(
             error.kind == S3ErrorKind.BucketNotFound ||
             error.kind == S3ErrorKind.ClockSkew
         else -> false
+    }
+
+    companion object {
+        private const val MAX_CONSECUTIVE_TRANSIENT_ERRORS = 3
+        private val TRANSIENT_S3_ERROR_KINDS = setOf(
+            S3ErrorKind.Network,
+            S3ErrorKind.RateLimited,
+            S3ErrorKind.ServerError,
+        )
     }
 }

@@ -45,9 +45,10 @@ object SyncPlanner {
             }
         }
 
+        val skippedPaths = extraSkipped.mapTo(HashSet()) { it.rawPath }
         val allPaths = (localFiles.keys + remoteObjects.keys + baselines.keys)
             .asSequence()
-            .filter { it !in collidedPaths }
+            .filter { it !in collidedPaths && it.value !in skippedPaths }
             .distinct()
             .sortedBy { it.value }
             .toList()

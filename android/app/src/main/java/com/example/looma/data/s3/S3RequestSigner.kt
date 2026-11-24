@@ -62,7 +62,9 @@ internal object S3RequestSigner {
         val uri = URI(normalized)
         val scheme = (uri.scheme ?: "https").lowercase(Locale.ROOT)
         require(scheme == "http" || scheme == "https") { "unsupported S3 endpoint scheme: $scheme" }
-        val host = requireNotNull(uri.host?.takeIf { it.isNotBlank() }) { "the S3 endpoint has no host" }
+        val host = requireNotNull(
+            uri.host?.takeIf { it.isNotBlank() }?.lowercase(Locale.ROOT),
+        ) { "the S3 endpoint has no host" }
         return Endpoint(
             scheme = scheme,
             host = host,
@@ -108,7 +110,7 @@ internal object S3RequestSigner {
         require(config.secretKey.isNotEmpty()) { "the S3 secret key is empty" }
 
         val normalizedMethod = method.trim().uppercase(Locale.ROOT)
-        val requestHost = if (config.pathStyle) parsed.host else "$bucket.${parsed.host}"
+        val requestHost = (if (config.pathStyle) parsed.host else "$bucket.${parsed.host}").lowercase(Locale.ROOT)
         val hostHeader = if (parsed.effectivePort > 0) "$requestHost:${parsed.effectivePort}" else requestHost
         val cleanKey = objectKey?.trimStart('/')?.takeIf { it.isNotEmpty() }
         val rawPath = if (config.pathStyle) {
