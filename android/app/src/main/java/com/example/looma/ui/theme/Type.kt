@@ -1,5 +1,6 @@
 package com.example.looma.ui.theme
 
+import android.graphics.Typeface
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -83,5 +84,18 @@ fun rememberLoomaTypography(): Typography {
             labelMediumEmphasized = base.labelMediumEmphasized.loomaFlex(id),
             labelSmallEmphasized = base.labelSmallEmphasized.loomaFlex(id),
         )
+    }
+}
+
+@Composable
+fun rememberNoteBodyTypeface(): Typeface {
+    val context = LocalContext.current
+    return remember(context) {
+        val id = context.resources.getIdentifier("google_sans_flex", "font", context.packageName)
+        if (id != 0) {
+            runCatching { context.resources.getFont(id) }.getOrDefault(Typeface.SANS_SERIF)
+        } else {
+            Typeface.SANS_SERIF
+        }
     }
 }

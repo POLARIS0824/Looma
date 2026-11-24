@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -42,7 +41,6 @@ import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,18 +52,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -86,15 +80,14 @@ import com.example.looma.domain.markdown.prepareMarkdownOpening
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.search.PassageAnchor
 import com.example.looma.domain.wiki.WikiContext
-import com.example.looma.domain.wiki.WikiNote
 import com.example.looma.feature.note.components.BacklinksSection
+import com.example.looma.feature.note.components.NoteBodyEditor
 import com.example.looma.feature.note.components.NoteFormatBar
 import com.example.looma.feature.note.components.NoteLeaveDialog
 import com.example.looma.feature.note.components.NoteNavigator
 import com.example.looma.feature.note.components.NoteSaveBanner
 import com.example.looma.feature.note.components.NoteTitleField
 import com.example.looma.feature.note.components.NoteTopBar
-import com.example.looma.feature.note.components.NoteTextField
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.compose.animation.EnterExitState
 import com.example.looma.feature.note.components.WikiLinkPanel
@@ -219,7 +212,7 @@ fun NoteRoute(
                     onPickImage = pickImage,
                     onImageInserted = viewModel::onImageInserted,
                     onImageErrorShown = viewModel::onImageErrorShown,
-                    onExport = { export(state.fileName, viewModel.editor.text.toString()) },
+                    onExport = { export(state.fileName, viewModel.editor.snapshot()) },
                     editorActive = editorActive,
                     passage = passage,
                     matchesPassage = viewModel::matchesPassage,
@@ -246,7 +239,7 @@ fun NoteRoute(
 @Composable
 private fun NoteWorkspace(
     state: NoteUiState,
-    contentBuffer: TextFieldState,
+    contentBuffer: NoteEditorState,
     titleBuffer: TextFieldState,
     onCommitTitle: (String) -> Unit,
     onTitleErrorShown: () -> Unit,
@@ -270,13 +263,14 @@ private fun NoteWorkspace(
     var formatState by remember(contentBuffer) { mutableStateOf(MarkdownFormatState()) }
     var mode by rememberSaveable {
         mutableStateOf(
-            if (passage != null || contentBuffer.text.length >= LARGE_NOTE_READ_THRESHOLD) NoteMode.Read else NoteMode.Edit,
+            if (passage != null) NoteMode.Read else NoteMode.Edit,
         )
     }
     val fences = remember(contentBuffer) { FenceIndex() }
     LaunchedEffect(contentBuffer, mode, editorActive) {
         if (mode != NoteMode.Edit || !editorActive) return@LaunchedEffect
-        snapshotFlow { contentBuffer.text to contentBuffer.selection }.collectLatest { (text, selection) ->
+        snapshotFlow { contentBuffer.contentVersion to contentBuffer.selection }.collectLatest { (_, selection) ->
+            val text = contentBuffer.snapshot()
             formatState = withContext(Dispatchers.Default) {
                 MarkdownEditing.formatState(text, TextSelection(selection.start, selection.end), fences)
             }
@@ -286,9 +280,7 @@ private fun NoteWorkspace(
     var linkPanelOpen by rememberSaveable { mutableStateOf(false) }
     var initialTitleFocusTaken by rememberSaveable { mutableStateOf(false) }
     val readScroll = rememberLazyListState()
-    val editScroll = rememberScrollState()
-    val boundedEditor = remember(contentBuffer) { contentBuffer.text.length >= LARGE_NOTE_READ_THRESHOLD }
-    val modeScroll = remember(contentBuffer, readScroll, editScroll) { NoteModeScroll(readScroll, editScroll) }
+    val modeScroll = remember(contentBuffer, readScroll) { NoteModeScroll(readScroll, contentBuffer) }
     var pendingModeScroll by remember(contentBuffer) { mutableStateOf<ModeScrollRequest?>(null) }
     var modeScrollReturn by remember(contentBuffer) { mutableStateOf<ModeScrollReturn?>(null) }
     val modeScrollObserver = remember(contentBuffer) {
@@ -302,7 +294,6 @@ private fun NoteWorkspace(
             }
         }
     }
-    val bodyFocus = remember { FocusRequester() }
     val titleFocus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -312,7 +303,7 @@ private fun NoteWorkspace(
     val modeExit = fadeOut(motion.fastEffectsSpec())
     val appBarState = rememberTopAppBarState()
     val appBarScroll = TopAppBarDefaults.pinnedScrollBehavior(
-        scrollableState = if (mode == NoteMode.Read) readScroll else editScroll,
+        scrollableState = readScroll,
         state = appBarState,
     )
     val scope = rememberCoroutineScope()
@@ -341,10 +332,11 @@ private fun NoteWorkspace(
     LaunchedEffect(contentBuffer, editorActive, mode) {
         if (!editorActive) return@LaunchedEffect
         snapshotFlow {
-            val text = contentBuffer.text
-            if (mode == NoteMode.Edit && text.length >= LARGE_NOTE_READ_THRESHOLD) null else text.toString()
-        }.collectLatest { source ->
-            if (source == null) return@collectLatest
+            if (mode == NoteMode.Edit && contentBuffer.length >= LARGE_NOTE_READ_THRESHOLD) null
+            else contentBuffer.contentVersion
+        }.collectLatest { version ->
+            if (version == null) return@collectLatest
+            val source = contentBuffer.snapshot()
             if (preview?.source == source && preview !is PreparedMarkdown.Opening) return@collectLatest
             if (mode == NoteMode.Edit) delay(READ_PREVIEW_IDLE_MILLIS)
             if (source.length >= LARGE_NOTE_READ_THRESHOLD && preview?.source != source) {
@@ -355,10 +347,11 @@ private fun NoteWorkspace(
     }
 
     LaunchedEffect(mode) {
-        appBarState.contentOffset = 0f
+        appBarState.contentOffset = if (mode == NoteMode.Edit) -contentBuffer.totalScrollOffsetY else 0f
         if (mode == NoteMode.Read) {
             linkPanelOpen = false
             focusManager.clearFocus()
+            contentBuffer.clearFocus()
             keyboard?.hide()
         }
     }
@@ -370,7 +363,7 @@ private fun NoteWorkspace(
             scope.launch { snackbarHostState.showSnackbar(resources.getString(R.string.note_passage_changed)) }
             return@LaunchedEffect
         }
-        val reading = (preview as? PreparedMarkdown.Ready)?.takeIf { it.source == contentBuffer.text.toString() }
+        val reading = (preview as? PreparedMarkdown.Ready)?.takeIf { it.source == contentBuffer.snapshot() }
             ?: return@LaunchedEffect
         if (mode == NoteMode.Read) {
             modeScroll.openPassage(passage.start, reading.blocks, reading.index.bodyStart, state.showInlineTitle)
@@ -381,13 +374,9 @@ private fun NoteWorkspace(
     val request = pendingModeScroll
     val readRequest = request is ModeScrollRequest.Read || request is ModeScrollRequest.ReadOffset || request is ModeScrollRequest.ReadPassage
     val requestedPreview = if (readRequest) preview else null
-    val editRestoreSource = when (request) {
-        is ModeScrollRequest.Edit, is ModeScrollRequest.EditOffset -> contentBuffer.text.toString()
-        else -> null
-    }
-    LaunchedEffect(request, requestedPreview, editRestoreSource, state.showInlineTitle) {
+    LaunchedEffect(request, requestedPreview, state.showInlineTitle) {
         val currentPreview = (requestedPreview as? PreparedMarkdown.Ready)?.takeIf {
-            it.source == contentBuffer.text.toString()
+            it.source == contentBuffer.snapshot()
         }
         when (request) {
             is ModeScrollRequest.ReadPassage -> {
@@ -408,11 +397,8 @@ private fun NoteWorkspace(
                 currentPreview ?: return@LaunchedEffect
                 readScroll.scrollToItem(request.itemIndex, request.offset)
             }
-            is ModeScrollRequest.Edit -> modeScroll.restoreEdit(request.anchor, editRestoreSource ?: return@LaunchedEffect)
-            is ModeScrollRequest.EditOffset -> modeScroll.restoreEdit(
-                request.offset,
-                editRestoreSource ?: return@LaunchedEffect,
-            )
+            is ModeScrollRequest.Edit -> modeScroll.restoreEdit(request.anchor)
+            is ModeScrollRequest.EditOffset -> modeScroll.restoreEdit(request.offset)
             null -> return@LaunchedEffect
         }
         if (pendingModeScroll === request) pendingModeScroll = null
@@ -422,7 +408,7 @@ private fun NoteWorkspace(
         val insertion = state.imageInsertion ?: return@LaunchedEffect
         insertSnippet(contentBuffer, insertion.snippet)
         onImageInserted()
-        bodyFocus.requestFocus()
+        contentBuffer.requestFocus()
     }
 
     LaunchedEffect(state.imageUploadError) {
@@ -466,11 +452,11 @@ private fun NoteWorkspace(
                 mode = mode,
                 onNavigateUp = leaveWorkspace,
                 weaveAction = {
-                    NoteNavigator(snapshot = { contentBuffer.text.toString() }, prepared = preview as? PreparedMarkdown.Ready) { source, range ->
-                        if (source == contentBuffer.text.toString()) {
+                    NoteNavigator(snapshot = { contentBuffer.snapshot() }, prepared = preview as? PreparedMarkdown.Ready) { source, range ->
+                        if (source == contentBuffer.snapshot()) {
                             modeScrollReturn = null
                             if (mode == NoteMode.Edit) {
-                                contentBuffer.edit { selection = range }
+                                contentBuffer.setSelection(range)
                                 pendingModeScroll = ModeScrollRequest.Edit(ReadingAnchor.edit(range.min, null, 0f, false))
                             } else {
                                 pendingModeScroll = ModeScrollRequest.ReadPassage(source, range.min)
@@ -490,9 +476,10 @@ private fun NoteWorkspace(
                     val next = if (mode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
                     if (next == NoteMode.Read) {
                         focusManager.clearFocus(force = true)
+                        contentBuffer.clearFocus()
                         keyboard?.hide()
                     }
-                    val text = contentBuffer.text.toString()
+                    val text = contentBuffer.snapshot()
                     val returnPosition = modeScrollReturn?.takeIf { it.source == text }?.position
                     pendingModeScroll = returnPosition ?: run {
                         when (mode) {
@@ -503,7 +490,7 @@ private fun NoteWorkspace(
                                     hasHeader = state.showInlineTitle,
                                 )?.let { anchor -> ModeScrollRequest.Edit(anchor) }
                             }
-                            NoteMode.Edit -> modeScroll.captureEdit(text)
+                            NoteMode.Edit -> modeScroll.captureEdit()
                                 ?.let { position -> ModeScrollRequest.Read(position) }
                         }
                     }
@@ -513,7 +500,7 @@ private fun NoteWorkspace(
                                 readScroll.firstVisibleItemIndex,
                                 readScroll.firstVisibleItemScrollOffset,
                             )
-                            NoteMode.Edit -> ModeScrollRequest.EditOffset(editScroll.value)
+                            NoteMode.Edit -> ModeScrollRequest.EditOffset(contentBuffer.scrollOffsetY)
                         }
                         ModeScrollReturn(text, position)
                     } else {
@@ -538,7 +525,7 @@ private fun NoteWorkspace(
                                 requestInitialFocus = state.isNewNote && !initialTitleFocusTaken,
                                 onInitialFocusShown = { initialTitleFocusTaken = true },
                                 error = state.titleError,
-                                onDone = { bodyFocus.requestFocus() },
+                                onDone = { contentBuffer.requestFocus() },
                             )
                         } else {
                             Text(
@@ -579,7 +566,7 @@ private fun NoteWorkspace(
                 when (shownMode) {
                     NoteMode.Read -> {
                         val renderedPreview = preview
-                        val previewIsCurrent = renderedPreview != null && renderedPreview.source == contentBuffer.text.toString()
+                        val previewIsCurrent = renderedPreview != null && renderedPreview.source == contentBuffer.snapshot()
                         val canShowPreview = when {
                             renderedPreview is PreparedMarkdown.Opening ->
                                 previewIsCurrent && (passage == null || passageOpened) && when (request) {
@@ -613,60 +600,65 @@ private fun NoteWorkspace(
                             },
                             onCheckboxToggle = { rendered, position, checked ->
                                 if (
-                                    rendered.source == contentBuffer.text.toString() &&
+                                    rendered.source == contentBuffer.snapshot() &&
                                     rendered.index.checkboxes.any { it.range.first == position && it.checked != checked }
                                 ) {
-                                    contentBuffer.edit {
-                                        replace(
-                                            position,
-                                            position + MARKER_LENGTH,
-                                            if (checked) CHECKED else UNCHECKED,
-                                        )
-                                    }
+                                    contentBuffer.replaceRange(
+                                        start = position,
+                                        end = position + MARKER_LENGTH,
+                                        replacement = if (checked) CHECKED else UNCHECKED,
+                                        newSelection = contentBuffer.selection,
+                                    )
                                 }
                             },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
 
-                    NoteMode.Edit -> Column(Modifier.fillMaxSize()) {
-                        Column(
+                    NoteMode.Edit -> Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        NoteBodyEditor(
+                            editorState = contentBuffer,
+                            active = editorActive,
+                            onScrollChanged = { offsetY, byUser ->
+                                appBarState.contentOffset = -offsetY.toFloat()
+                                if (byUser) {
+                                    pendingModeScroll = null
+                                    modeScrollReturn = null
+                                }
+                            },
+                            header = if (state.showInlineTitle) {
+                                {
+                                    NoteTitleField(
+                                        buffer = titleBuffer,
+                                        fileName = state.fileName,
+                                        isNewNote = state.isNewNote,
+                                        isRenaming = state.isRenaming,
+                                        textStyle = MaterialTheme.typography.headlineLargeEmphasized,
+                                        focusRequester = titleFocus,
+                                        onCommit = onCommitTitle,
+                                        onFocusChange = { focused ->
+                                            if (focused) contentBuffer.expandHeader()
+                                            onTitleFocusChange(focused)
+                                        },
+                                        requestInitialFocus = state.isNewNote && !initialTitleFocusTaken,
+                                        onInitialFocusShown = { initialTitleFocusTaken = true },
+                                        error = state.titleError,
+                                        onDone = { contentBuffer.requestFocus() },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp, bottom = 8.dp),
+                                    )
+                                }
+                            } else {
+                                null
+                            },
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxWidth()
-                                .then(if (boundedEditor) Modifier else Modifier.verticalScroll(editScroll)),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            if (state.showInlineTitle) {
-                                NoteTitleField(
-                                    buffer = titleBuffer,
-                                    fileName = state.fileName,
-                                    isNewNote = state.isNewNote,
-                                    isRenaming = state.isRenaming,
-                                    textStyle = MaterialTheme.typography.headlineLargeEmphasized,
-                                    focusRequester = titleFocus,
-                                    onCommit = onCommitTitle,
-                                    onFocusChange = onTitleFocusChange,
-                                    requestInitialFocus = state.isNewNote && !initialTitleFocusTaken,
-                                    onInitialFocusShown = { initialTitleFocusTaken = true },
-                                    error = state.titleError,
-                                    onDone = { bodyFocus.requestFocus() },
-                                    modifier = Modifier
-                                        .padding(horizontal = pageMargin(), vertical = 4.dp)
-                                        .widthIn(max = PageMaxWidth)
-                                        .fillMaxWidth(),
-                                )
-                            }
-                            NoteBodyEditor(
-                                active = editorActive,
-                                buffer = contentBuffer,
-                                focusRequester = bodyFocus,
-                                onTextLayout = { modeScroll.editLayout = it },
-                                onTextTopInContent = { modeScroll.editTextOffset = if (boundedEditor) 0 else it },
-                                scrollState = if (boundedEditor) editScroll else rememberScrollState(),
-                                modifier = if (boundedEditor) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
-                            )
-                        }
+                                .fillMaxWidth(),
+                        )
                         if (linkPanelOpen) {
                             WikiLinkPanel(
                                 candidates = state.wiki.linkables,
@@ -676,39 +668,40 @@ private fun NoteWorkspace(
                                         reference = wikiReferenceFor(note, state.wiki.linkables),
                                     )
                                     linkPanelOpen = false
-                                    bodyFocus.requestFocus()
+                                    contentBuffer.requestFocus()
                                 },
                                 onDismiss = {
                                     linkPanelOpen = false
-                                    bodyFocus.requestFocus()
+                                    contentBuffer.requestFocus()
                                 },
                             )
                         }
                         NoteFormatBar(
                             formatState = formatState,
                             toolbarOrder = state.toolbarOrder,
-                            canUndo = contentBuffer.undoState.canUndo,
-                            canRedo = contentBuffer.undoState.canRedo,
+                            canUndo = contentBuffer.canUndo,
+                            canRedo = contentBuffer.canRedo,
                             isUploadingImage = state.isUploadingImage,
                             wikiLinkOpen = linkPanelOpen,
                             onCommand = { command ->
                                 applyMarkdownCommand(contentBuffer, command)
-                                bodyFocus.requestFocus()
+                                contentBuffer.requestFocus()
                             },
                             onUndo = {
-                                contentBuffer.undoState.undo()
-                                bodyFocus.requestFocus()
+                                contentBuffer.undo()
+                                contentBuffer.requestFocus()
                             },
                             onRedo = {
-                                contentBuffer.undoState.redo()
-                                bodyFocus.requestFocus()
+                                contentBuffer.redo()
+                                contentBuffer.requestFocus()
                             },
                             onWikiLink = {
                                 linkPanelOpen = !linkPanelOpen
                                 if (linkPanelOpen) {
                                     focusManager.clearFocus()
+                                    contentBuffer.clearFocus()
                                 } else {
-                                    bodyFocus.requestFocus()
+                                    contentBuffer.requestFocus()
                                 }
                             },
                             onInsertImage = onPickImage,
@@ -718,47 +711,6 @@ private fun NoteWorkspace(
             }
         }
     }
-}
-
-@Composable
-private fun NoteBodyEditor(
-    active: Boolean,
-    buffer: TextFieldState,
-    focusRequester: FocusRequester,
-    onTextLayout: (TextLayoutResult) -> Unit,
-    onTextTopInContent: (Int) -> Unit,
-    scrollState: androidx.compose.foundation.ScrollState,
-    modifier: Modifier = Modifier,
-) {
-    val placeholder = stringResource(R.string.editor_placeholder)
-    NoteTextField(
-        state = buffer,
-        active = active,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = pageMargin(), vertical = BodyVerticalPadding)
-            .onGloballyPositioned { onTextTopInContent(it.positionInParent().y.roundToInt()) }
-            .focusRequester(focusRequester),
-        textStyle = LoomaTokens.type.noteBody.copy(
-            color = MaterialTheme.colorScheme.onSurface,
-        ),
-        onTextLayout = onTextLayout,
-        scrollState = scrollState,
-        decorator = TextFieldDecorator { innerTextField ->
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                Box(Modifier.widthIn(max = PageMaxWidth).fillMaxWidth()) {
-                    if (buffer.text.isEmpty()) {
-                        Text(
-                            text = placeholder,
-                            style = LoomaTokens.type.noteBody,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    innerTextField()
-                }
-            }
-        },
-    )
 }
 
 @Composable
@@ -837,26 +789,21 @@ private fun NoteReadBody(
     }
 }
 
-private val BodyVerticalPadding = 4.dp
-
 private fun PreparedMarkdown.visibleBlocks(): PreparedMarkdown.Ready? = when (this) {
     is PreparedMarkdown.Ready -> this
     is PreparedMarkdown.Opening -> preview
     is PreparedMarkdown.Failed -> null
 }
 
-private fun insertWikiLink(buffer: TextFieldState, reference: String) {
+private fun insertWikiLink(buffer: NoteEditorState, reference: String) {
     insertSnippet(buffer, "[[$reference]]")
 }
 
-private fun insertSnippet(buffer: TextFieldState, snippet: String) {
+private fun insertSnippet(buffer: NoteEditorState, snippet: String) {
     val selection = buffer.selection
     val start = minOf(selection.start, selection.end)
     val end = maxOf(selection.start, selection.end)
-    buffer.edit {
-        replace(start, end, snippet)
-        this.selection = TextRange(start + snippet.length)
-    }
+    buffer.replaceRange(start, end, snippet, TextRange(start + snippet.length))
 }
 
 private fun titleErrorText(resources: Resources, error: NoteTitleError): String = when (error) {
@@ -950,7 +897,7 @@ private fun NoteWorkspacePreview() {
                 isLoading = false,
                 fileName = "鍛ㄤ細璁板綍",
             ),
-            contentBuffer = remember { TextFieldState(content) },
+            contentBuffer = remember { NoteEditorState(content) },
             titleBuffer = remember { TextFieldState("鍛ㄤ細璁板綍") },
             onCommitTitle = {},
             onTitleErrorShown = {},

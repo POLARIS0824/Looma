@@ -126,7 +126,7 @@ class NoteBackTest {
         val source = File(root, "Source.md")
         source.writeText("external edit")
         withContext(Dispatchers.Main) {
-            viewModel.editor.edit { replace(0, length, "local draft") }
+            viewModel.editor.replaceRange(0, viewModel.editor.length, "local draft")
             viewModel.retrySave()
         }
         awaitState { it.isConflict && it.conflictCopy != null }
@@ -149,7 +149,7 @@ class NoteBackTest {
     fun backWithPendingTitleOffersRetryAfterWriteFailure() = runBlocking {
         val oversizedDraft = "x".repeat(MAX_MARKDOWN_BYTES.toInt() + 1)
         withContext(Dispatchers.Main) {
-            viewModel.editor.edit { replace(0, length, oversizedDraft) }
+            viewModel.editor.replaceRange(0, viewModel.editor.length, oversizedDraft)
             viewModel.retrySave()
         }
         awaitState { it.saveProblem == NoteSaveProblem.WriteFailed }
@@ -162,8 +162,8 @@ class NoteBackTest {
         assertEquals("source", File(root, "Source.md").readText())
         assertFalse(File(root, "Renamed.md").exists())
         withContext(Dispatchers.Main) {
-            assertEquals(oversizedDraft, viewModel.editor.text.toString())
-            viewModel.editor.edit { replace(0, length, "smaller draft") }
+            assertEquals(oversizedDraft, viewModel.editor.snapshot())
+            viewModel.editor.replaceRange(0, viewModel.editor.length, "smaller draft")
             viewModel.saveThenLeave()
         }
         awaitState { it.leave == NoteLeave.Ready }
@@ -193,7 +193,7 @@ class NoteBackTest {
         }
         val ready = awaitState { it.wiki.linkables.isNotEmpty() }
         withContext(Dispatchers.Main) {
-            viewModel.editor.edit { replace(0, length, "See [[Taken]]") }
+            viewModel.editor.replaceRange(0, viewModel.editor.length, "See [[Taken]]")
         }
         assertEquals("Taken.md", ready.wiki.resolve("Taken")?.path?.relativePath)
 

@@ -90,7 +90,7 @@ class NoteViewModel(
             }
         }
         viewModelScope.launch {
-            snapshotFlow { draft.content }.collect {
+            snapshotFlow { draft.editor to draft.contentVersion }.collect {
                 val state = _uiState.value
                 if (!state.isLoading && !state.loadFailed && state.leave != NoteLeave.Ready) {
                     if (state.saveProblem == NoteSaveProblem.WriteFailed) {
@@ -129,7 +129,7 @@ class NoteViewModel(
                 lastConflictCopy = null
                 val selection = restoredSelection?.let { (start, end) ->
                     TextRange(start.coerceIn(0, note.content.length), end.coerceIn(0, note.content.length))
-                } ?: TextRange(note.content.length)
+                } ?: TextRange.Zero
                 draft.replaceFromDisk(note.content, note.revision, selection)
                 restoredSelection = null
                 _uiState.update {
@@ -273,7 +273,7 @@ class NoteViewModel(
     internal fun requiresSaveBeforeLeaving(state: NoteUiState): Boolean =
         !state.isLoading && !state.loadFailed && (
             state.leave != NoteLeave.Idle || state.isRenaming || state.rename != null ||
-                state.saveProblem != null || draft.isDirty || state.shouldDiscardEmpty(editor.text) ||
+                state.saveProblem != null || draft.isDirty || state.shouldDiscardEmpty(editor.content) ||
                 pendingEditorWrites > 0
             )
 
@@ -373,7 +373,7 @@ class NoteViewModel(
             !evidence.linkStillValid(vault, suggestion, source)) return@withLock false
         if (source != draft.content || generation != operationGeneration || currentId != suggestion.source) return@withLock false
         val at = suggestion.passage?.insertAt ?: source.length
-        editor.edit { replace(at, at, suggestion.addition(source)) }
+        editor.replaceRange(at, at, suggestion.addition(source))
         saveCurrent(generation)
     }
 
@@ -459,7 +459,7 @@ class NoteViewModel(
                         }
                         TitleCommitResult.Accepted, null -> Unit
                     }
-                    val saved = if (request == null && state.shouldDiscardEmpty(editor.text)) {
+                    val saved = if (request == null && state.shouldDiscardEmpty(editor.content)) {
                         discardEmpty()
                     } else {
                         saveCurrent(generation, request)

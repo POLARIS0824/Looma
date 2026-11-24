@@ -29,7 +29,7 @@ class NoteUiStateTest {
         val draft = loadedDraft()
         assertTrue(ready.canRefreshDraft(draft.isDirty))
 
-        draft.editor.edit { append("Local edit") }
+        draft.editor.append("Local edit")
 
         assertFalse(ready.canRefreshDraft(draft.isDirty))
         assertTrue(draft.content.endsWith("Local edit"))
@@ -76,7 +76,7 @@ class NoteUiStateTest {
         val draft = loadedDraft()
         val written = draft.content
         val laterDraft = "edited during the write"
-        draft.editor.edit { replace(0, length, laterDraft) }
+        draft.editor.replaceRange(0, draft.editor.length, laterDraft)
         val savedRevision = revision(written)
         draft.markWritten(written, savedRevision)
 
@@ -102,7 +102,7 @@ class NoteUiStateTest {
     @Test
     fun `an edit made during rename stays pending when the disk text is unchanged`() {
         val draft = loadedDraft()
-        draft.editor.edit { append("\nAdded while renaming") }
+        draft.editor.append("\nAdded while renaming")
 
         assertEquals(null, draft.rebaseAfterRename(note("[[Self]]")))
         assertEquals("[[Self]]\nAdded while renaming", draft.content)
@@ -113,7 +113,7 @@ class NoteUiStateTest {
     fun `an edit made during a self-link rewrite keeps both versions and requires resolution`() {
         val renamed = note("[[Myself]]")
         val draft = loadedDraft()
-        draft.editor.edit { append("\nAdded while renaming") }
+        draft.editor.append("\nAdded while renaming")
 
         assertEquals(NoteSaveProblem.Conflict(renamed.revision), draft.rebaseAfterRename(renamed))
         assertEquals("[[Self]]\nAdded while renaming", draft.content)

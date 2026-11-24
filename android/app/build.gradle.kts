@@ -87,6 +87,7 @@ dependencies {
     implementation(libs.coil.gif)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
+    implementation(libs.sora.editor)
 
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)

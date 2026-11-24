@@ -53,7 +53,7 @@ internal fun WeaveAction(
         loading = true
         failed = false
         try {
-            val source = editor.editor.text.toString()
+            val source = editor.editor.snapshot()
             passage = passage?.takeIf { it.source === source } ?: range?.let { r ->
                 withContext(Dispatchers.Default) { MarkdownNavigation.scan(source).passage(source, r.min, r.max) }
             }
