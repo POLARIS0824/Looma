@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.looma.data.folder.FolderRepository
+import com.example.looma.data.note.NoteIndexChange
 import com.example.looma.data.note.NoteListEntry
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.note.RelocationStalledException
@@ -24,6 +25,7 @@ import com.example.looma.domain.model.StalledRelocation
 import com.example.looma.domain.search.SearchMatch
 import com.example.looma.domain.sync.SyncPhase
 import com.example.looma.domain.sync.SyncRunOutcome
+import com.example.looma.ui.markdown.warmMarkdownPreview
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +60,11 @@ class HomeViewModel(
     private var indexedListing: com.example.looma.data.note.NoteListResult? = null
 
     init {
+        viewModelScope.launch {
+            noteRepository.noteIndexChanges.collect { change ->
+                applyIndexChange(change)
+            }
+        }
         if (syncRepository != null) {
             viewModelScope.launch {
                 syncRepository.vaultMutatedEvents.collect { vaultId ->
@@ -81,7 +88,7 @@ class HomeViewModel(
         refreshJob?.cancel()
         clearSearch()
         refreshJob = viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = it.notes.isEmpty(), error = null) }
             val previousState = _uiState.value
             val previousVaultId = previousState.vaultId
             val previousSort = previousState.sort
@@ -166,6 +173,47 @@ class HomeViewModel(
             }
         }
         return refreshJob!!
+    }
+
+    private suspend fun applyIndexChange(change: NoteIndexChange) {
+        val listing = indexedListing ?: return
+        if (listing.vault != change.vault) return
+        if (listing.version != null && change.version <= listing.version) return
+        val removedPaths = change.removed.toHashSet()
+        val upsertedByPath = change.upserts.associateBy { it.summary.id.path }
+        val (updatedItems, newIndex) = withContext(Dispatchers.Default) {
+            change.upserts.forEach { warmMarkdownPreview(it.markdownSnippet) }
+            val merged = buildList(listing.items.size + change.upserts.size) {
+                listing.items.forEach { item ->
+                    val path = item.summary.id.path
+                    if (path !in removedPaths && path !in upsertedByPath) add(item)
+                }
+                addAll(change.upserts)
+            }.sortedByDescending { it.summary.modifiedAt }
+            merged to HomeVaultIndex.build(listing.folders, merged.map { it.toHomeItem() })
+        }
+        val latest = indexedListing
+        if (latest !== listing) return
+        index = newIndex
+        indexedListing = listing.copy(items = updatedItems, version = change.version)
+        _uiState.update { current ->
+            val path = current.files.path.takeIf(index::contains) ?: FolderPath.Root
+            val alive = index.keys
+            val selection = current.selection.normalized(alive)
+            val orderedNotes = index.notes(current.sort)
+            val newFiles = index.files(path, current.sort)
+            val recentItems = when {
+                current.recentReveal == null -> emptyList()
+                newFiles.isAtRoot -> newFiles.recents
+                else -> index.recents()
+            }
+            current.copy(
+                notes = orderedNotes,
+                files = newFiles,
+                recentReveal = current.recentReveal?.takeIf { request -> request.presentIn(recentItems) },
+                selection = selection,
+            )
+        }
     }
 
     fun startAbandonStalledRelocation() {

@@ -40,8 +40,18 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+internal data class NoteIndexChange(
+    val vault: Vault,
+    val upserts: List<NoteListEntry>,
+    val removed: List<NotePath>,
+    val version: Long,
+)
 
 class NoteRepository internal constructor(
     private val vaultRepository: VaultRepository,
@@ -50,7 +60,21 @@ class NoteRepository internal constructor(
     private val onVaultScanned: suspend (Vault, Boolean) -> Unit = { _, _ -> },
 ) {
     private val parser = MarkdownParser()
-    private val indexUpdater = NoteIndexUpdater(index, onFilesChanged)
+    private val _noteIndexChanges = MutableSharedFlow<NoteIndexChange>(extraBufferCapacity = 16)
+    internal val noteIndexChanges: SharedFlow<NoteIndexChange> = _noteIndexChanges.asSharedFlow()
+    private val indexUpdater = NoteIndexUpdater(index) { vault, delta ->
+        if (delta.upserts.isNotEmpty() || delta.removed.isNotEmpty()) {
+            _noteIndexChanges.tryEmit(
+                NoteIndexChange(
+                    vault = vault,
+                    upserts = delta.upserts.map { it.toListEntry() },
+                    removed = delta.removed,
+                    version = index.version(vault.id),
+                ),
+            )
+        }
+        onFilesChanged(vault, delta)
+    }
     private data class SignatureStamp(val inode: Long, val changed: java.nio.file.attribute.FileTime, val size: Long)
     private data class VerifiedSignature(val stamp: SignatureStamp, val bytes: ByteArray)
     private val verifiedSignatures = object : LinkedHashMap<File, VerifiedSignature>(128, 0.75f, true) {

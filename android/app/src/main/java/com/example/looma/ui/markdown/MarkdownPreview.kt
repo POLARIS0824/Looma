@@ -31,18 +31,21 @@ internal fun MarkdownPreview(
 ) {
     if (markdown.isBlank()) return
     val inspection = LocalInspectionMode.current
-    var parsed by remember(markdown, inspection) {
+    var parsed by remember(inspection) {
         mutableStateOf(
             if (inspection) parsePreview(markdown) else markdownPreviewCache.get(markdown),
         )
     }
-    val state = parsed
-    if (state == null) {
-        LaunchedEffect(markdown) {
-            parsed = markdownPreviewCache.load(markdown)
+    val cached = if (inspection) parsePreview(markdown) else markdownPreviewCache.get(markdown)
+    val state = cached ?: parsed
+    LaunchedEffect(markdown, inspection) {
+        if (inspection) {
+            parsed = parsePreview(markdown)
+        } else {
+            parsed = markdownPreviewCache.get(markdown) ?: markdownPreviewCache.load(markdown)
         }
-        return
     }
+    if (state == null) return
 
     val theme = loomaMarkdownTheme(
         base = typography?.body ?: MaterialTheme.typography.bodySmall,
@@ -72,6 +75,10 @@ internal fun MarkdownPreview(
 }
 
 private val markdownPreviewCache = MarkdownPreviewCache(capacity = 128)
+
+internal suspend fun warmMarkdownPreview(markdown: String) {
+    if (markdown.isNotBlank()) markdownPreviewCache.load(markdown)
+}
 
 internal class MarkdownPreviewCache(private val capacity: Int) {
     private val states = LinkedHashMap<String, State.Success>(capacity, 0.75f, true)
