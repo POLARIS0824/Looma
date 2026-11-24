@@ -230,6 +230,42 @@ private class LoomaCodeEditor(context: Context) : CodeEditor(context) {
     }
 }
 
+private fun codePointsToCharsBefore(text: CharSequence, offset: Int, codePoints: Int): Int {
+    if (codePoints <= 0 || offset <= 0) return 0
+    if (codePoints >= offset) return offset
+    val start = (offset.toLong() - codePoints.toLong() * 2L).coerceAtLeast(0L).toInt()
+    val window = text.subSequence(start, offset)
+    var index = window.length
+    var remaining = codePoints
+    while (index > 0 && remaining > 0) {
+        index--
+        if (index > 0 && Character.isLowSurrogate(window[index]) && Character.isHighSurrogate(window[index - 1])) {
+            index--
+        }
+        remaining--
+    }
+    return window.length - index
+}
+
+private fun codePointsToCharsAfter(text: CharSequence, offset: Int, codePoints: Int): Int {
+    val available = text.length - offset
+    if (codePoints <= 0 || available <= 0) return 0
+    if (codePoints >= available) return available
+    val end = (offset.toLong() + codePoints.toLong() * 2L).coerceAtMost(text.length.toLong()).toInt()
+    val window = text.subSequence(offset, end)
+    var index = 0
+    var remaining = codePoints
+    while (index < window.length && remaining > 0) {
+        if (index + 1 < window.length && Character.isHighSurrogate(window[index]) && Character.isLowSurrogate(window[index + 1])) {
+            index += 2
+        } else {
+            index++
+        }
+        remaining--
+    }
+    return index
+}
+
 private class LoomaInputConnection(
     private val editor: LoomaCodeEditor,
     target: InputConnection,
@@ -286,6 +322,28 @@ private class LoomaInputConnection(
             editor.syncSelectionToIme()
         }
         return result
+    }
+
+    override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
+        if (!editor.editable || beforeLength < 0 || afterLength < 0) {
+            return false
+        }
+        val content = editor.text
+        val cursor = editor.cursor
+        val beforeChars = if (beforeLength == Int.MAX_VALUE) {
+            cursor.leftColumn
+        } else {
+            codePointsToCharsBefore(content, cursor.left, beforeLength)
+        }
+        val afterChars = if (afterLength == Int.MAX_VALUE) {
+            content.getColumnCount(cursor.rightLine) - cursor.rightColumn
+        } else {
+            codePointsToCharsAfter(content, cursor.right, afterLength)
+        }
+        if (beforeChars == 0 && afterChars == 0) {
+            return true
+        }
+        return super.deleteSurroundingText(beforeChars, afterChars)
     }
 
     override fun closeConnection() {
