@@ -29,7 +29,7 @@ internal fun NoteNavigator(
     val field = rememberTextFieldState()
     var lastOffset by rememberSaveable { mutableIntStateOf(0) }
     IconButton(onClick = { visible = true }, shapes = IconButtonDefaults.shapes()) {
-        LoomaIcon(R.drawable.ic_search, stringResource(R.string.note_navigate))
+        LoomaIcon(R.drawable.ic_note_navigate, stringResource(R.string.note_navigate))
     }
     if (!visible) return
     val source = snapshot()

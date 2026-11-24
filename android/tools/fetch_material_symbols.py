@@ -73,6 +73,7 @@ ICONS = {
     "horizontal_rule": "ic_editor_divider",
     "visibility": "ic_editor_preview",
     "edit": "ic_editor_edit",
+    "list": "ic_note_navigate",
 }
 
 DRAWABLE_DIR = Path(__file__).resolve().parent.parent / "app/src/main/res/drawable"
