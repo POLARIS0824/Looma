@@ -23,7 +23,16 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val vaultRepository by lazy { VaultRepository(this) }
     private val indexDatabase by lazy { NoteIndexDatabase.get(this) }
     internal val httpClient by lazy { createLoomaHttpClient() }
-    val noteRepository by lazy { NoteRepository(vaultRepository, RoomNoteIndex(indexDatabase)) }
+    val noteRepository: NoteRepository by lazy {
+        NoteRepository(
+            vaultRepository,
+            RoomNoteIndex(indexDatabase),
+            onFilesChanged = { vault, delta -> updateSemanticIndex { semanticSearchRepository.filesChanged(vault, delta) } },
+            onVaultScanned = { vault, partial ->
+                updateSemanticIndex { semanticSearchRepository.resumeUpdates(vault, partial) }
+            },
+        )
+    }
     val searchHistoryRepository by lazy {
         SearchHistoryRepository(vaultRepository, indexDatabase.searchHistoryDao())
     }
@@ -39,10 +48,19 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
             vaultRepository,
             settingsRepository,
             noteRepository,
-            semanticSearchRepository,
             indexDatabase.syncStateDao(),
             httpClient,
         )
+    }
+
+    private suspend fun updateSemanticIndex(action: suspend () -> Unit) {
+        try {
+            action()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            android.util.Log.w("SemanticIndex", "Could not schedule derived index maintenance", error)
+        }
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =

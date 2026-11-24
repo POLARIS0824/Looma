@@ -133,7 +133,7 @@ sealed interface HomeFileDialog {
     data class DeleteFolder(
         val path: FolderPath,
         val folderName: String,
-        val noteCount: Int,
+        val paths: List<NotePath>,
         val error: HomeFileError? = null,
         val id: Long = 0L,
     ) : HomeFileDialog
@@ -199,10 +199,13 @@ sealed interface HomeSemanticSearch {
     data object Checking : HomeSemanticSearch
     data object NeedsModel : HomeSemanticSearch
     data object NeedsIndex : HomeSemanticSearch
+    data object Updating : HomeSemanticSearch
+    data object Partial : HomeSemanticSearch
     data object Ready : HomeSemanticSearch
     data object SearchFailed : HomeSemanticSearch
 
-    val canSearch: Boolean get() = this == Ready || this == SearchFailed
+    val showsResults: Boolean get() = this == Ready || this == Updating || this == Partial
+    val canSearch: Boolean get() = showsResults || this == SearchFailed
 }
 
 data class HomeUiState(

@@ -7,7 +7,6 @@ import com.example.looma.data.s3.S3EndpointConfig
 import com.example.looma.data.s3.S3ErrorKind
 import com.example.looma.data.s3.S3Exception
 import com.example.looma.data.s3.S3PutCondition
-import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.settings.S3SyncConfig
 import com.example.looma.data.vault.VaultWriteCoordinator
 import com.example.looma.domain.model.NotePath
@@ -78,7 +77,6 @@ internal class SyncEngine(
     private val s3Client: S3Client,
     private val syncStateDao: SyncStateDao,
     private val noteRepository: NoteRepository,
-    private val semanticSearchRepository: SemanticSearchRepository,
 ) {
     private data class PlannedSync(
         val targetKey: String,
@@ -398,9 +396,6 @@ internal class SyncEngine(
                         }
                         if (mutatedNonMarkdown) {
                             invalidateAttachmentIndex(root)
-                        }
-                        runCatching {
-                            semanticSearchRepository.onExternalNoteChanges(vault, changedNotes, removedNotes)
                         }
                         onLocalMutated()
                     }

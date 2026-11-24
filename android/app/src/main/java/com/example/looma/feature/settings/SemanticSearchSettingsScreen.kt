@@ -322,6 +322,12 @@ private fun indexStatus(vaultName: String, index: SemanticWorkState?): FeatureSt
             detail = stringResource(R.string.settings_semantic_index_failed),
             tone = FeatureStatusTone.Error,
         )
+        SemanticWorkState.Partial -> FeatureStatus(
+            label = stringResource(R.string.settings_semantic_status_ready),
+            title = title,
+            detail = stringResource(R.string.settings_semantic_model_ready),
+            note = stringResource(R.string.semantic_index_partial),
+        )
         SemanticWorkState.Ready -> FeatureStatus(
             label = stringResource(R.string.settings_semantic_status_ready),
             title = title,
@@ -382,7 +388,7 @@ private fun FlowRowScope.SemanticActions(
                     text = stringResource(
                         when {
                             index.retryable -> R.string.settings_semantic_retry
-                            index == SemanticWorkState.Ready -> R.string.settings_semantic_update_index
+                            index == SemanticWorkState.Partial || index == SemanticWorkState.Ready -> R.string.settings_semantic_update_index
                             else -> R.string.settings_semantic_build_index
                         },
                     ),

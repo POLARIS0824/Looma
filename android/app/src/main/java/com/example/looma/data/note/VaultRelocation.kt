@@ -239,18 +239,16 @@ internal class VaultRelocation(private val vault: Vault) {
     }
 
     private fun changesOf(plan: Plan): RelocationChanges {
-        val namespace = plan.moves.first()
-        val movedNotes = namespace.members.filter { member ->
-            member.hash != null &&
-                member.path.split('/').none { it.startsWith('.') } &&
-                join(namespace.source, member.path).endsWith(".md", ignoreCase = true)
+        val movedNotes = plan.moves.flatMap { move ->
+            move.members.mapNotNull { member ->
+                val before = join(move.source, member.path)
+                if (member.hash == null || !before.endsWith(".md", true) || member.path.split('/').any { it.startsWith('.') }) null
+                else NotePath(before) to NotePath(join(move.destination, member.path))
+            }
         }
-        val rewrittenNotes = plan.writes.map { it.path }.filterNot { it.startsWith(".looma/") }
         return RelocationChanges(
-            removedNotes = movedNotes.map { NotePath(join(namespace.source, it.path)) },
-            changedNotes = (movedNotes.map { join(namespace.destination, it.path) } + rewrittenNotes)
-                .distinct()
-                .map(::NotePath),
+            removedNotes = movedNotes.map { it.first },
+            changedNotes = (movedNotes.map { it.second } + plan.writes.map { NotePath(it.path) }).distinct(),
         )
     }
 
@@ -267,50 +265,111 @@ internal class VaultRelocation(private val vault: Vault) {
         recovered: RelocationChanges,
         pathOf: (String) -> P,
     ): RelocationResult<P> {
-        val from = relative(source)
-        val to = relative(destination)
-        safeFile(from)
-        safeFile(to)
-        if (from == to) return RelocationResult(pathOf(to), linksUpdated = 0, linksFailed = 0, changes = recovered)
+        val result = relocateFiles(mapOf(source to destination), recovered)
+        return RelocationResult(pathOf(relative(destination)), result.linksUpdated, result.linksFailed, result.changes)
+    }
+
+    fun moveNotes(ids: List<NoteId>, target: FolderPath): RelocationResult<Map<NoteId, NotePath>> {
+        val recovered = recoverOrThrow()
+        safeFile(target.relativePath, allowRoot = true)
+        val reserved = mutableSetOf<String>()
+        val files = linkedMapOf<File, File>()
+        val moved = linkedMapOf<NoteId, NotePath>()
+        for (id in ids.distinct()) {
+            val source = try {
+                noteFile(id)
+            } catch (error: VaultFileException) {
+                if (error.failure == VaultFileFailure.NOT_FOUND) continue else throw error
+            }
+            val destination = ops.moveDestination(source, target, reserved)
+            reserved += destination.name.lowercase()
+            files[source] = destination
+            moved[id] = NotePath(relative(destination))
+        }
+        val result = relocateFiles(files, recovered)
+        return RelocationResult(moved, result.linksUpdated, result.linksFailed, result.changes)
+    }
+
+    fun restoreLocations(originals: Map<NoteId, NotePath>): RelocationResult<Int> {
+        val recovered = recoverOrThrow()
+        val files = linkedMapOf<File, File>()
+        for ((id, original) in originals) {
+            validateNotePath(original.relativePath)
+            val destination = safeFile(original.relativePath)
+            val source = try {
+                noteFile(id)
+            } catch (error: VaultFileException) {
+                if (error.failure == VaultFileFailure.NOT_FOUND) continue else throw error
+            }
+            if (source != destination && exists(destination)) continue
+            files[source] = destination
+        }
+        val result = relocateFiles(files, recovered)
+        return RelocationResult(files.size, result.linksUpdated, result.linksFailed, result.changes)
+    }
+
+    private fun relocateFiles(files: Map<File, File>, recovered: RelocationChanges): RelocationResult<Unit> {
+        val moving = files.filter { it.key != it.value }
+        if (moving.isEmpty()) return RelocationResult(Unit, 0, 0, recovered)
+        val destinations = moving.mapKeys { relative(it.key) }.mapValues { relative(it.value) }
+        val folder = moving.keys.singleOrNull()?.takeIf { it.isDirectory }?.let(::relative)
         val scannedNotes = scanNotes()
         val notePaths = scannedNotes.map { it.path }
-        val movesFolder = source.isDirectory
         val paths = notePaths.associateWith { path ->
-            when {
-                path == from -> to
-                movesFolder && path.startsWith("$from/") -> to + path.removePrefix(from)
-                else -> path
-            }
+            destinations[path] ?: if (folder != null && path.startsWith("$folder/")) {
+                destinations.getValue(folder) + path.removePrefix(folder)
+            } else path
         }
+        val staging = createStaging()
+        try {
+            return stageAndMove(moving, scannedNotes, paths, folder, staging, recovered)
+        } finally {
+            sweep(staging)
+        }
+    }
+
+    private fun stageAndMove(
+        moving: Map<File, File>,
+        scannedNotes: List<ScannedNote>,
+        paths: Map<String, String>,
+        folder: String?,
+        staging: File,
+        recovered: RelocationChanges,
+    ): RelocationResult<Unit> {
+        val folderMove = if (folder == null) null else moving.entries.single()
+        val notePaths = paths.keys.toList()
         val before = graph(notePaths)
         val after = graph(paths.values.toList())
-        val rewrites = mutableListOf<Rewrite>()
+        val writes = mutableListOf<WriteRecord>()
         val guards = mutableListOf<Guard>()
         var linksUpdated = 0
         var linksFailed = 0
-        val changesNoteParent = !movesFolder &&
-            from.substringBeforeLast('/', "") != to.substringBeforeLast('/', "")
         for (path in notePaths) {
             val newPath = paths.getValue(path)
             val referrer = readReferrer(path) ?: continue
             val content = referrer.content
-            if ("[[" !in content) continue
-            val movedNote = changesNoteParent && path == from
-            val relinked = relink(content, path, newPath, paths, before, after, movedNote)
+            val movedNote = folder == null && path.substringBeforeLast('/', "") != newPath.substringBeforeLast('/', "")
+            if ("[[" !in content && !((movedNote || folderMove != null) && "![" in content)) continue
+            val relinked = relink(content, path, newPath, paths, before, after, movedNote, folderMove)
             linksFailed += relinked.failed
             val rewrittenContent = relinked.content ?: continue
-            rewrites += Rewrite(newPath, referrer.bytes, markdownBytes(rewrittenContent))
-            guards += Guard(path, hash(referrer.bytes))
+            val afterBytes = markdownBytes(rewrittenContent)
+            val index = writes.size
+            writeDurably(File(staging, "$index.before"), referrer.bytes)
+            writeDurably(File(staging, "$index.after"), afterBytes)
+            val beforeHash = hash(referrer.bytes)
+            writes += WriteRecord(newPath, beforeHash, hash(afterBytes))
+            guards += Guard(path, beforeHash)
             linksUpdated += relinked.updated
         }
-        val moves = mutableListOf(Move(from, to, inventory(source)))
-        val directories = missingParents(destination)
-        val plan = Plan(moves, rewrites.map { it.record() }, directories, linksUpdated, linksFailed)
+        val moves = moving.map { (source, dest) -> Move(relative(source), relative(dest), inventory(source)) }
+        val directories = moving.values.flatMap(::missingParents).distinct()
+        val plan = Plan(moves, writes, directories, linksUpdated, linksFailed)
         validate(plan)
         if (scanNotes() != scannedNotes) throw IOException("Vault changed while planning relocation")
         guards.forEach { if (fileHash(safeFile(it.path)) != it.hash) conflict(safeFile(it.path)) }
         checkState(plan)
-        val journal = publish(plan, rewrites)
+        val journal = publish(plan, staging)
         try {
             journal.parentFile?.let(::syncDirectory)
             afterIo("intent")
@@ -318,7 +377,7 @@ internal class VaultRelocation(private val vault: Vault) {
         } catch (error: IOException) {
             throw RelocationStalledException(stalledOf(journal), error)
         }
-        return RelocationResult(pathOf(to), linksUpdated, linksFailed, recovered + changesOf(plan))
+        return RelocationResult(Unit, linksUpdated, linksFailed, recovered + changesOf(plan))
     }
 
     private fun graph(paths: List<String>) = WikiGraph(
@@ -334,39 +393,59 @@ internal class VaultRelocation(private val vault: Vault) {
         before: WikiGraph,
         after: WikiGraph,
         movedNote: Boolean,
+        folderMove: Map.Entry<File, File>?,
     ): Relinked {
         val bom = if (content.startsWith('\uFEFF')) "\uFEFF" else ""
         val body = content.removePrefix(bom)
         val wikiLinks = MarkdownIndex.index(body, oldPath).links
-        val images = if (movedNote && "![[" in body) MarkdownIndex.wikiImageLinks(body) else emptyList()
+        val checkImages = movedNote || folderMove != null
+        val images = if (checkImages && "![[" in body) MarkdownIndex.wikiImageLinks(body) else emptyList()
+        val standardImages = if (checkImages && "![" in body) MarkdownIndex.markdownImageLinks(body) else emptyList()
+        val standardOffsets = standardImages.mapTo(hashSetOf()) { it.range.first }
         val imageOffsets = images.mapTo(hashSetOf()) { it.range.first }
         var imageIndex = 0
         val spans = wikiLinks.filter { link ->
             while (imageIndex < images.size && images[imageIndex].range.last < link.range.first) imageIndex++
             imageIndex == images.size || images[imageIndex].range.first > link.range.last
-        } + images
+        } + images + standardImages
         var updated = 0
         var failed = 0
         val rewritten = WikiLinks.retargetSpans(body, spans) { span ->
             val target = span.target
-            if (span.range.first in imageOffsets) {
-                val imageTarget = EntityConverter.replaceEntities(target, processEntities = false, processEscapes = true)
-                val originalImage = resolveImageSource(root.path, File(root, oldPath).path, imageTarget) as? ImageSource.Local
-                if (originalImage != null) {
+            val standard = span.range.first in standardOffsets
+            if (standard || span.range.first in imageOffsets) {
+                val imageTarget = if (standard) target else EntityConverter.replaceEntities(
+                    target, processEntities = false, processEscapes = true,
+                )
+                val original = resolveImageSource(root.path, File(root, oldPath).path, imageTarget) as? ImageSource.Local
+                if (original != null) {
+                    val oldImage = File(original.path)
+                    val newImage = if (folderMove != null && oldImage.toPath().startsWith(folderMove.key.toPath())) {
+                        folderMove.value.resolve(oldImage.relativeTo(folderMove.key))
+                    } else oldImage
+                    if (newPath == oldPath && newImage == oldImage) return@retargetSpans null
                     val newNote = File(root, newPath)
-                    val current = resolveImageSource(root.path, newNote.path, imageTarget) as? ImageSource.Local
-                    if (current?.path == originalImage.path) return@retargetSpans null
-                    val parent = (newNote.parentFile ?: root).toPath()
-                    val path = parent.relativize(File(originalImage.path).toPath()).toString().replace(File.separatorChar, '/')
-                    val replacement = encodeWikiImagePath(if (path.startsWith("../")) path else "./$path")
-                    val resolved = resolveImageSource(root.path, newNote.path, replacement) as? ImageSource.Local
-                    if (resolved?.path != originalImage.path) {
-                        failed++
-                        return@retargetSpans null
+                    val parent = newNote.parentFile ?: root
+                    if (folderMove == null) {
+                        val current = resolveImageSource(root.path, newNote.path, imageTarget) as? ImageSource.Local
+                        if (current?.path == newImage.path) return@retargetSpans null
+                    } else {
+                        val raw = imageTarget.substringBefore('#').replace("+", "%2B")
+                        val direct = File(parent, java.net.URLDecoder.decode(raw, "UTF-8")).canonicalFile
+                        if (direct == newImage) return@retargetSpans null
                     }
+                    val path = newImage.relativeTo(parent).invariantSeparatorsPath
+                    val replacement = if (standard) {
+                        path.split('/').joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") } +
+                            imageTarget.substringAfter('#', "").let { if (it.isEmpty()) "" else "#$it" }
+                    } else {
+                        encodeWikiImagePath(if (path.startsWith("../")) path else "./$path")
+                    }
+                    if (replacement == span.target) return@retargetSpans null
                     updated++
                     return@retargetSpans replacement
                 }
+                if (standard) return@retargetSpans null
             }
             val original = before.resolve(target, NotePath(oldPath)) ?: return@retargetSpans null
             val intended = NoteId(vault.id, NotePath(paths.getValue(original.path.relativePath)))
@@ -477,11 +556,11 @@ internal class VaultRelocation(private val vault: Vault) {
     }
 
     private fun replay(journal: File, plan: Plan, manifest: ByteArray) {
-        val staged = plan.writes.mapIndexed { index, write ->
+        plan.writes.forEachIndexed { index, write ->
             val before = readBytes(File(journal, "$index.before"), MAX_MARKDOWN_BYTES)
+            if (hash(before) != write.beforeHash) conflict(journal)
             val after = readBytes(File(journal, "$index.after"), MAX_MARKDOWN_BYTES)
-            if (hash(before) != write.beforeHash || hash(after) != write.afterHash) conflict(journal)
-            after
+            if (hash(after) != write.afterHash) conflict(journal)
         }
         checkState(plan, journal.name)
         var progress = 0
@@ -514,7 +593,10 @@ internal class VaultRelocation(private val vault: Vault) {
                     afterIo("move")
                 }
             } else if (exactExists(source)) {
-                checkState(plan, journal.name)
+                val guarded = if (plan.moves.size == 1) plan else plan.copy(
+                    moves = listOf(move), writes = plan.writes.filter { it.path == move.destination },
+                )
+                checkState(guarded, journal.name)
                 if (exactExists(destination)) conflict(destination)
                 Files.move(source.toPath(), destination.toPath())
                 source.parentFile?.let(::syncDirectory)
@@ -529,7 +611,9 @@ internal class VaultRelocation(private val vault: Vault) {
             when (fileHash(file)) {
                 write.afterHash -> Unit
                 write.beforeHash -> {
-                    writeBytesAtomically(file, staged[index]) {
+                    val bytes = readBytes(File(journal, "$index.after"), MAX_MARKDOWN_BYTES)
+                    if (hash(bytes) != write.afterHash) conflict(journal)
+                    writeBytesAtomically(file, bytes) {
                         safeFile(write.path)
                         if (fileHash(file) != write.beforeHash) conflict(file)
                     }
@@ -547,19 +631,20 @@ internal class VaultRelocation(private val vault: Vault) {
         cleanJournal(journal, plan, manifest)
     }
 
-    private fun publish(plan: Plan, rewrites: List<Rewrite>): File {
-        val bytes = encode(plan)
-        if (bytes.size > MAX_MANIFEST_BYTES) throw IOException("Relocation journal is too large")
+    private fun createStaging(): File {
         val directory = safeFile(OPERATIONS)
         createDirectories(directory)
-        val id = UUID.randomUUID()
-        val staging = File(directory, "staging-$id")
+        val staging = File(directory, "staging-${UUID.randomUUID()}")
         if (!staging.mkdir()) throw IOException("Cannot create relocation journal")
         syncDirectory(directory)
-        rewrites.forEachIndexed { index, write ->
-            writeDurably(File(staging, "$index.before"), write.before)
-            writeDurably(File(staging, "$index.after"), write.after)
-        }
+        return staging
+    }
+
+    private fun publish(plan: Plan, staging: File): File {
+        val bytes = encode(plan)
+        if (bytes.size > MAX_MANIFEST_BYTES) throw IOException("Relocation journal is too large")
+        val directory = staging.parentFile
+        val id = staging.name.removePrefix("staging-")
         writeDurably(File(staging, "intent.properties"), bytes)
         val journal = File(directory, "op-$id")
         Files.move(staging.toPath(), journal.toPath(), ATOMIC_MOVE)
@@ -634,28 +719,30 @@ internal class VaultRelocation(private val vault: Vault) {
         if (plan.moves.isEmpty() || plan.moves.size > MAX_ENTRIES || plan.writes.size > MAX_ENTRIES ||
             plan.moves.sumOf { it.members.size.toLong() } > MAX_ENTRIES || plan.directories.size > MAX_DEPTH
         ) throw IOException("Invalid relocation journal size")
-        val namespace = plan.moves.first()
-        if (plan.moves.size != 1) throw IOException("Invalid relocation moves count")
-        val move = plan.moves.single()
-        safeFile(move.source)
-        safeFile(move.destination)
-        if (move.source == move.destination || move.destination.startsWith("${move.source}/") || move.source.startsWith("${move.destination}/")) {
-            throw IOException("Invalid relocation move")
-        }
-        if (move.members.firstOrNull()?.hash == null) {
-            validateVisiblePath(move.source)
-            validateVisiblePath(move.destination)
-        } else {
-            validateNotePath(move.source)
-            validateNotePath(move.destination)
-        }
-        if (move.members.isEmpty() || move.members.first().path != "" || move.members.map { it.path }.distinct().size != move.members.size) {
-            throw IOException("Invalid relocation inventory")
-        }
-        move.members.forEach { member ->
-            safeFile(join(move.source, member.path))
-            safeFile(join(move.destination, member.path))
-            if (member.hash != null && !HASH.matches(member.hash)) throw IOException("Invalid inventory hash")
+        for (move in plan.moves) {
+            if (plan.moves.size > 1 && (move.members.size != 1 || move.members.first().hash == null || isCaseFoldEquivalent(move))) {
+                throw IOException("Invalid batch relocation member")
+            }
+            safeFile(move.source)
+            safeFile(move.destination)
+            if (move.source == move.destination || move.destination.startsWith("${move.source}/") || move.source.startsWith("${move.destination}/")) {
+                throw IOException("Invalid relocation move")
+            }
+            if (move.members.firstOrNull()?.hash == null) {
+                validateVisiblePath(move.source)
+                validateVisiblePath(move.destination)
+            } else {
+                validateNotePath(move.source)
+                validateNotePath(move.destination)
+            }
+            if (move.members.isEmpty() || move.members.first().path != "" || move.members.map { it.path }.distinct().size != move.members.size) {
+                throw IOException("Invalid relocation inventory")
+            }
+            move.members.forEach { member ->
+                safeFile(join(move.source, member.path))
+                safeFile(join(move.destination, member.path))
+                if (member.hash != null && !HASH.matches(member.hash)) throw IOException("Invalid inventory hash")
+            }
         }
         if ((plan.moves.map { it.source } + plan.moves.map { it.destination }).distinct().size != plan.moves.size * 2) {
             throw IOException("Overlapping relocation moves")
@@ -669,7 +756,7 @@ internal class VaultRelocation(private val vault: Vault) {
         plan.directories.forEach { path ->
             validateVisiblePath(path)
             safeFile(path)
-            if (!namespace.destination.startsWith("$path/")) throw IOException("Invalid relocation directory")
+            if (plan.moves.none { it.destination.startsWith("$path/") }) throw IOException("Invalid relocation directory")
         }
     }
 
@@ -806,9 +893,6 @@ internal class VaultRelocation(private val vault: Vault) {
     private data class Member(val path: String, val hash: String?)
     private data class Move(val source: String, val destination: String, val members: List<Member>)
     private data class WriteRecord(val path: String, val beforeHash: String, val afterHash: String)
-    private inner class Rewrite(val path: String, val before: ByteArray, val after: ByteArray) {
-        fun record() = WriteRecord(path, hash(before), hash(after))
-    }
     private data class Plan(
         val moves: List<Move>,
         val writes: List<WriteRecord>,

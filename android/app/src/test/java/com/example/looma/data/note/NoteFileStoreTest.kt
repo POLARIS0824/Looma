@@ -294,16 +294,14 @@ class NoteFileStoreTest {
     }
 
     @Test
-    fun `oversized sources fail before restore`() = runBlocking {
+    fun `oversized sources restore byte for byte`() = runBlocking {
         val bytes = ByteArray(MAX_MARKDOWN_BYTES.toInt() + 1)
         file.writeBytes(bytes)
 
         val trashed = store.deleteNote(id)
-        expectFailure<NoteTooLargeException> { store.restoreNote(trashed.trashId) }
-        assertFalse(file.exists())
-        val record = VaultFileOps(root).trashed().single()
-        assertArrayEquals(bytes, record.file.readBytes())
-        assertTrue(record.metaFile.isFile)
+        assertEquals(id, store.restoreNote(trashed.trashId))
+        assertArrayEquals(bytes, file.readBytes())
+        assertTrue(VaultFileOps(root).trashed().isEmpty())
     }
 
 
@@ -315,7 +313,7 @@ class NoteFileStoreTest {
         val revision = NoteRevision.of(bytes)
 
         val trashed = store.deleteNote(id)
-        val restored = store.restoreNote(trashed.trashId)
+        val restored = store.readNote(store.restoreNote(trashed.trashId))
         assertEquals(revision, restored.revision)
         assertArrayEquals(bytes, restored.file.readBytes())
     }

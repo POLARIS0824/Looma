@@ -20,6 +20,8 @@ import com.example.looma.data.image.ImageUploadFailure
 import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.note.ConflictCopy
 import com.example.looma.data.note.NoteChangedExternallyException
+import com.example.looma.data.note.NoteTooLargeException
+import com.example.looma.data.note.UnsupportedNoteEncoding
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.note.RelocationStalledException
 import com.example.looma.data.note.VaultFileException
@@ -111,7 +113,7 @@ class NoteViewModel(
         if (draft.isDirty || loadJob?.isActive == true) return
         loadJob = enqueue { generation ->
             if (draft.isDirty) return@enqueue
-            _uiState.update { it.copy(isLoading = true, loadFailed = false) }
+            _uiState.update { it.copy(isLoading = true, loadFailed = false, readOnlyPreview = null) }
             try {
                 val note = repository.openNote(currentId)
                 val keepEmptyNotes = settingsRepository.settings.first().keepEmptyNotes
@@ -148,7 +150,7 @@ class NoteViewModel(
                 throw e
             } catch (e: Exception) {
                 if (generation == operationGeneration) {
-                    _uiState.update { it.copy(isLoading = false, loadFailed = true) }
+                    _uiState.update { it.copy(isLoading = false, loadFailed = true, readOnlyPreview = (e as? UnsupportedNoteEncoding)?.preview) }
                 }
             }
         }
@@ -187,6 +189,10 @@ class NoteViewModel(
                 }
             } catch (e: CancellationException) {
                 throw e
+            } catch (error: UnsupportedNoteEncoding) {
+                if (canRefreshDraft()) {
+                    _uiState.update { it.copy(loadFailed = true, readOnlyPreview = error.preview) }
+                }
             } catch (_: Exception) {
             }
             refreshWiki()
@@ -513,7 +519,7 @@ class NoteViewModel(
             val copy = lastConflictCopy
             lastConflictCopy = null
             draft.markWritten(request.content, updated.revision)
-            _uiState.update { it.copy(saveProblem = null, conflictCopy = null) }
+            _uiState.update { it.copy(saveProblem = null, conflictCopy = null, exceedsSizeLimit = false) }
             if (copy != null && copy.revision == updated.revision) {
                 try {
                     repository.discardConflictCopy(currentId, copy)
@@ -563,7 +569,10 @@ class NoteViewModel(
         id.path.relativePath.substringAfterLast('/').substringBeforeLast('.')
 
     private fun recordFailure(error: Exception) {
-        _uiState.update { it.afterSaveFailure((error as? NoteChangedExternallyException)?.actualRevision) }
+        _uiState.update {
+            it.afterSaveFailure((error as? NoteChangedExternallyException)?.actualRevision)
+                .copy(exceedsSizeLimit = error is NoteTooLargeException, conflictCopy = null)
+        }
     }
 
     companion object {

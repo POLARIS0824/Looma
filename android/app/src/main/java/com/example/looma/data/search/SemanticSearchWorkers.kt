@@ -46,7 +46,7 @@ class SemanticVaultIndexWorker(context: Context, parameters: WorkerParameters) :
             VaultId(checkNotNull(inputData.getString(VAULT_ID))),
             checkNotNull(inputData.getString(VAULT_PATH)),
         )
-        repository.rebuildIndex(target, ::updateProgress)
+        repository.rebuildIndex(target, inputData.getBoolean(SemanticSearchWork.INCREMENTAL, false), ::updateProgress)
     }
 }
 

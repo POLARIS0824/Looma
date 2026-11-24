@@ -167,7 +167,7 @@
     <string name="settings_semantic_index_queued">Indexing queued</string>
     <string name="settings_semantic_index_preparing">Preparing to index notes…</string>
     <string name="settings_semantic_indexing">Indexing notes… %1$d of %2$d</string>
-    <string name="settings_semantic_index_ready">Index ready. Update it after adding or editing notes.</string>
+    <string name="settings_semantic_index_ready">Index up to date.</string>
     <string name="settings_semantic_index_failed">Couldn’t index this vault.</string>
     <string name="settings_semantic_index_cancelled">Indexing cancelled</string>
     <string name="settings_semantic_build_index">Build index</string>
@@ -447,4 +447,12 @@
     <string name="home_sync_failed">Vault sync failed</string>
     <string name="home_sync_conflicts">Sync finished with %1$d conflict(s)</string>
     <string name="home_sync_view">View</string>
+    <string name="editor_encoding_readonly">This file contains invalid UTF-8. Read-only preview.</string>
+    <string name="editor_too_large">The note exceeds 2 MiB of UTF-8 text. Shorten it to save.</string>
+    <string name="editor_too_large_recovered">The note exceeds 2 MiB. Your full text was exported to %1$s.</string>
+    <string name="semantic_index_partial">Some notes are missing from this index. You can search the indexed notes.</string>
+    <string name="semantic_index_updating">Updating changed notes. Results may be incomplete.</string>
+    <string name="editor_export">Export a copy</string>
+    <string name="editor_exported">Copy exported</string>
+    <string name="editor_export_failed">Could not export the copy</string>
 </resources>

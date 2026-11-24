@@ -50,12 +50,15 @@ object MarkdownEditing {
         }
     }
 
-    fun formatState(text: CharSequence, selection: TextSelection): MarkdownFormatState {
+    fun formatState(text: CharSequence, selection: TextSelection): MarkdownFormatState =
+        formatState(text, selection, FenceIndex())
+
+    internal fun formatState(text: CharSequence, selection: TextSelection, fences: FenceIndex): MarkdownFormatState {
         val from = selection.from.coerceIn(0, text.length)
         val to = selection.to.coerceIn(0, text.length)
         val lineStart = if (from <= 0) 0 else text.lastIndexOf('\n', from - 1) + 1
         val lineEnd = text.indexOf('\n', from).let { if (it < 0) text.length else it }
-        val inCodeBlock = isInsideFence(text, lineEnd)
+        val inCodeBlock = fences.isInside(text, lineEnd)
         val active = if (inCodeBlock) {
             emptySet()
         } else {
@@ -559,27 +562,6 @@ object MarkdownEditing {
         return count
     }
 
-    private fun isInsideFence(text: CharSequence, lineEnd: Int): Boolean {
-        var openFence: FenceMarker? = null
-        var lineStart = 0
-        while (lineStart < lineEnd) {
-            val nextBreak = text.indexOf('\n', lineStart)
-            val currentEnd = if (nextBreak < 0 || nextBreak > lineEnd) lineEnd else nextBreak
-            val line = text.subSequence(lineStart, currentEnd)
-            val currentOpen = openFence
-            openFence = if (currentOpen == null) {
-                parseFenceOpening(line)
-            } else if (isFenceClosing(line, currentOpen)) {
-                null
-            } else {
-                currentOpen
-            }
-            if (nextBreak < 0 || nextBreak >= lineEnd) break
-            lineStart = nextBreak + 1
-        }
-        return openFence != null
-    }
-
     private val MarkdownInlineStyle.marker: String
         get() = when (this) {
             MarkdownInlineStyle.Bold -> "**"
@@ -598,6 +580,44 @@ object MarkdownEditing {
     private val HEADING = Regex("^(#{1,6})\\s+")
     private val LIST = Regex("^([-*+]\\s+\\[[ xX]]\\s+|[-*+]\\s+|\\d+[.)]\\s+)")
     private val LINK = Regex("^\\[([^]]*)]\\([^)]*\\)$")
+}
+
+internal class FenceIndex {
+    private val starts = mutableListOf(0)
+    private val states = mutableListOf<FenceMarker?>(null)
+    private var previous: CharSequence = ""
+
+    fun isInside(text: CharSequence, end: Int): Boolean {
+        if (text !== previous) {
+            val limit = minOf(starts.last(), text.length, previous.length)
+            var prefix = 0
+            while (prefix < limit && previous[prefix] == text[prefix]) prefix++
+            val retained = starts.binarySearch(prefix).let { if (it >= 0) it + 1 else -it - 1 }
+            starts.subList(retained, starts.size).clear()
+            states.subList(retained, states.size).clear()
+            previous = text
+        }
+        val line = starts.binarySearch(end).let { if (it >= 0) it else -it - 2 }
+        var start = starts[line]
+        var fence = states[line]
+        while (start < end) {
+            val newline = text.indexOf('\n', start)
+            val stop = if (newline < 0) end else minOf(newline, end)
+            val content = text.subSequence(start, stop)
+            fence = when {
+                fence == null -> parseFenceOpening(content)
+                isFenceClosing(content, fence) -> null
+                else -> fence
+            }
+            if (newline < 0) break
+            start = newline + 1
+            if (start > starts.last()) {
+                starts.add(start)
+                states.add(fence)
+            }
+        }
+        return fence != null
+    }
 }
 
 internal data class FenceMarker(val char: Char, val length: Int)

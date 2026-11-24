@@ -6,7 +6,6 @@ import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.s3.S3Client
 import com.example.looma.data.s3.S3ErrorKind
 import com.example.looma.data.s3.S3Exception
-import com.example.looma.data.search.SemanticSearchRepository
 import com.example.looma.data.settings.S3SyncConfig
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.data.vault.VaultRepository
@@ -54,7 +53,6 @@ class SyncRepository internal constructor(
     private val vaultRepository: VaultRepository,
     private val settingsRepository: SettingsRepository,
     private val noteRepository: NoteRepository,
-    private val semanticSearchRepository: SemanticSearchRepository,
     private val syncStateDao: SyncStateDao,
     private val httpClient: HttpClient,
 ) {
@@ -63,7 +61,6 @@ class SyncRepository internal constructor(
         s3Client = s3Client,
         syncStateDao = syncStateDao,
         noteRepository = noteRepository,
-        semanticSearchRepository = semanticSearchRepository,
     )
     private val work = SyncWork(context)
     private val vaultMutexes = ConcurrentHashMap<VaultId, Mutex>()
