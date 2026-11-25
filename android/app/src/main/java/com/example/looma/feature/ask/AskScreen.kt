@@ -65,20 +65,26 @@ internal fun AskScreen(model: AskViewModel, navigateUp: () -> Unit, openNote: (N
                             Switch(checked = investigate, enabled = !state.busy && state.hasModel, onCheckedChange = null)
                         },
                     ) { Text(stringResource(R.string.ask_investigate)) }
-                    if (!state.busy) {
-                        Button(onClick = { model.ask(question.text.toString(), investigate) },
-                            enabled = question.text.isNotBlank() && question.text.length <= 1000,
-                            shapes = ButtonDefaults.shapes()) {
-                            Text(stringResource(R.string.ask_submit))
+                    when (val phase = state.phase) {
+                        AskPhase.Idle -> {
+                            Button(onClick = { model.ask(question.text.toString(), investigate) },
+                                enabled = question.text.isNotBlank() && question.text.length <= 1000,
+                                shapes = ButtonDefaults.shapes()) {
+                                Text(stringResource(R.string.ask_submit))
+                            }
+                            TextButton(onClick = { picker.launch(arrayOf("*/*")) }, shapes = ButtonDefaults.shapes()) {
+                                Text(stringResource(if (state.hasModel) R.string.ask_replace else R.string.ask_import))
+                            }
                         }
-                        TextButton(onClick = { picker.launch(arrayOf("*/*")) }, shapes = ButtonDefaults.shapes()) {
-                            Text(stringResource(if (state.hasModel) R.string.ask_replace else R.string.ask_import))
+                        is AskPhase.Running -> {
+                            if (rememberDelayedVisibility(true)) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                            if (phase.step.isNotEmpty()) Text(stringResource(R.string.ask_tool, phase.step))
+                            TextButton(onClick = model::cancel, shapes = ButtonDefaults.shapes()) { Text(stringResource(android.R.string.cancel)) }
                         }
-                    } else {
-                        if (rememberDelayedVisibility(true)) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
-                        if (state.step.isNotEmpty()) Text(stringResource(R.string.ask_tool, state.step))
-                        if (state.saving) Text(stringResource(R.string.ask_saving))
-                        else TextButton(onClick = model::cancel, shapes = ButtonDefaults.shapes()) { Text(stringResource(android.R.string.cancel)) }
+                        AskPhase.Saving -> {
+                            if (rememberDelayedVisibility(true)) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                            Text(stringResource(R.string.ask_saving))
+                        }
                     }
                     state.issue?.let {
                         Text(stringResource(when (it) {

@@ -40,39 +40,32 @@ internal fun WeaveAction(
         LoomaIcon(R.drawable.ic_sparkle, stringResource(R.string.weave_title))
     }
     if (!showing) return
-    var items by remember { mutableStateOf(emptyList<Connection>()) }
-    var selected by remember { mutableStateOf<Connection?>(null) }
-    var failed by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(true) }
-    var applying by remember { mutableStateOf(false) }
+    var dialogState by remember { mutableStateOf<WeaveDialogState>(WeaveDialogState.Loading) }
     var refresh by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     var passage by remember { mutableStateOf<NotePassage?>(null) }
     var scoped by remember { mutableStateOf(range?.collapsed == false) }
+    val applying = (dialogState as? WeaveDialogState.Preview)?.applying == true
     LaunchedEffect(id, refresh, scoped) {
-        loading = true
-        failed = false
-        try {
+        dialogState = WeaveDialogState.Loading
+        dialogState = try {
             val source = editor.editor.snapshot()
             passage = passage?.takeIf { it.source === source } ?: range?.let { r ->
                 withContext(Dispatchers.Default) { MarkdownNavigation.scan(source).passage(source, r.min, r.max) }
             }
-            items = repository.related(vault, id, source, passage.takeIf { scoped })
+            WeaveDialogState.Ready(repository.related(vault, id, source, passage.takeIf { scoped }))
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {
-            failed = true
-        } finally {
-            loading = false
+            WeaveDialogState.Failed
         }
     }
-    val proposal = selected
     AlertDialog(
         onDismissRequest = { if (!applying) showing = false },
-        title = { Text(stringResource(if (proposal == null) R.string.weave_title else R.string.weave_confirm)) },
+        title = { Text(stringResource(if (dialogState is WeaveDialogState.Preview) R.string.weave_confirm else R.string.weave_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                if (proposal == null && passage != null) {
+                if (dialogState !is WeaveDialogState.Preview && passage != null) {
                     FilterChip(
                         selected = scoped,
                         onClick = { scoped = !scoped },
@@ -81,57 +74,72 @@ internal fun WeaveAction(
                     )
                     if (scoped) passage?.let { Text(it.excerpt(160)) }
                 }
-                when {
-                    loading -> DelayedLoadingIndicator(true)
-                    failed -> Text(stringResource(R.string.weave_changed))
-                    proposal != null -> {
+                when (val current = dialogState) {
+                    WeaveDialogState.Loading -> DelayedLoadingIndicator(true)
+                    WeaveDialogState.Failed -> Text(stringResource(R.string.weave_changed))
+                    is WeaveDialogState.Preview -> {
+                        val proposal = current.proposal
                         Text(proposal.evidence.text)
                         val focusPassage = proposal.passage
                         val diff = if (focusPassage == null) stringResource(R.string.weave_diff, proposal.reference)
                             else focusPassage.insertionPreview(proposal.addition(focusPassage.source))
                         Text(diff, style = MaterialTheme.typography.titleMedium)
                     }
-                    items.isEmpty() -> Text(stringResource(R.string.weave_empty))
-                    else -> for (item in items) {
-                        TextButton(onClick = {
-                            scope.launch {
-                                try {
-                                    val resolved = repository.resolve(vault, item.evidence)
-                                    if (resolved != null && editor.prepareToOpenLinkedNote()) {
-                                        showing = false
-                                        open(resolved)
-                                    } else failed = true
-                                } catch (cancel: CancellationException) { throw cancel }
-                                catch (_: Exception) { failed = true }
-                            }
-                        }, shapes = ButtonDefaults.shapes()) { Text(item.evidence.id.path.relativePath) }
-                        item.evidence.similarity?.let { Text(stringResource(R.string.weave_similarity, it)) }
-                        if (item.keywords.isNotEmpty()) Text(stringResource(R.string.weave_keywords, item.keywords.joinToString(" · ")))
-                        if (item.tags.isNotEmpty()) Text(item.tags.joinToString(" ") { "#$it" })
-                        Text(item.evidence.text, style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = { selected = item }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.weave_preview)) }
-                        HorizontalDivider()
+                    is WeaveDialogState.Ready -> if (current.items.isEmpty()) {
+                        Text(stringResource(R.string.weave_empty))
+                    } else {
+                        for (item in current.items) {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    try {
+                                        val resolved = repository.resolve(vault, item.evidence)
+                                        if (resolved != null && editor.prepareToOpenLinkedNote()) {
+                                            showing = false
+                                            open(resolved)
+                                        } else dialogState = WeaveDialogState.Failed
+                                    } catch (cancel: CancellationException) { throw cancel }
+                                    catch (_: Exception) { dialogState = WeaveDialogState.Failed }
+                                }
+                            }, shapes = ButtonDefaults.shapes()) { Text(item.evidence.id.path.relativePath) }
+                            item.evidence.similarity?.let { Text(stringResource(R.string.weave_similarity, it)) }
+                            if (item.keywords.isNotEmpty()) Text(stringResource(R.string.weave_keywords, item.keywords.joinToString(" · ")))
+                            if (item.tags.isNotEmpty()) Text(item.tags.joinToString(" ") { "#$it" })
+                            Text(item.evidence.text, style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { dialogState = WeaveDialogState.Preview(item) }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.weave_preview)) }
+                            HorizontalDivider()
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            when {
-                failed -> TextButton(onClick = { selected = null; refresh++ }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.weave_retry)) }
-                proposal != null -> Button(enabled = !applying, shapes = ButtonDefaults.shapes(), onClick = {
-                    applying = true
+            when (val current = dialogState) {
+                WeaveDialogState.Failed -> TextButton(onClick = { refresh++ }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.weave_retry)) }
+                is WeaveDialogState.Preview -> Button(enabled = !current.applying, shapes = ButtonDefaults.shapes(), onClick = {
+                    dialogState = current.copy(applying = true)
                     scope.launch {
                         try {
-                            if (editor.confirmWeave(vault, proposal, repository)) showing = false else failed = true
-                        } catch (cancel: CancellationException) { throw cancel }
-                        catch (_: Exception) { failed = true }
-                        finally { applying = false }
+                            if (editor.confirmWeave(vault, current.proposal, repository)) showing = false else dialogState = WeaveDialogState.Failed
+                        } catch (cancel: CancellationException) {
+                            dialogState = current.copy(applying = false)
+                            throw cancel
+                        } catch (_: Exception) {
+                            dialogState = WeaveDialogState.Failed
+                        }
                     }
                 }) { Text(stringResource(R.string.weave_insert)) }
+                WeaveDialogState.Loading, is WeaveDialogState.Ready -> Unit
             }
         },
         dismissButton = {
             TextButton(enabled = !applying, onClick = { showing = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(android.R.string.cancel)) }
         },
     )
+}
+
+private sealed interface WeaveDialogState {
+    data object Loading : WeaveDialogState
+    data class Ready(val items: List<Connection>) : WeaveDialogState
+    data class Preview(val proposal: Connection, val applying: Boolean = false) : WeaveDialogState
+    data object Failed : WeaveDialogState
 }
