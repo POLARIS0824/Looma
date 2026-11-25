@@ -45,7 +45,7 @@ Run doctor before the first drive, after relaunch, and after any failure/surpris
 
 ## Drive
 
-The standard-library ADB helper resolves **current** accessibility text, description, resource ID or widget class from UIAutomator before tapping. It does not cache coordinates. Compose lacks test tags here. In Edit mode the editor has **two** `android.widget.EditText` nodes: with `Show inline title` on (default), index `0` is the single-line file name and index `1` is the Markdown body; with `Show inline title` off, index `0` is the body and index `1` is the top-bar file name. On `New note`, the file name opens focused and selected, so `v key KEYCODE_ENTER` (Done) commits/keeps it and moves focus to the body. Always inspect the hierarchy before using positional indices or ambiguous text.
+The standard-library ADB helper resolves **current** accessibility text, description, resource ID or widget class from UIAutomator before tapping. It does not cache coordinates. Compose lacks test tags here. In Edit mode there is **one** `android.widget.EditText` node (the file name, whether `Show inline title` is on or off). The Markdown body uses `io.github.rosemoe.sora.widget.CodeEditor` (`LoomaCodeEditor`): when empty it shows a `Start writing Markdown…` `TextView` overlay, and when non-empty it exposes `io.github.rosemoe.sora.widget.CodeEditor`. On `New note`, the file name opens focused and selected, so `v key KEYCODE_ENTER` (Done) commits/keeps it and moves focus to `LoomaCodeEditor`. Always inspect the hierarchy before using positional indices or ambiguous text.
 
 ```nu
 v ui

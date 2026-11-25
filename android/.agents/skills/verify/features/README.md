@@ -1,6 +1,6 @@
 # Looma Android verification map
 
-This is the maintained Android user-journey index. Every feature file below was checked against source and driven live on `looma36` (API 36) during the 2026-11-19 maintenance pass, except prerequisite-gated items (`browse-stalled` has no user path; full 157 MiB EmbeddingGemma 2 download, vector indexing and semantic passage search require external Hugging Face network access; real S3 uploads require a reachable endpoint; `vault-unavailable` requires revoking storage access or deleting the folder externally). Consult each run's `coverage.md` for that run's actual coverage.
+This is the maintained Android user-journey index. Every feature file below was checked against source and driven live on `looma36` (API 36) during the 2026-11-25 maintenance pass, except prerequisite-gated items (`browse-stalled` has no user path; full 157 MiB EmbeddingGemma 2 download, vector indexing and semantic passage search require external Hugging Face network access; `Ask` answer generation and `Save as note` require an imported `.litertlm` generation model; real S3 connection tests, sync transfers and S3 image uploads require a reachable endpoint; `vault-unavailable` requires revoking storage access or deleting the folder externally). Consult each run's `coverage.md` for that run's actual coverage.
 
 ## Baseline preconditions
 
@@ -11,7 +11,7 @@ This is the maintained Android user-journey index. Every feature file below was 
 
 ## Driving conventions
 
-- Commands are relative to `android/`. `v doctor` precedes driving and follows unexpected results; use `--system` only for expected Android Settings/DocumentsUI.
+- Commands are relative to `android/`. `v doctor` precedes driving and follows unexpected results; use `--system` only for expected Android Settings/DocumentsUI/Photo Picker.
 - Select exact text/description. Duplicate titles may occur in Recent and Notes; inspect `v ui` and specify `--index` deliberately.
 - `v capture <unique-name>` records UI and logs; `v files <unique-name>` copies actual vault bytes. Open images and inspect bytes.
 - Create prerequisites through the UI. The only exception is `v fixture`, which stands in for something outside Looma: a photo in the gallery, or another editor changing a vault file. Missing data, permissions or system providers must be reported with the attempted route. Do not weaken the journey.
@@ -22,10 +22,11 @@ This is the maintained Android user-journey index. Every feature file below was 
 | Feature | User surfaces |
 | --- | --- |
 | [Vault connection](vault.md) | First launch, all-files access, primary folder picker, pending confirmation, relaunch, change vault, unavailable vault |
-| [Notes](notes.md) | New note, single-field Markdown editing, autosave, Read/Edit, toolbar and its scrolling, checklists, wiki links and backlinks, image insert, math, conflict copies and Overwrite |
-| [Browse, files and search](browse-search.md) | Root and folder top bar, Recent/Notes, layout and sort, rename/move with link rewriting, file info, batch actions, Undo, keyword/tag search and history, semantic search controls, stalled relocation (source-only) |
+| [Notes](notes.md) | New note, `LoomaCodeEditor` Markdown editing, autosave, Read/Edit, toolbar and its scrolling, checklists, `Navigate note`, `Weave connections`, wiki links and backlinks, image insert, math, conflict copies and Overwrite, `Export a copy` |
+| [Browse, files and search](browse-search.md) | Root and folder top bar, Recent/Notes, layout and sort, rename/move with link rewriting, file info, batch actions, Undo, keyword/tag search and history, semantic search controls, sync status banner, stalled relocation (source-only) |
+| [Ask this vault](ask.md) | Drawer entry, question input, evidence retrieval, `.litertlm` model import, agent search toggle, source navigation, `Save as note` |
 | [Trash](trash.md) | Delete and Undo, folder delete, restore and its Undo, delete permanently, restore all, empty trash |
-| [Settings](settings.md) | Avatar and drawer entries, vault and access, theme presets and Dynamic color, language, toolbar order, keep empty notes, inline title, semantic search model and index, image destination and S3 image bed |
+| [Settings](settings.md) | Avatar and drawer entries, vault and access, theme presets and Dynamic color, language, toolbar order, keep empty notes, inline title, semantic search model and index, vault sync (R2 / S3), image destination and S3 image bed |
 
 ## Proof and skip reporting
 

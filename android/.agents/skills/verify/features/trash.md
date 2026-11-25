@@ -30,6 +30,6 @@ Preconditions: connected Home root, doctor passes, at least one note created thr
 
 - `Open navigation` exists only at Home root (inside folders `Go up one folder` replaces it and drawer gestures are disabled).
 - The trash is `.looma/trash`, not Obsidian's `.trash`. Records whose `.properties` lacks a matching `.md`, lacks valid `originalPath`/`deletedAt`, or whose name is not a UUID, are hidden.
-- Restoring onto an existing file or a trashed file exceeding 2 MiB fails with `Could not restore that note` and overwrites nothing; Home batch Undo then shows `Undid X · Y could not be undone` (partial) or `Could not undo that`.
+- Restoring onto an existing file (`RESTORE_CONFLICT`) or an I/O / invalid-path failure fails with `Could not restore that note` and overwrites nothing; Home batch Undo then shows `Undid X · Y could not be undone` (partial) or `Could not undo that`. Restoring a trashed file exceeding 2 MiB still succeeds on disk (only indexing is skipped).
 - Permanent deletion is irreversible in the guest; use only the run's disposable vault and keep the pulled before/after copies.
 - Snackbar Undo expires; a missed Undo is an unexercised branch, not a failure.

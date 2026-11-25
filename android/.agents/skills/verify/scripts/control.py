@@ -181,6 +181,7 @@ class Control:
         allowed = (APP,) if not system else (APP, "com.android.settings", "com.android.documentsui",
                                                            "com.google.android.documentsui", "com.android.permissioncontroller",
                                                            "com.google.android.permissioncontroller",
+                                                           "com.android.providers.media.module",
                                                            "com.google.android.providers.media.module")
         if not any(package + "/" in resumed for package in allowed):
             raise RuntimeError("Unexpected foreground; inspect/reset before driving: " + resumed)
