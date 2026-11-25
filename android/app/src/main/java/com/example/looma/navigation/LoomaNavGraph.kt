@@ -321,6 +321,11 @@ internal fun LoomaNavGraph(
                             if (vault != null) WeaveAction(
                                 vault, noteId, app.evidence, noteViewModel, focus,
                                 open = { backStack.add(LoomaRoute.Note.from(it.id, passage = it.anchor)) },
+                                onOpenSemanticSettings = {
+                                    if (backStack.lastOrNull() != LoomaRoute.SemanticSearchSettings) {
+                                        backStack.add(LoomaRoute.SemanticSearchSettings)
+                                    }
+                                },
                             )
                         },
                         retargetVersion = route.retargetVersion,

@@ -4,6 +4,8 @@ import com.example.looma.data.index.SearchSignature
 import com.example.looma.data.note.StoredMarkdown
 import com.example.looma.data.note.NoteListEntry
 import com.example.looma.data.note.NoteRepository
+import com.example.looma.data.search.SemanticIndexMissingException
+import com.example.looma.data.search.SemanticModelMissingException
 import com.example.looma.data.search.SemanticSearchRepository
 import android.util.LruCache
 import com.example.looma.data.search.SemanticChunk
@@ -26,9 +28,39 @@ import com.example.looma.data.search.SemanticWorkState
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-internal data class Evidence(val id: NoteId, val anchor: PassageAnchor, val text: String, val section: String, val similarity: Double? = null)
-internal data class EvidenceSet(val hits: List<Evidence>, val semantic: Boolean, val partial: Boolean)
-internal data class Connection(val source: NoteId, val evidence: Evidence, val reference: String, val tags: Set<String>, val keywords: List<String>, val passage: NotePassage?)
+internal enum class EvidenceMatchSource { Semantic, Lexical, Hybrid }
+internal enum class WeaveSemanticStatus { Ready, Partial, ModelMissing, ModelDownloading, IndexMissing, Indexing, Unavailable, Failed }
+
+internal data class Evidence(
+    val id: NoteId,
+    val anchor: PassageAnchor,
+    val text: String,
+    val section: String,
+    val similarity: Double? = null,
+    val source: EvidenceMatchSource = if (similarity != null) EvidenceMatchSource.Semantic else EvidenceMatchSource.Lexical,
+)
+internal data class EvidenceSet(
+    val hits: List<Evidence>,
+    val semantic: Boolean,
+    val partial: Boolean,
+    val semanticStatus: WeaveSemanticStatus = if (semantic) WeaveSemanticStatus.Ready else WeaveSemanticStatus.Unavailable,
+)
+internal data class Connection(
+    val source: NoteId,
+    val title: String,
+    val evidence: Evidence,
+    val reference: String,
+    val tags: Set<String>,
+    val keywords: List<String>,
+    val matchedTitle: Boolean,
+    val matchSource: EvidenceMatchSource,
+    val passage: NotePassage?,
+)
+internal data class WeaveSuggestions(
+    val items: List<Connection>,
+    val semanticStatus: WeaveSemanticStatus,
+    val partial: Boolean,
+)
 internal class EvidenceDocument(val source: StoredMarkdown) {
     var chunks: List<SemanticChunk>? = null
 }
@@ -64,16 +96,48 @@ internal class VaultEvidence(
         if (question.isEmpty()) return@withContext EvidenceSet(emptyList(), false, scope.partial)
         val terms = terms(question)
         val candidates = scope.notes.map { SearchableNote(it.summary.id, it.summary.title, it.summary.tags) }
-        val semantic = try {
-            if (vectors.supported) vectors.search(question, candidates, relatedDocumentTitle) else null
-        } catch (cancel: CancellationException) {
-            throw cancel
-        } catch (_: Exception) {
+        var semanticStatus = WeaveSemanticStatus.Unavailable
+        val semantic = if (!vectors.supported) {
             null
-        } catch (_: LinkageError) {
-            null
+        } else {
+            try {
+                vectors.search(question, candidates, relatedDocumentTitle).also {
+                    semanticStatus = when (vectors.indexState.first()) {
+                        SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.Indexing
+                        SemanticWorkState.Ready -> WeaveSemanticStatus.Ready
+                        else -> WeaveSemanticStatus.Partial
+                    }
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: SemanticModelMissingException) {
+                semanticStatus = when (vectors.modelState.first()) {
+                    SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.ModelDownloading
+                    else -> WeaveSemanticStatus.ModelMissing
+                }
+                null
+            } catch (_: SemanticIndexMissingException) {
+                val modelState = vectors.modelState.first()
+                semanticStatus = when {
+                    modelState == SemanticWorkState.Queued || modelState is SemanticWorkState.Running -> WeaveSemanticStatus.ModelDownloading
+                    modelState != SemanticWorkState.Ready -> WeaveSemanticStatus.ModelMissing
+                    else -> when (vectors.indexState.first()) {
+                        SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.Indexing
+                        else -> WeaveSemanticStatus.IndexMissing
+                    }
+                }
+                null
+            } catch (_: Exception) {
+                semanticStatus = WeaveSemanticStatus.Failed
+                null
+            } catch (_: LinkageError) {
+                semanticStatus = WeaveSemanticStatus.Failed
+                null
+            }
         }
-        val dense = semantic.orEmpty().map { Evidence(it.id, it.anchor, it.excerpt, it.section, it.similarity) }
+        val dense = semantic.orEmpty().map {
+            Evidence(it.id, it.anchor, it.excerpt, it.section, it.similarity, EvidenceMatchSource.Semantic)
+        }
         val tests = (terms + question).distinct().map(SearchSignature::prepare)
         val reader = notes.lexicalReader(scope.vault)
         val shortlist = mutableListOf<Pair<Int, NoteListEntry>>()
@@ -115,7 +179,7 @@ internal class VaultEvidence(
                 val direct = text.contains(question, ignoreCase = true)
                 val rank = score(text, terms) + meta + if (direct) 100 else 0
                 if (rank == 0) null else rank to Evidence(summary.id,
-                    PassageAnchor(revision.sha256, chunk.start, chunk.end), text, chunk.section)
+                    PassageAnchor(revision.sha256, chunk.start, chunk.end), text, chunk.section, source = EvidenceMatchSource.Lexical)
             }.sortedByDescending { it.first }.take(2)
             lexical += passages
             if (lexical.size > limit * 4) {
@@ -132,15 +196,25 @@ internal class VaultEvidence(
                 dense.getOrNull(i)?.let(::add)
             }
         }
+        val denseByKey = dense.associateBy { it.id to it.anchor }
+        val lexicalByKey = keywords.associateBy { it.id to it.anchor }
         val perNote = mutableMapOf<NoteId, Int>()
-        val hits = ordered.distinctBy { it.id to it.anchor }.filter {
+        val hits = ordered.distinctBy { it.id to it.anchor }.map { hit ->
+            val key = hit.id to hit.anchor
+            val denseHit = denseByKey[key]
+            if (denseHit != null && key in lexicalByKey) {
+                hit.copy(similarity = denseHit.similarity, source = EvidenceMatchSource.Hybrid)
+            } else {
+                hit
+            }
+        }.filter {
             val count = perNote.getOrDefault(it.id, 0)
             if (count < 2) perNote[it.id] = count + 1
             count < 2
         }.take(limit)
         checkVault(scope.vault)
         val partialIndex = semantic != null && vectors.indexState.first() != SemanticWorkState.Ready
-        EvidenceSet(hits, semantic != null, scope.partial || skipped || partialIndex)
+        EvidenceSet(hits, semantic != null, scope.partial || skipped || partialIndex, semanticStatus)
     }
 
     suspend fun resolve(vault: Vault, hit: Evidence, expand: Boolean = false): Evidence? = withContext(Dispatchers.IO) {
@@ -162,9 +236,10 @@ internal class VaultEvidence(
         hit.copy(anchor = hit.anchor.copy(start = start, end = end), text = note.content.substring(start, end))
     }
 
-    suspend fun related(vault: Vault, source: NoteId, buffer: String, passage: NotePassage? = null): List<Connection> = withContext(Dispatchers.IO) {
+    suspend fun related(vault: Vault, source: NoteId, buffer: String, passage: NotePassage? = null): WeaveSuggestions = withContext(Dispatchers.IO) {
         val scope = scope(vault)
-        val current = scope.notes.firstOrNull { it.summary.id == source }?.summary ?: return@withContext emptyList()
+        val current = scope.notes.firstOrNull { it.summary.id == source }?.summary
+            ?: return@withContext WeaveSuggestions(emptyList(), WeaveSemanticStatus.Unavailable, scope.partial)
         val wiki = notes.wikiContext(source)
         val linked = MarkdownIndex.index(buffer, current.title).links.mapNotNull { wiki.resolve(it.target) }.toSet() +
             wiki.backlinks.map { it.id } + source
@@ -172,14 +247,25 @@ internal class VaultEvidence(
         val metadata = eligible.associate { it.summary.id to it.summary }
         val query = passage?.let { it.excerpt(1024).trim() } ?: (current.title + " " + current.tags.joinToString(" ") + " " + buffer.take(640)).trim()
         val sourceTerms = terms(query)
-        search(scope.copy(notes = eligible), query, 12, relatedDocumentTitle = current.title).hits.distinctBy { it.id }.mapNotNull { hit ->
+        val result = search(scope.copy(notes = eligible), query, 12, relatedDocumentTitle = current.title)
+        val items = result.hits.distinctBy { it.id }.mapNotNull { hit ->
             val path = wikiPathOf(hit.id.path)
             if (wiki.resolve(path) != hit.id || path.any { it in "[]#|\r\n" }) return@mapNotNull null
             val target = metadata.getValue(hit.id)
+            val sharedTags = current.tags.intersect(target.tags)
             val sharedTerms = sourceTerms.filter { hit.text.contains(it, true) || target.title.contains(it, true) }
                 .sortedByDescending { it.length }.take(3)
-            Connection(source, hit, path, current.tags.intersect(target.tags), sharedTerms, passage)
+            val matchedTitle = sourceTerms.any { target.title.contains(it, true) }
+            val hasSemantic = hit.similarity != null
+            val hasExplainable = hit.source != EvidenceMatchSource.Semantic || sharedTerms.isNotEmpty() || sharedTags.isNotEmpty() || matchedTitle
+            val matchSource = when {
+                hasSemantic && hasExplainable -> EvidenceMatchSource.Hybrid
+                hasSemantic -> EvidenceMatchSource.Semantic
+                else -> EvidenceMatchSource.Lexical
+            }
+            Connection(source, target.title, hit, path, sharedTags, sharedTerms, matchedTitle, matchSource, passage)
         }.take(5)
+        WeaveSuggestions(items, result.semanticStatus, result.partial)
     }
 
     suspend fun linkStillValid(vault: Vault, suggestion: Connection, buffer: String): Boolean = withContext(Dispatchers.IO) {
