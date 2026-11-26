@@ -61,7 +61,7 @@ internal class DefaultAgentRuntimeExecutor(
                     is LlmResult.Failure -> return@coroutineScope outcome
                     is LlmResult.Success -> {
                         val cleaned = outcome.value
-                        val toolCall = if (tools != null && stepIndex < maxSteps - 1) {
+                        val toolCall = if (tools != null) {
                             toolDispatcher.extractToolCall(cleaned)
                         } else {
                             null
@@ -71,6 +71,9 @@ internal class DefaultAgentRuntimeExecutor(
                                 value = AgentResponse(text = cleaned, steps = steps, metadata = outcome.metadata),
                                 metadata = outcome.metadata,
                             )
+                        }
+                        if (stepIndex == maxSteps - 1) {
+                            break
                         }
                         val toolStep = AgentStep(label = toolCall.name, metadata = outcome.metadata)
                         steps.add(toolStep)
@@ -140,7 +143,7 @@ internal class DefaultAgentRuntimeExecutor(
                 if (failed) return@launch
 
                 val cleaned = textBuilder.toString()
-                val toolCall = if (tools != null && stepIndex < maxSteps - 1) {
+                val toolCall = if (tools != null) {
                     toolDispatcher.extractToolCall(cleaned)
                 } else {
                     null
@@ -153,12 +156,16 @@ internal class DefaultAgentRuntimeExecutor(
                     )
                     return@launch
                 }
+                if (stepIndex == maxSteps - 1) {
+                    break
+                }
                 steps.add(AgentStep(label = toolCall.name, metadata = lastMetadata))
                 send(AgentEvent.ToolCallStarted(toolCall.name, toolCall.argumentsJson))
                 val result = toolDispatcher.dispatch(tools!!, toolCall.name, toolCall.argumentsJson)
                 send(AgentEvent.ToolCallFinished(toolCall.name, result.output, result.isError))
                 currentPrompt = formatToolResult(toolCall.name, result.output, result.isError)
             }
+            send(AgentEvent.Error(LlmError(LlmError.FAILED, "Max agent steps reached")))
         }
         activeJob.getAndSet(runJob)?.cancel()
         try {
