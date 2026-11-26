@@ -33,6 +33,18 @@ sealed interface LoomaRoute : NavKey {
     data object SyncSettings : LoomaRoute
 
     @Serializable
+    data object ModelSettings : LoomaRoute
+
+    @Serializable
+    data object LocalModels : LoomaRoute
+
+    @Serializable
+    data object ApiConnections : LoomaRoute
+
+    @Serializable
+    data class ApiConnectionEdit(val connectionId: String?) : LoomaRoute
+
+    @Serializable
     data class Note(
         val vaultId: String,
         val relativePath: String,

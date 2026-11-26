@@ -1,9 +1,16 @@
 package com.example.looma
 
 import android.app.Application
+import com.example.looma.data.assistant.AnswerModels
 import com.example.looma.data.assistant.LocalGenerator
+import com.example.looma.data.assistant.LoomaModelSettingsRepository
+import com.example.looma.data.assistant.ModelSettingsRepository
 import com.example.looma.data.assistant.VaultAgent
 import com.example.looma.data.assistant.VaultEvidence
+import com.example.looma.data.assistant.WeaveFeedbackStore
+import com.example.looma.data.assistant.api.ApiConnectionStore
+import com.example.looma.data.assistant.api.ApiModelProvider
+import com.example.looma.data.assistant.api.KtorApiClient
 import com.example.looma.data.folder.FolderRepository
 import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.index.NoteIndexDatabase
@@ -51,9 +58,19 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     val semanticSearchRepository by lazy {
         SemanticSearchRepository(this, noteRepository, vaultRepository, settingsRepository, modelSession)
     }
-    internal val evidence by lazy { VaultEvidence(vaultRepository, noteRepository, semanticSearchRepository) }
-    internal val generator by lazy { LocalGenerator(this, modelSession) }
-    internal val vaultAgent by lazy { VaultAgent(evidence, generator) }
+    private val weaveFeedbackStore by lazy { WeaveFeedbackStore(this) }
+    internal val evidence by lazy { VaultEvidence(vaultRepository, noteRepository, semanticSearchRepository, weaveFeedbackStore) }
+    private val localGenerator by lazy { LocalGenerator(this, modelSession) }
+    private val apiConnectionStore by lazy { ApiConnectionStore(this) }
+    private val ktorApiClient by lazy { KtorApiClient(httpClient) }
+    internal val modelSettingsRepository: ModelSettingsRepository by lazy {
+        LoomaModelSettingsRepository(apiConnectionStore, ktorApiClient, localGenerator)
+    }
+    private val apiModelProvider by lazy { ApiModelProvider(modelSettingsRepository.connections, ktorApiClient) }
+    internal val answerModels by lazy {
+        AnswerModels(listOf(localGenerator, apiModelProvider), localImporter = localGenerator::install)
+    }
+    internal val vaultAgent by lazy { VaultAgent(evidence) }
     val folderRepository by lazy { FolderRepository(noteRepository) }
     val imageUploader by lazy { ImageUploader(this, vaultRepository, httpClient) }
     val syncRepository by lazy {

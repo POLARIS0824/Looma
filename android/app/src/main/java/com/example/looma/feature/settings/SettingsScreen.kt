@@ -61,6 +61,7 @@ fun SettingsRoute(
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
     onSyncClick: () -> Unit = {},
+    onModelsClick: () -> Unit = {},
 ) {
     val vaultState by vaultViewModel.uiState.collectAsStateWithLifecycle()
     val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
@@ -102,6 +103,7 @@ fun SettingsRoute(
         onImageBedChange = settingsViewModel::setS3ImageBed,
         syncStatus = syncStatus,
         onSyncClick = onSyncClick,
+        onModelsClick = onModelsClick,
         onNavigateUp = onNavigateUp,
         modifier = modifier,
     )
@@ -132,6 +134,7 @@ internal fun SettingsScreen(
     modifier: Modifier = Modifier,
     syncStatus: SyncStatus? = null,
     onSyncClick: () -> Unit = {},
+    onModelsClick: () -> Unit = {},
 ) {
     var overlay by remember { mutableStateOf<SettingsOverlay?>(null) }
     val dynamicColorSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -276,10 +279,17 @@ internal fun SettingsScreen(
                 SettingsGroup(stringResource(R.string.settings_section_search)) {
                     SettingsRow(
                         index = 0,
-                        count = 1,
+                        count = 2,
                         title = stringResource(R.string.settings_semantic_title),
                         description = stringResource(R.string.settings_semantic_desc),
                         onClick = onSemanticSearchClick,
+                    )
+                    SettingsRow(
+                        index = 1,
+                        count = 2,
+                        title = stringResource(R.string.models_title),
+                        description = stringResource(R.string.models_settings_desc),
+                        onClick = onModelsClick,
                     )
                 }
 

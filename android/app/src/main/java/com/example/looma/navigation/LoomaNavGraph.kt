@@ -55,6 +55,12 @@ import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.VaultId
 import com.example.looma.feature.home.HomeRoute
 import com.example.looma.feature.home.HomeViewModel
+import com.example.looma.feature.models.ApiConnectionEditRoute
+import com.example.looma.feature.models.ApiConnectionEditViewModel
+import com.example.looma.feature.models.ApiConnectionsRoute
+import com.example.looma.feature.models.LocalModelsRoute
+import com.example.looma.feature.models.ModelSettingsRoute
+import com.example.looma.feature.models.ModelSettingsViewModel
 import com.example.looma.feature.note.NoteRoute
 import com.example.looma.feature.note.NoteViewModel
 import com.example.looma.feature.note.titleEditFor
@@ -209,12 +215,15 @@ internal fun LoomaNavGraph(
                 entry<LoomaRoute.Ask>(clazzContentKey = { "ask/${vault?.id?.value.orEmpty()}" }) {
                     val active = vault ?: return@entry
                     val model = viewModel<AskViewModel> {
-                        AskViewModel(active, app.vaultAgent, app.evidence, app.generator, app.noteRepository)
+                        AskViewModel(active, app.vaultAgent, app.evidence, app.answerModels, app.noteRepository, app.settingsRepository)
                     }
                     AskScreen(model,
                         openNote = { backStack.add(LoomaRoute.Note.from(it)) },
                         navigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
                         open = { backStack.add(LoomaRoute.Note.from(it.id, passage = it.anchor)) },
+                        manageModels = {
+                            if (backStack.lastOrNull() == LoomaRoute.Ask) backStack.add(LoomaRoute.ModelSettings)
+                        },
                     )
                 }
 
@@ -250,6 +259,11 @@ internal fun LoomaNavGraph(
                                 backStack.add(LoomaRoute.SyncSettings)
                             }
                         },
+                        onModelsClick = {
+                            if (backStack.lastOrNull() == LoomaRoute.Settings) {
+                                backStack.add(LoomaRoute.ModelSettings)
+                            }
+                        },
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
                     )
                 }
@@ -273,6 +287,64 @@ internal fun LoomaNavGraph(
                         viewModel = syncSettingsViewModel,
                         vaultName = vault?.name.orEmpty(),
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                    )
+                }
+
+                entry<LoomaRoute.ModelSettings> {
+                    val modelViewModel: ModelSettingsViewModel = viewModel {
+                        ModelSettingsViewModel(app.modelSettingsRepository)
+                    }
+                    ModelSettingsRoute(
+                        viewModel = modelViewModel,
+                        onOpenLocal = {
+                            if (backStack.lastOrNull() == LoomaRoute.ModelSettings) backStack.add(LoomaRoute.LocalModels)
+                        },
+                        onOpenApi = {
+                            if (backStack.lastOrNull() == LoomaRoute.ModelSettings) backStack.add(LoomaRoute.ApiConnections)
+                        },
+                        onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                    )
+                }
+
+                entry<LoomaRoute.LocalModels> {
+                    val modelViewModel: ModelSettingsViewModel = viewModel {
+                        ModelSettingsViewModel(app.modelSettingsRepository)
+                    }
+                    LocalModelsRoute(
+                        viewModel = modelViewModel,
+                        onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                    )
+                }
+
+                entry<LoomaRoute.ApiConnections> {
+                    val modelViewModel: ModelSettingsViewModel = viewModel {
+                        ModelSettingsViewModel(app.modelSettingsRepository)
+                    }
+                    ApiConnectionsRoute(
+                        viewModel = modelViewModel,
+                        onEdit = { id ->
+                            if (backStack.lastOrNull() == LoomaRoute.ApiConnections) {
+                                backStack.add(LoomaRoute.ApiConnectionEdit(id))
+                            }
+                        },
+                        onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                    )
+                }
+
+                entry<LoomaRoute.ApiConnectionEdit> { route ->
+                    val editViewModel: ApiConnectionEditViewModel = viewModel {
+                        ApiConnectionEditViewModel(app.modelSettingsRepository, route.connectionId)
+                    }
+                    ApiConnectionEditRoute(
+                        viewModel = editViewModel,
+                        onDuplicated = { id ->
+                            if (backStack.lastOrNull() == route) {
+                                backStack[backStack.lastIndex] = LoomaRoute.ApiConnectionEdit(id)
+                            }
+                        },
+                        onNavigateUp = {
+                            if (backStack.lastOrNull() == route && backStack.size > 1) backStack.removeLastOrNull()
+                        },
                     )
                 }
 

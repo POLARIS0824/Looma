@@ -1,14 +1,17 @@
 package com.example.looma.feature.ask
 
-import android.net.Uri
 import com.example.looma.data.note.NoteRepository
+import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.wiki.LocalNoteLink
 import com.example.looma.domain.wiki.wikiPathOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.looma.data.assistant.AnswerModel
+import com.example.looma.data.assistant.AnswerModels
 import com.example.looma.data.assistant.Evidence
-import com.example.looma.data.assistant.LocalGenerator
+import com.example.looma.data.assistant.ModelChoice
+import com.example.looma.data.assistant.ThinkingEffort
 import com.example.looma.data.assistant.VaultAgent
 import com.example.looma.data.assistant.VaultAnswer
 import com.example.looma.data.assistant.VaultEvidence
@@ -18,10 +21,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-internal enum class AskIssue { Import, Run, Timeout, Changed, Save }
+internal enum class AskIssue { Run, Timeout, Changed, Save }
 internal sealed interface AskPhase {
     data object Idle : AskPhase
     data class Running(val step: String = "") : AskPhase
@@ -29,7 +33,9 @@ internal sealed interface AskPhase {
 }
 
 internal data class AskState(
-    val hasModel: Boolean,
+    val vaultName: String,
+    val models: List<AnswerModel>,
+    val choice: ModelChoice?,
     val phase: AskPhase = AskPhase.Idle,
     val answer: VaultAnswer? = null,
     val question: String = "",
@@ -44,24 +50,92 @@ internal class AskViewModel(
     private val vault: Vault,
     private val agent: VaultAgent,
     private val evidence: VaultEvidence,
-    private val generator: LocalGenerator,
+    private val models: AnswerModels,
     private val notes: NoteRepository,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
-    private val mutable = MutableStateFlow(AskState(generator.installed))
+    private val mutable = MutableStateFlow(models.installed().let { installed ->
+        AskState(vault.name, installed, restoredChoice(installed, null, null))
+    })
     val state = mutable.asStateFlow()
     private var task: Job? = null
+    private var picked = false
 
-    fun install(uri: Uri) = start(AskPhase.Running(), AskIssue.Import) {
-        generator.install(uri)
-        mutable.update { it.copy(hasModel = generator.installed) }
+    init {
+        viewModelScope.launch {
+            val stored = settings.settings.first()
+            mutable.update { current ->
+                if (picked) current else current.copy(choice = restoredChoice(current.models, stored.askModelId, stored.askEffort))
+            }
+            models.models.collect { installed ->
+                mutable.update { current ->
+                    val next = if (picked) {
+                        current.choice?.takeIf { it.model in installed }
+                            ?: installed.firstOrNull()?.let { ModelChoice(it, it.defaultEffort) }
+                    } else {
+                        restoredChoice(installed, stored.askModelId, stored.askEffort)
+                    }
+                    current.copy(models = installed, choice = next)
+                }
+            }
+        }
     }
 
-    fun ask(question: String, investigate: Boolean) = start(AskPhase.Running(), AskIssue.Run) {
+    fun refreshModels() {
+        models.refresh()
+        val installed = models.installed()
+        mutable.update { current ->
+            if (current.models == installed) return@update current
+            val kept = current.choice?.takeIf { it.model in installed }
+            current.copy(
+                models = installed,
+                choice = kept ?: installed.firstOrNull()?.let { ModelChoice(it, it.defaultEffort) },
+            )
+        }
+    }
+
+    fun select(model: AnswerModel) = pick { current ->
+        if (model !in current.models) return@pick current
+        val effort = current.choice?.effort?.takeIf { it in model.efforts } ?: model.defaultEffort
+        current.copy(choice = ModelChoice(model, effort))
+    }
+
+    fun setEffort(effort: ThinkingEffort) = pick { current ->
+        val choice = current.choice ?: return@pick current
+        if (effort !in choice.model.efforts) current else current.copy(choice = choice.copy(effort = effort))
+    }
+
+    private fun pick(change: (AskState) -> AskState) {
+        val before = mutable.value.choice
+        mutable.update(change)
+        val choice = mutable.value.choice ?: return
+        if (choice == before) return
+        picked = true
+        viewModelScope.launch { settings.setAskModel(choice) }
+    }
+
+    fun ask(question: String) = start(AskPhase.Running(), AskIssue.Run) {
         mutable.update { it.copy(answer = null, question = question, saved = null) }
-        val answer = agent.answer(vault, question.trim(), investigate) { step ->
+        val choice = mutable.value.choice
+        val answer = agent.answer(
+            vault,
+            question.trim(),
+            choice?.let { models.generator(it.model) },
+            choice?.effort ?: ThinkingEffort.Off,
+            choice?.route,
+        ) { step ->
             mutable.update { it.copy(phase = AskPhase.Running(step)) }
         }
         mutable.update { it.copy(answer = answer) }
+    }
+
+    fun retry() {
+        val question = mutable.value.question
+        if (question.isNotBlank()) ask(question)
+    }
+
+    fun newChat() = mutable.update {
+        if (it.busy) it else it.copy(question = "", answer = null, saved = null, issue = null)
     }
 
     fun open(hit: Evidence, navigate: (Evidence) -> Unit) = start(AskPhase.Running(), AskIssue.Changed) {
@@ -103,6 +177,12 @@ internal class AskViewModel(
             }
         }
     }
+}
+
+private fun restoredChoice(installed: List<AnswerModel>, modelId: String?, effortName: String?): ModelChoice? {
+    val model = installed.firstOrNull { it.id == modelId } ?: return installed.firstOrNull()?.let { ModelChoice(it, it.defaultEffort) }
+    val stored = ThinkingEffort.entries.firstOrNull { it.name == effortName } ?: return ModelChoice(model, model.defaultEffort)
+    return ModelChoice(model, model.efforts.lastOrNull { it <= stored } ?: model.efforts.firstOrNull() ?: model.defaultEffort)
 }
 
 internal fun VaultAnswer.asMarkdown(question: String, sourcesTitle: String): String = buildString {

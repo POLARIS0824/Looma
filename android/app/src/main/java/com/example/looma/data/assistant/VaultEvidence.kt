@@ -13,6 +13,7 @@ import com.example.looma.data.search.semanticChunks
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.domain.markdown.NotePassage
 import com.example.looma.domain.markdown.MarkdownIndex
+import com.example.looma.domain.markdown.frontmatterEnd
 import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.NoteRevision
 import com.example.looma.domain.model.Vault
@@ -21,6 +22,7 @@ import com.example.looma.domain.search.SearchableNote
 import com.example.looma.domain.wiki.wikiPathOf
 import java.io.IOException
 import kotlin.coroutines.coroutineContext
+import kotlin.math.ln
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -55,11 +57,14 @@ internal data class Connection(
     val matchedTitle: Boolean,
     val matchSource: EvidenceMatchSource,
     val passage: NotePassage?,
+    val alreadyLinked: Boolean = false,
+    val pinned: Boolean = false,
 )
 internal data class WeaveSuggestions(
     val items: List<Connection>,
     val semanticStatus: WeaveSemanticStatus,
     val partial: Boolean,
+    val hiddenCount: Int = 0,
 )
 internal class EvidenceDocument(val source: StoredMarkdown) {
     var chunks: List<SemanticChunk>? = null
@@ -74,6 +79,7 @@ internal class VaultEvidence(
     private val vaults: VaultRepository,
     private val notes: NoteRepository,
     private val vectors: SemanticSearchRepository,
+    private val feedback: WeaveFeedbackStore? = null,
 ) {
     suspend fun scope(vault: Vault): EvidenceScope {
         val scan = notes.evidenceNotes(vault)
@@ -102,30 +108,15 @@ internal class VaultEvidence(
         } else {
             try {
                 vectors.search(question, candidates, relatedDocumentTitle).also {
-                    semanticStatus = when (vectors.indexState.first()) {
-                        SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.Indexing
-                        SemanticWorkState.Ready -> WeaveSemanticStatus.Ready
-                        else -> WeaveSemanticStatus.Partial
-                    }
+                    semanticStatus = readySemanticStatus()
                 }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: SemanticModelMissingException) {
-                semanticStatus = when (vectors.modelState.first()) {
-                    SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.ModelDownloading
-                    else -> WeaveSemanticStatus.ModelMissing
-                }
+                semanticStatus = modelMissingStatus()
                 null
             } catch (_: SemanticIndexMissingException) {
-                val modelState = vectors.modelState.first()
-                semanticStatus = when {
-                    modelState == SemanticWorkState.Queued || modelState is SemanticWorkState.Running -> WeaveSemanticStatus.ModelDownloading
-                    modelState != SemanticWorkState.Ready -> WeaveSemanticStatus.ModelMissing
-                    else -> when (vectors.indexState.first()) {
-                        SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.Indexing
-                        else -> WeaveSemanticStatus.IndexMissing
-                    }
-                }
+                semanticStatus = indexMissingStatus()
                 null
             } catch (_: Exception) {
                 semanticStatus = WeaveSemanticStatus.Failed
@@ -236,36 +227,325 @@ internal class VaultEvidence(
         hit.copy(anchor = hit.anchor.copy(start = start, end = end), text = note.content.substring(start, end))
     }
 
-    suspend fun related(vault: Vault, source: NoteId, buffer: String, passage: NotePassage? = null): WeaveSuggestions = withContext(Dispatchers.IO) {
+    suspend fun togglePin(source: NoteId, target: NoteId): Boolean = withContext(Dispatchers.IO) {
+        val store = feedback ?: return@withContext false
+        val current = store.statesFor(source)[target.path]
+        if (current == WeaveFeedbackState.Pinned) {
+            store.clearState(source, target.path)
+            false
+        } else {
+            store.setState(source, target.path, WeaveFeedbackState.Pinned)
+            true
+        }
+    }
+
+    suspend fun hideConnection(source: NoteId, target: NoteId) {
+        withContext(Dispatchers.IO) {
+            val store = feedback ?: return@withContext
+            store.setState(source, target.path, WeaveFeedbackState.Hidden)
+        }
+    }
+
+    suspend fun unhideAllConnections(source: NoteId): Int = withContext(Dispatchers.IO) {
+        val store = feedback ?: return@withContext 0
+        store.clearHidden(source)
+    }
+
+    suspend fun related(
+        vault: Vault,
+        source: NoteId,
+        buffer: String,
+        passage: NotePassage? = null,
+        excludeLinked: Boolean = true,
+    ): WeaveSuggestions = withContext(Dispatchers.IO) {
+        val checkActive = coroutineContext::ensureActive
         val scope = scope(vault)
         val current = scope.notes.firstOrNull { it.summary.id == source }?.summary
             ?: return@withContext WeaveSuggestions(emptyList(), WeaveSemanticStatus.Unavailable, scope.partial)
         val wiki = notes.wikiContext(source)
-        val linked = MarkdownIndex.index(buffer, current.title).links.mapNotNull { wiki.resolve(it.target) }.toSet() +
-            wiki.backlinks.map { it.id } + source
-        val eligible = scope.notes.filter { it.summary.id !in linked }
+        val linkedOutAndBack = MarkdownIndex.index(buffer, current.title).links.mapNotNull { wiki.resolve(it.target) }.toSet() +
+            wiki.backlinks.map { it.id }
+        val feedbackStates = feedback?.statesFor(source).orEmpty()
+        val hiddenPaths = feedbackStates.filterValues { it == WeaveFeedbackState.Hidden }.keys
+        val pinnedPaths = feedbackStates.filterValues { it == WeaveFeedbackState.Pinned }.keys
+        val hiddenCount = scope.notes.count { it.summary.id != source && it.summary.id.path in hiddenPaths }
+        val eligible = scope.notes.filter { entry ->
+            val id = entry.summary.id
+            id != source && id.path !in hiddenPaths && (!excludeLinked || id !in linkedOutAndBack)
+        }
+        if (eligible.isEmpty()) {
+            val status = if (vectors.supported) currentSemanticStatus() else WeaveSemanticStatus.Unavailable
+            return@withContext WeaveSuggestions(emptyList(), status, scope.partial, hiddenCount)
+        }
         val metadata = eligible.associate { it.summary.id to it.summary }
-        val query = passage?.let { it.excerpt(1024).trim() } ?: (current.title + " " + current.tags.joinToString(" ") + " " + buffer.take(640)).trim()
-        val sourceTerms = terms(query)
-        val result = search(scope.copy(notes = eligible), query, 12, relatedDocumentTitle = current.title)
-        val items = result.hits.distinctBy { it.id }.mapNotNull { hit ->
-            val path = wikiPathOf(hit.id.path)
-            if (wiki.resolve(path) != hit.id || path.any { it in "[]#|\r\n" }) return@mapNotNull null
-            val target = metadata.getValue(hit.id)
-            val sharedTags = current.tags.intersect(target.tags)
-            val sharedTerms = sourceTerms.filter { hit.text.contains(it, true) || target.title.contains(it, true) }
-                .sortedByDescending { it.length }.take(3)
-            val matchedTitle = sourceTerms.any { target.title.contains(it, true) }
-            val hasSemantic = hit.similarity != null
-            val hasExplainable = hit.source != EvidenceMatchSource.Semantic || sharedTerms.isNotEmpty() || sharedTags.isNotEmpty() || matchedTitle
-            val matchSource = when {
-                hasSemantic && hasExplainable -> EvidenceMatchSource.Hybrid
-                hasSemantic -> EvidenceMatchSource.Semantic
-                else -> EvidenceMatchSource.Lexical
+        val candidates = eligible.map { SearchableNote(it.summary.id, it.summary.title, it.summary.tags) }
+        val bodyStart = frontmatterEnd(buffer)
+        val sourceBody = if (bodyStart in 0..buffer.length) buffer.substring(bodyStart) else buffer
+        val focusedPassage = passage?.excerpt(1024)?.trim()?.takeIf { it.isNotEmpty() }
+        val sourceRevision = NoteRevision.of(buffer.toByteArray(Charsets.UTF_8)) as? NoteRevision.Known
+
+        var semanticStatus = WeaveSemanticStatus.Unavailable
+        val semantic = if (!vectors.supported) {
+            null
+        } else {
+            try {
+                vectors.searchRelated(
+                    sourceId = source,
+                    sourceRevision = sourceRevision,
+                    sourceTitle = current.title,
+                    sourceBody = sourceBody,
+                    focusedPassage = focusedPassage,
+                    candidates = candidates,
+                ).also {
+                    semanticStatus = readySemanticStatus()
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: SemanticModelMissingException) {
+                semanticStatus = modelMissingStatus()
+                null
+            } catch (_: SemanticIndexMissingException) {
+                semanticStatus = indexMissingStatus()
+                null
+            } catch (_: Exception) {
+                semanticStatus = WeaveSemanticStatus.Failed
+                null
+            } catch (_: LinkageError) {
+                semanticStatus = WeaveSemanticStatus.Failed
+                null
             }
-            Connection(source, target.title, hit, path, sharedTags, sharedTerms, matchedTitle, matchSource, passage)
-        }.take(5)
-        WeaveSuggestions(items, result.semanticStatus, result.partial)
+        }
+
+        val lexicalQuery = focusedPassage?.let { current.title + " " + cleanForLexical(it) }
+            ?: (current.title + " " + current.tags.joinToString(" ") + " " + cleanForLexical(sourceBody).take(2400))
+        val sourceTerms = terms(lexicalQuery)
+        val lexicalCandidates = findLexicalConnections(
+            scope = scope,
+            eligible = eligible,
+            currentTags = current.tags,
+            sourceTerms = sourceTerms,
+            checkActive = checkActive,
+        )
+        val lexicalByNote = lexicalCandidates.associateBy { it.evidence.id }
+
+        val validWikiPath: (NoteId) -> String? = { id ->
+            val path = wikiPathOf(id.path)
+            if (wiki.resolve(path) == id && path.none { it in "[]#|\r\n" }) path else null
+        }
+
+        val semanticConnections = semantic.orEmpty().mapNotNull { hit ->
+            val path = validWikiPath(hit.id) ?: return@mapNotNull null
+            val target = metadata.getValue(hit.id)
+            val lex = lexicalByNote[hit.id]
+            val sharedTags = current.tags.intersect(target.tags)
+            val sharedTerms = lex?.matchedTerms ?: sourceTerms
+                .filter { hit.excerpt.contains(it, true) || target.title.contains(it, true) }
+                .sortedByDescending { it.length }
+                .take(3)
+            val matchedTitle = lex?.matchedTitle ?: sourceTerms.any { target.title.contains(it, true) }
+            val hasExplainable = lex != null || sharedTerms.isNotEmpty() || sharedTags.isNotEmpty() || matchedTitle
+            val matchSource = if (hasExplainable) EvidenceMatchSource.Hybrid else EvidenceMatchSource.Semantic
+            val evidence = Evidence(hit.id, hit.anchor, hit.excerpt, hit.section, hit.similarity, matchSource)
+            val hybridBonus = (if (sharedTags.isNotEmpty()) 0.06 else 0.0) + (if (sharedTerms.size >= 2) 0.04 else 0.0)
+            val rank = hit.similarity + hybridBonus
+            rank to Connection(
+                source = source,
+                title = target.title,
+                evidence = evidence,
+                reference = path,
+                tags = sharedTags,
+                keywords = sharedTerms,
+                matchedTitle = matchedTitle,
+                matchSource = matchSource,
+                passage = passage,
+                alreadyLinked = hit.id in linkedOutAndBack,
+                pinned = hit.id.path in pinnedPaths,
+            )
+        }.sortedByDescending { it.first }.map { it.second }
+
+        val items = if (semantic != null) {
+            val seen = semanticConnections.mapTo(HashSet()) { it.evidence.id }
+            val extraLexical = lexicalCandidates.mapNotNull { lex ->
+                if (lex.evidence.id in seen) return@mapNotNull null
+                val path = validWikiPath(lex.evidence.id) ?: return@mapNotNull null
+                val target = metadata.getValue(lex.evidence.id)
+                Connection(
+                    source = source,
+                    title = target.title,
+                    evidence = lex.evidence,
+                    reference = path,
+                    tags = lex.sharedTags,
+                    keywords = lex.matchedTerms,
+                    matchedTitle = lex.matchedTitle,
+                    matchSource = EvidenceMatchSource.Lexical,
+                    passage = passage,
+                    alreadyLinked = lex.evidence.id in linkedOutAndBack,
+                    pinned = lex.evidence.id.path in pinnedPaths,
+                )
+            }
+            (semanticConnections + extraLexical).take(10)
+        } else {
+            lexicalCandidates.mapNotNull { lex ->
+                val path = validWikiPath(lex.evidence.id) ?: return@mapNotNull null
+                val target = metadata.getValue(lex.evidence.id)
+                Connection(
+                    source = source,
+                    title = target.title,
+                    evidence = lex.evidence,
+                    reference = path,
+                    tags = lex.sharedTags,
+                    keywords = lex.matchedTerms,
+                    matchedTitle = lex.matchedTitle,
+                    matchSource = EvidenceMatchSource.Lexical,
+                    passage = passage,
+                    alreadyLinked = lex.evidence.id in linkedOutAndBack,
+                    pinned = lex.evidence.id.path in pinnedPaths,
+                )
+            }.take(10)
+        }
+
+        val orderedItems = items.partition { it.pinned }.let { (pinned, unpinned) -> pinned + unpinned }
+        val partialIndex = semantic != null && vectors.indexState.first() != SemanticWorkState.Ready
+        WeaveSuggestions(orderedItems, semanticStatus, scope.partial || partialIndex, hiddenCount)
+    }
+
+    private suspend fun readySemanticStatus(): WeaveSemanticStatus = when (vectors.indexState.first()) {
+        SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.Indexing
+        SemanticWorkState.Ready -> WeaveSemanticStatus.Ready
+        else -> WeaveSemanticStatus.Partial
+    }
+
+    private suspend fun modelMissingStatus(): WeaveSemanticStatus = when (vectors.modelState.first()) {
+        SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.ModelDownloading
+        else -> WeaveSemanticStatus.ModelMissing
+    }
+
+    private suspend fun indexMissingStatus(): WeaveSemanticStatus {
+        val modelState = vectors.modelState.first()
+        return when {
+            modelState == SemanticWorkState.Queued || modelState is SemanticWorkState.Running -> WeaveSemanticStatus.ModelDownloading
+            modelState != SemanticWorkState.Ready -> WeaveSemanticStatus.ModelMissing
+            else -> when (vectors.indexState.first()) {
+                SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.Indexing
+                else -> WeaveSemanticStatus.IndexMissing
+            }
+        }
+    }
+
+    private suspend fun currentSemanticStatus(): WeaveSemanticStatus {
+        val modelState = vectors.modelState.first()
+        return when {
+            modelState == SemanticWorkState.Queued || modelState is SemanticWorkState.Running -> WeaveSemanticStatus.ModelDownloading
+            modelState != SemanticWorkState.Ready -> WeaveSemanticStatus.ModelMissing
+            else -> when (vectors.indexState.first()) {
+                SemanticWorkState.Ready -> WeaveSemanticStatus.Ready
+                SemanticWorkState.Queued, is SemanticWorkState.Running -> WeaveSemanticStatus.Indexing
+                else -> WeaveSemanticStatus.IndexMissing
+            }
+        }
+    }
+
+    private data class LexicalCandidate(
+        val score: Double,
+        val evidence: Evidence,
+        val sharedTags: Set<String>,
+        val matchedTerms: List<String>,
+        val matchedTitle: Boolean,
+    )
+
+    private suspend fun findLexicalConnections(
+        scope: EvidenceScope,
+        eligible: List<NoteListEntry>,
+        currentTags: Set<String>,
+        sourceTerms: List<String>,
+        checkActive: () -> Unit,
+    ): List<LexicalCandidate> {
+        if (eligible.isEmpty()) return emptyList()
+        if (sourceTerms.isEmpty() && currentTags.isEmpty()) return emptyList()
+        val tests = sourceTerms.map(SearchSignature::prepare)
+        val reader = notes.lexicalReader(scope.vault)
+        val df = HashMap<String, Int>(sourceTerms.size)
+        val loaded = ArrayList<Pair<NoteListEntry, EvidenceDocument?>>(eligible.size)
+        for (entry in eligible) {
+            checkActive()
+            val id = entry.summary.id
+            val hasSharedTag = currentTags.isNotEmpty() && currentTags.any { it in entry.summary.tags }
+            val cached = scope.documents.get(id)
+            val doc = cached ?: if (tests.isEmpty()) null else try {
+                reader.read(id, tests, hasSharedTag || sourceTerms.any { entry.summary.title.contains(it, true) })
+                    ?.let { stored -> EvidenceDocument(stored).also { scope.documents.put(id, it) } }
+            } catch (_: IOException) {
+                null
+            }
+            val metaText = entry.summary.title + " " + entry.summary.tags.joinToString(" ")
+            val bodyText = doc?.source?.content?.let(::cleanForLexical) ?: ""
+            for (term in sourceTerms) {
+                if (metaText.contains(term, true) || bodyText.contains(term, true)) {
+                    df[term] = (df[term] ?: 0) + 1
+                }
+            }
+            if (doc != null || hasSharedTag) loaded += entry to doc
+        }
+        val n = eligible.size.toDouble()
+        fun idf(term: String): Double = ln((n + 1.0) / ((df[term] ?: 0) + 1.0)) + 1.0
+
+        val results = mutableListOf<LexicalCandidate>()
+        for ((entry, doc) in loaded) {
+            checkActive()
+            val summary = entry.summary
+            val sharedTags = currentTags.intersect(summary.tags)
+            val titleMatches = sourceTerms.filter { summary.title.contains(it, true) }
+            val titleScore = titleMatches.sumOf(::idf)
+            val note = doc?.source ?: continue
+            val revision = note.revision as? NoteRevision.Known ?: continue
+            val chunks = doc.chunks ?: semanticChunks(note.content, checkActive).also { doc.chunks = it }
+            val pool = chunks.filter { it.end - it.start >= 40 }.ifEmpty { chunks }
+            var bestScore = 0.0
+            var bestChunk: SemanticChunk? = null
+            var bestText = ""
+            var bestTerms: List<String> = emptyList()
+            var bestIdfSum = 0.0
+            for (chunk in pool) {
+                val rawText = note.content.substring(chunk.start, chunk.end)
+                val cleaned = cleanForLexical(rawText)
+                val bodyMatched = sourceTerms.filter { cleaned.contains(it, true) }
+                val combinedMatched = (bodyMatched + titleMatches).distinct()
+                val idfSum = combinedMatched.sumOf(::idf)
+                val passageScore = idfSum + sharedTags.size * 4.0 + titleScore * 2.0
+                if (passageScore > bestScore) {
+                    bestScore = passageScore
+                    bestChunk = chunk
+                    bestText = rawText
+                    bestTerms = combinedMatched.sortedByDescending(::idf).take(3)
+                    bestIdfSum = idfSum
+                }
+            }
+            val chunk = bestChunk ?: continue
+            val passesThreshold = sharedTags.isNotEmpty() ||
+                (bestTerms.size >= 2 && bestIdfSum >= 4.5) ||
+                titleScore >= 3.0
+            if (!passesThreshold) continue
+            val evidence = Evidence(
+                id = summary.id,
+                anchor = PassageAnchor(revision.sha256, chunk.start, chunk.end),
+                text = bestText,
+                section = chunk.section,
+                similarity = null,
+                source = EvidenceMatchSource.Lexical,
+            )
+            results += LexicalCandidate(bestScore, evidence, sharedTags, bestTerms, titleMatches.isNotEmpty())
+        }
+        return results.sortedByDescending { it.score }
+    }
+
+    private fun cleanForLexical(text: String): String {
+        val bodyStart = frontmatterEnd(text)
+        val body = if (bodyStart in 0..text.length) text.substring(bodyStart) else text
+        return body
+            .replace(CODE_FENCE, " ")
+            .replace(URL_PATTERN, " ")
+            .replace(WIKI_EMBED, " ")
+            .replace(MARKDOWN_URL, " ")
     }
 
     suspend fun linkStillValid(vault: Vault, suggestion: Connection, buffer: String): Boolean = withContext(Dispatchers.IO) {
@@ -297,8 +577,23 @@ internal class VaultEvidence(
         .distinct().take(32).toList()
 
     private companion object {
-        val STOPWORDS = setOf("the", "and", "for", "from", "with", "this", "that", "what", "how", "在这", "什么", "如何", "这个", "的是")
+        val STOPWORDS = setOf(
+            "the", "and", "for", "from", "with", "this", "that", "what", "how",
+            "are", "was", "were", "have", "has", "had", "will", "would", "could", "should",
+            "can", "not", "but", "you", "your", "our", "their", "they", "them", "its",
+            "into", "about", "when", "where", "which", "while", "then", "than", "also",
+            "just", "only", "more", "most", "some", "such", "very", "each", "other",
+            "use", "using", "used", "note", "notes",
+            "在这", "什么", "如何", "这个", "的是", "一个", "可以", "使用", "问题",
+            "因为", "如果", "没有", "需要", "通过", "进行", "或者", "以及", "已经",
+            "可能", "应该", "这样", "这里", "那里", "我们", "他们", "它们", "自己",
+            "时候", "方式", "方法", "内容", "信息", "相关", "对应", "当前", "默认", "支持",
+        )
         val WORDS = Regex("""[\p{IsHan}]+|[\p{L}\p{N}_#./-]+""")
+        val CODE_FENCE = Regex("""```[\s\S]*?```""")
+        val URL_PATTERN = Regex("""https?://\S+""")
+        val WIKI_EMBED = Regex("""!\[\[[^\]]+]]""")
+        val MARKDOWN_URL = Regex("""\]\([^)]+\)""")
     }
 }
 

@@ -2,6 +2,8 @@
 
 package com.example.looma.feature.note.components
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,12 +20,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuGroup
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
@@ -41,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -92,22 +99,37 @@ internal fun WeaveAction(
     var dialogState by remember { mutableStateOf<WeaveSheetState>(WeaveSheetState.Loading) }
     var refresh by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var passage by remember { mutableStateOf<NotePassage?>(null) }
     var scoped by remember { mutableStateOf(range?.collapsed == false) }
+    var excludeLinked by remember { mutableStateOf(true) }
+    var allExpanded by remember { mutableStateOf(true) }
+    var expandedOverrides by remember { mutableStateOf<Map<NoteId, Boolean>>(emptyMap()) }
+    var sheetMenuOpen by remember { mutableStateOf(false) }
+    var copiedNotice by remember { mutableStateOf(false) }
     val applying = (dialogState as? WeaveSheetState.Preview)?.applying == true
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
 
-    LaunchedEffect(id, refresh, scoped) {
+    LaunchedEffect(id, refresh, scoped, excludeLinked) {
+        copiedNotice = false
         dialogState = WeaveSheetState.Loading
         dialogState = try {
             val source = editor.editor.snapshot()
             passage = passage?.takeIf { it.source === source } ?: range?.let { r ->
                 withContext(Dispatchers.Default) { MarkdownNavigation.scan(source).passage(source, r.min, r.max) }
             }
-            WeaveSheetState.Ready(repository.related(vault, id, source, passage.takeIf { scoped }))
+            WeaveSheetState.Ready(
+                repository.related(
+                    vault,
+                    id,
+                    source,
+                    passage.takeIf { scoped },
+                    excludeLinked = excludeLinked,
+                ),
+            )
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {
@@ -149,6 +171,7 @@ internal fun WeaveAction(
                         modifier = Modifier.weight(1f),
                     )
                 } else {
+                    val ready = current as? WeaveSheetState.Ready
                     Text(
                         text = stringResource(R.string.weave_title),
                         style = MaterialTheme.typography.headlineSmall,
@@ -161,12 +184,95 @@ internal fun WeaveAction(
                     ) {
                         LoomaIcon(R.drawable.ic_retry, stringResource(R.string.weave_retry))
                     }
+                    Box {
+                        IconButton(
+                            onClick = { sheetMenuOpen = true },
+                            shapes = IconButtonDefaults.shapes(),
+                        ) {
+                            LoomaIcon(
+                                R.drawable.ic_more_vert,
+                                stringResource(R.string.weave_more_actions),
+                            )
+                        }
+                        val hasUnhide = ready != null && ready.suggestions.hiddenCount > 0
+                        val itemCount = if (hasUnhide) 3 else 2
+                        DropdownMenuPopup(
+                            expanded = sheetMenuOpen,
+                            onDismissRequest = { sheetMenuOpen = false },
+                        ) {
+                            DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1)) {
+                                DropdownMenuItem(
+                                    shape = MenuDefaults.itemShape(0, itemCount).shape,
+                                    text = {
+                                        Text(
+                                            stringResource(
+                                                if (allExpanded) {
+                                                    R.string.weave_collapse_all
+                                                } else {
+                                                    R.string.weave_expand_all
+                                                },
+                                            ),
+                                        )
+                                    },
+                                    onClick = {
+                                        allExpanded = !allExpanded
+                                        expandedOverrides = emptyMap()
+                                        sheetMenuOpen = false
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    shape = MenuDefaults.itemShape(1, itemCount).shape,
+                                    text = { Text(stringResource(R.string.weave_copy_links)) },
+                                    enabled = ready != null && ready.suggestions.items.isNotEmpty(),
+                                    onClick = {
+                                        val items = ready?.suggestions?.items.orEmpty()
+                                        if (items.isNotEmpty()) {
+                                            val payload = items.joinToString("\n") { "- [[${it.reference}]]" }
+                                            context.getSystemService(ClipboardManager::class.java)
+                                                ?.setPrimaryClip(ClipData.newPlainText("links", payload))
+                                            copiedNotice = true
+                                        }
+                                        sheetMenuOpen = false
+                                    },
+                                )
+                                if (hasUnhide) {
+                                    DropdownMenuItem(
+                                        shape = MenuDefaults.itemShape(2, itemCount).shape,
+                                        text = {
+                                            Text(
+                                                stringResource(
+                                                    R.string.weave_unhide_all,
+                                                    ready.suggestions.hiddenCount,
+                                                ),
+                                            )
+                                        },
+                                        onClick = {
+                                            sheetMenuOpen = false
+                                            scope.launch {
+                                                try {
+                                                    repository.unhideAllConnections(id)
+                                                    refresh++
+                                                } catch (cancel: CancellationException) {
+                                                    throw cancel
+                                                } catch (_: Exception) {
+                                                    dialogState = ready.copy(actionError = true)
+                                                }
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
             if (dialogState !is WeaveSheetState.Preview) {
-                passage?.let { activePassage ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (passage != null) {
                         FilterChip(
                             selected = !scoped,
                             onClick = { scoped = false },
@@ -180,6 +286,14 @@ internal fun WeaveAction(
                             shapes = FilterChipDefaults.shapes(),
                         )
                     }
+                    FilterChip(
+                        selected = excludeLinked,
+                        onClick = { excludeLinked = !excludeLinked },
+                        label = { Text(stringResource(R.string.weave_hide_linked)) },
+                        shapes = FilterChipDefaults.shapes(),
+                    )
+                }
+                passage?.let { activePassage ->
                     if (scoped) {
                         Surface(
                             color = LoomaTokens.colors.cardInset,
@@ -236,6 +350,30 @@ internal fun WeaveAction(
                             }
                         },
                     )
+                    if (copiedNotice) {
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                LoomaIcon(
+                                    iconRes = R.drawable.ic_check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    text = stringResource(R.string.weave_copied_links),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                    }
                     if (current.actionError) {
                         ErrorBanner(
                             message = stringResource(R.string.weave_action_failed),
@@ -251,8 +389,37 @@ internal fun WeaveAction(
                         )
                     } else {
                         for (item in current.suggestions.items) {
+                            val itemExpanded = expandedOverrides[item.evidence.id] ?: allExpanded
                             ConnectionCard(
                                 item = item,
+                                expanded = itemExpanded,
+                                onToggleExpand = {
+                                    expandedOverrides = expandedOverrides + (item.evidence.id to !itemExpanded)
+                                },
+                                onTogglePin = {
+                                    scope.launch {
+                                        try {
+                                            repository.togglePin(id, item.evidence.id)
+                                            refresh++
+                                        } catch (cancel: CancellationException) {
+                                            throw cancel
+                                        } catch (_: Exception) {
+                                            dialogState = current.copy(actionError = true)
+                                        }
+                                    }
+                                },
+                                onHide = {
+                                    scope.launch {
+                                        try {
+                                            repository.hideConnection(id, item.evidence.id)
+                                            refresh++
+                                        } catch (cancel: CancellationException) {
+                                            throw cancel
+                                        } catch (_: Exception) {
+                                            dialogState = current.copy(actionError = true)
+                                        }
+                                    }
+                                },
                                 onOpenNote = {
                                     scope.launch {
                                         try {
@@ -482,6 +649,10 @@ private fun SemanticStatusBanner(
 @Composable
 private fun ConnectionCard(
     item: Connection,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onTogglePin: () -> Unit,
+    onHide: () -> Unit,
     onOpenNote: () -> Unit,
     onPreviewInsert: () -> Unit,
 ) {
@@ -494,12 +665,71 @@ private fun ConnectionCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.titleMediumEmphasized,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = onToggleExpand,
+                    shapes = IconButtonDefaults.shapes(),
+                ) {
+                    LoomaIcon(
+                        if (expanded) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down,
+                        stringResource(
+                            if (expanded) R.string.weave_collapse_preview else R.string.weave_expand_preview,
+                        ),
+                    )
+                }
+                Box {
+                    var menuOpen by remember(item.evidence.id) { mutableStateOf(false) }
+                    IconButton(
+                        onClick = { menuOpen = true },
+                        shapes = IconButtonDefaults.shapes(),
+                    ) {
+                        LoomaIcon(
+                            R.drawable.ic_more_vert,
+                            stringResource(R.string.weave_more_actions),
+                        )
+                    }
+                    DropdownMenuPopup(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                    ) {
+                        DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1)) {
+                            DropdownMenuItem(
+                                shape = MenuDefaults.itemShape(0, 2).shape,
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            if (item.pinned) R.string.weave_unpin else R.string.weave_pin,
+                                        ),
+                                    )
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    onTogglePin()
+                                },
+                            )
+                            DropdownMenuItem(
+                                shape = MenuDefaults.itemShape(1, 2).shape,
+                                text = { Text(stringResource(R.string.weave_hide)) },
+                                onClick = {
+                                    menuOpen = false
+                                    onHide()
+                                },
+                            )
+                        }
+                    }
+                }
+            }
             val folder = item.evidence.id.path.relativePath.substringBeforeLast('/', "")
             val metadata = listOf(folder, item.evidence.section).filter { it.isNotBlank() }.joinToString(" · ")
             if (metadata.isNotEmpty()) {
@@ -533,19 +763,21 @@ private fun ConnectionCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Surface(
-                color = LoomaTokens.colors.cardInset,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                MarkdownPreview(
-                    markdown = trimExcerpt(item.evidence.text, 420),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp)
-                        .heightIn(max = 180.dp)
-                        .clipToBounds(),
-                )
+            if (expanded) {
+                Surface(
+                    color = LoomaTokens.colors.cardInset,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    MarkdownPreview(
+                        markdown = trimExcerpt(item.evidence.text, 420),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                            .heightIn(max = 180.dp)
+                            .clipToBounds(),
+                    )
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -557,11 +789,13 @@ private fun ConnectionCard(
                 ) {
                     Text(stringResource(R.string.weave_open_note))
                 }
-                FilledTonalButton(
-                    onClick = onPreviewInsert,
-                    shapes = ButtonDefaults.shapes(),
-                ) {
-                    Text(stringResource(R.string.weave_preview_insert))
+                if (!item.alreadyLinked) {
+                    FilledTonalButton(
+                        onClick = onPreviewInsert,
+                        shapes = ButtonDefaults.shapes(),
+                    ) {
+                        Text(stringResource(R.string.weave_preview_insert))
+                    }
                 }
             }
         }
@@ -580,6 +814,19 @@ private fun ConnectionProvenanceRow(item: Connection) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        if (item.pinned) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = scheme.primaryContainer,
+                contentColor = scheme.onPrimaryContainer,
+            ) {
+                Text(
+                    text = stringResource(R.string.weave_pinned),
+                    style = LoomaTokens.type.cardMeta,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
         Surface(
             shape = MaterialTheme.shapes.small,
             color = sourceContainer,
@@ -599,6 +846,19 @@ private fun ConnectionProvenanceRow(item: Connection) {
             ) {
                 Text(
                     text = stringResource(R.string.weave_similarity_percent, (sim.coerceIn(0.0, 1.0) * 100).roundToInt()),
+                    style = LoomaTokens.type.cardMeta,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+        if (item.alreadyLinked) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = scheme.surfaceContainerHigh,
+                contentColor = scheme.onSurfaceVariant,
+            ) {
+                Text(
+                    text = stringResource(R.string.weave_already_linked),
                     style = LoomaTokens.type.cardMeta,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
