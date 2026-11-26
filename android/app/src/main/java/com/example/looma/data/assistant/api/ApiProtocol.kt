@@ -23,6 +23,13 @@ internal sealed interface ApiResult<out T> {
     ) : ApiResult<Nothing>
 }
 
+internal sealed interface ApiStreamEvent {
+    data class Delta(val text: String = "", val thinking: String = "") : ApiStreamEvent
+    data object Done : ApiStreamEvent
+    data class Error(val error: GenerationError) : ApiStreamEvent
+    data object Ignore : ApiStreamEvent
+}
+
 internal interface ApiProtocol {
     fun buildListModelsRequest(connection: ApiConnection): ApiHttpRequest
     fun parseModelIds(body: String): List<String>
@@ -35,6 +42,15 @@ internal interface ApiProtocol {
         responseMimeType: String? = null,
     ): ApiHttpRequest
     fun parseGeneratedText(body: String): String?
+    fun buildStreamRequest(
+        connection: ApiConnection,
+        modelId: String,
+        messages: List<LlmMessage>,
+        systemInstruction: String? = null,
+        maxOutputTokens: Int? = null,
+        responseMimeType: String? = null,
+    ): ApiHttpRequest
+    fun parseStreamEvent(eventType: String?, data: String): ApiStreamEvent
 }
 
 internal fun ApiProvider.protocol(): ApiProtocol = when (this) {
@@ -58,6 +74,41 @@ internal object OpenAiCompatibleProtocol : ApiProtocol {
         systemInstruction: String?,
         maxOutputTokens: Int?,
         responseMimeType: String?,
+    ): ApiHttpRequest = buildChatRequest(
+        connection = connection,
+        modelId = modelId,
+        messages = messages,
+        systemInstruction = systemInstruction,
+        maxOutputTokens = maxOutputTokens,
+        responseMimeType = responseMimeType,
+        stream = false,
+    )
+
+    override fun buildStreamRequest(
+        connection: ApiConnection,
+        modelId: String,
+        messages: List<LlmMessage>,
+        systemInstruction: String?,
+        maxOutputTokens: Int?,
+        responseMimeType: String?,
+    ): ApiHttpRequest = buildChatRequest(
+        connection = connection,
+        modelId = modelId,
+        messages = messages,
+        systemInstruction = systemInstruction,
+        maxOutputTokens = maxOutputTokens,
+        responseMimeType = responseMimeType,
+        stream = true,
+    )
+
+    private fun buildChatRequest(
+        connection: ApiConnection,
+        modelId: String,
+        messages: List<LlmMessage>,
+        systemInstruction: String?,
+        maxOutputTokens: Int?,
+        responseMimeType: String?,
+        stream: Boolean,
     ): ApiHttpRequest {
         val jsonMessages = JSONArray()
         systemInstruction?.takeIf { it.isNotBlank() }?.let {
@@ -75,6 +126,9 @@ internal object OpenAiCompatibleProtocol : ApiProtocol {
             .put("model", modelId)
             .put("temperature", 0.0)
             .put("messages", jsonMessages)
+        if (stream) {
+            body.put("stream", true)
+        }
         maxOutputTokens?.let { body.put("max_tokens", it) }
         if (responseMimeType == "application/json") {
             body.put("response_format", JSONObject().put("type", "json_object"))
@@ -97,6 +151,42 @@ internal object OpenAiCompatibleProtocol : ApiProtocol {
             is String -> content
             is JSONArray -> joinTypedTextParts(content)
             else -> null
+        }
+    }
+
+    override fun parseStreamEvent(eventType: String?, data: String): ApiStreamEvent {
+        val trimmed = data.trim()
+        if (trimmed.isEmpty()) return ApiStreamEvent.Ignore
+        if (trimmed == "[DONE]") return ApiStreamEvent.Done
+        val root = parseJsonObject(trimmed) ?: return ApiStreamEvent.Ignore
+        if (root.has("error") && !root.isNull("error")) {
+            val errObj = root.optJSONObject("error")
+            val error = if (errObj != null) {
+                val code = errObj.opt("code")?.toString()?.lowercase()
+                val type = errObj.optString("type").lowercase()
+                val message = (errObj.opt("message") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                if (code == "429" || code == "rate_limit_exceeded" || type == "rate_limit_error" || type == "insufficient_quota") {
+                    GenerationError.QuotaExceeded
+                } else {
+                    GenerationError.Failed(message)
+                }
+            } else {
+                val message = (root.opt("error") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                GenerationError.Failed(message)
+            }
+            return ApiStreamEvent.Error(error)
+        }
+        val delta = root.optJSONArray("choices")
+            ?.optJSONObject(0)
+            ?.optJSONObject("delta")
+            ?: return ApiStreamEvent.Ignore
+        val text = (delta.opt("content") as? String).orEmpty()
+        val thinking = ((delta.opt("reasoning_content") as? String)
+            ?: (delta.opt("reasoning") as? String)).orEmpty()
+        return if (text.isEmpty() && thinking.isEmpty()) {
+            ApiStreamEvent.Ignore
+        } else {
+            ApiStreamEvent.Delta(text = text, thinking = thinking)
         }
     }
 
@@ -125,6 +215,38 @@ internal object AnthropicProtocol : ApiProtocol {
         systemInstruction: String?,
         maxOutputTokens: Int?,
         responseMimeType: String?,
+    ): ApiHttpRequest = buildMessagesRequest(
+        connection = connection,
+        modelId = modelId,
+        messages = messages,
+        systemInstruction = systemInstruction,
+        maxOutputTokens = maxOutputTokens,
+        stream = false,
+    )
+
+    override fun buildStreamRequest(
+        connection: ApiConnection,
+        modelId: String,
+        messages: List<LlmMessage>,
+        systemInstruction: String?,
+        maxOutputTokens: Int?,
+        responseMimeType: String?,
+    ): ApiHttpRequest = buildMessagesRequest(
+        connection = connection,
+        modelId = modelId,
+        messages = messages,
+        systemInstruction = systemInstruction,
+        maxOutputTokens = maxOutputTokens,
+        stream = true,
+    )
+
+    private fun buildMessagesRequest(
+        connection: ApiConnection,
+        modelId: String,
+        messages: List<LlmMessage>,
+        systemInstruction: String?,
+        maxOutputTokens: Int?,
+        stream: Boolean,
     ): ApiHttpRequest {
         val systemParts = buildList {
             systemInstruction?.takeIf { it.isNotBlank() }?.let(::add)
@@ -141,6 +263,9 @@ internal object AnthropicProtocol : ApiProtocol {
             .put("max_tokens", maxOutputTokens ?: MAX_TOKENS)
             .put("temperature", 0.0)
             .put("messages", jsonMessages)
+        if (stream) {
+            body.put("stream", true)
+        }
         if (systemParts.isNotEmpty()) {
             body.put("system", systemParts.joinToString("\n\n"))
         }
@@ -154,6 +279,43 @@ internal object AnthropicProtocol : ApiProtocol {
     override fun parseGeneratedText(body: String): String? {
         val parts = parseJsonObject(body)?.optJSONArray("content") ?: return null
         return joinTypedTextParts(parts)
+    }
+
+    override fun parseStreamEvent(eventType: String?, data: String): ApiStreamEvent {
+        val trimmed = data.trim()
+        if (trimmed.isEmpty()) return ApiStreamEvent.Ignore
+        val root = parseJsonObject(trimmed)
+        val type = root?.optString("type")?.takeIf { it.isNotEmpty() } ?: eventType
+        if (eventType == "message_stop" || type == "message_stop") {
+            return ApiStreamEvent.Done
+        }
+        if (eventType == "error" || type == "error") {
+            val errObj = root?.optJSONObject("error")
+            val errType = errObj?.optString("type")?.lowercase()
+            val message = (errObj?.opt("message") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                ?: (root?.opt("message") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+            val error = if (errType == "rate_limit_error") {
+                GenerationError.QuotaExceeded
+            } else {
+                GenerationError.Failed(message)
+            }
+            return ApiStreamEvent.Error(error)
+        }
+        if (type == "content_block_delta") {
+            val delta = root?.optJSONObject("delta") ?: return ApiStreamEvent.Ignore
+            return when (delta.optString("type")) {
+                "text_delta" -> (delta.opt("text") as? String)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { ApiStreamEvent.Delta(text = it) }
+                    ?: ApiStreamEvent.Ignore
+                "thinking_delta" -> (delta.opt("thinking") as? String)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { ApiStreamEvent.Delta(thinking = it) }
+                    ?: ApiStreamEvent.Ignore
+                else -> ApiStreamEvent.Ignore
+            }
+        }
+        return ApiStreamEvent.Ignore
     }
 
     private fun v1Base(connection: ApiConnection): String {
@@ -195,6 +357,41 @@ internal object GeminiApiProtocol : ApiProtocol {
         systemInstruction: String?,
         maxOutputTokens: Int?,
         responseMimeType: String?,
+    ): ApiHttpRequest = buildContentRequest(
+        connection = connection,
+        modelId = modelId,
+        messages = messages,
+        systemInstruction = systemInstruction,
+        maxOutputTokens = maxOutputTokens,
+        responseMimeType = responseMimeType,
+        action = "generateContent",
+    )
+
+    override fun buildStreamRequest(
+        connection: ApiConnection,
+        modelId: String,
+        messages: List<LlmMessage>,
+        systemInstruction: String?,
+        maxOutputTokens: Int?,
+        responseMimeType: String?,
+    ): ApiHttpRequest = buildContentRequest(
+        connection = connection,
+        modelId = modelId,
+        messages = messages,
+        systemInstruction = systemInstruction,
+        maxOutputTokens = maxOutputTokens,
+        responseMimeType = responseMimeType,
+        action = "streamGenerateContent?alt=sse",
+    )
+
+    private fun buildContentRequest(
+        connection: ApiConnection,
+        modelId: String,
+        messages: List<LlmMessage>,
+        systemInstruction: String?,
+        maxOutputTokens: Int?,
+        responseMimeType: String?,
+        action: String,
     ): ApiHttpRequest {
         val systemParts = buildList {
             systemInstruction?.takeIf { it.isNotBlank() }?.let(::add)
@@ -227,7 +424,7 @@ internal object GeminiApiProtocol : ApiProtocol {
             )
         }
         return ApiHttpRequest(
-            url = "${v1BetaBase(connection)}/models/${modelId.removePrefix("models/")}:generateContent",
+            url = "${v1BetaBase(connection)}/models/${modelId.removePrefix("models/")}:$action",
             headers = authHeaders(connection),
             body = body.toString(),
         )
@@ -246,6 +443,48 @@ internal object GeminiApiProtocol : ApiProtocol {
                 append(text)
             }
         }.takeIf { it.isNotEmpty() }
+    }
+
+    override fun parseStreamEvent(eventType: String?, data: String): ApiStreamEvent {
+        val trimmed = data.trim()
+        if (trimmed.isEmpty()) return ApiStreamEvent.Ignore
+        val root = parseJsonObject(trimmed) ?: return ApiStreamEvent.Ignore
+        if (root.has("error") && !root.isNull("error")) {
+            val errObj = root.optJSONObject("error")
+            val code = errObj?.optInt("code", -1)
+            val status = errObj?.optString("status")?.uppercase()
+            val message = (errObj?.opt("message") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                ?: (root.opt("error") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+            val error = if (code == 429 || status == "RESOURCE_EXHAUSTED") {
+                GenerationError.QuotaExceeded
+            } else {
+                GenerationError.Failed(message)
+            }
+            return ApiStreamEvent.Error(error)
+        }
+        val parts = root.optJSONArray("candidates")
+            ?.optJSONObject(0)
+            ?.optJSONObject("content")
+            ?.optJSONArray("parts")
+            ?: return ApiStreamEvent.Ignore
+        val textBuilder = StringBuilder()
+        val thinkingBuilder = StringBuilder()
+        for (index in 0 until parts.length()) {
+            val part = parts.optJSONObject(index) ?: continue
+            val text = part.opt("text") as? String ?: continue
+            if (part.optBoolean("thought", false)) {
+                thinkingBuilder.append(text)
+            } else {
+                textBuilder.append(text)
+            }
+        }
+        val text = textBuilder.toString()
+        val thinking = thinkingBuilder.toString()
+        return if (text.isEmpty() && thinking.isEmpty()) {
+            ApiStreamEvent.Ignore
+        } else {
+            ApiStreamEvent.Delta(text = text, thinking = thinking)
+        }
     }
 
     private fun v1BetaBase(connection: ApiConnection): String {

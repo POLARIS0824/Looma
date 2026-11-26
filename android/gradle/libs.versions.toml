@@ -32,6 +32,7 @@ jmh = "1.37"
 ratex = "0.1.14"
 coil = "3.6.3"
 ktor = "3.6.0"
+orgJson = "20240303"
 work = "2.11.2"
 soraEditor = "0.24.7"
 
@@ -93,6 +94,8 @@ coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp"
 coil-gif = { group = "io.coil-kt.coil3", name = "coil-gif", version.ref = "coil" }
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
 ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 sora-editor = { group = "io.github.rosemoe", name = "editor", version.ref = "soraEditor" }
 
 [plugins]
