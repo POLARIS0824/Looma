@@ -1,88 +1,88 @@
 package com.example.looma.data.assistant.api
 
-import com.example.looma.data.assistant.AnswerGenerator
-import com.example.looma.data.assistant.AnswerInput
 import com.example.looma.data.assistant.AnswerModel
-import com.example.looma.data.assistant.AnswerModelProvider
 import com.example.looma.data.assistant.ApiConnection
-import com.example.looma.data.assistant.CitedClaim
 import com.example.looma.data.assistant.ConnectionStatus
 import com.example.looma.data.assistant.GenerationMeta
 import com.example.looma.data.assistant.GenerationOutcome
 import com.example.looma.data.assistant.GeneratorAvailability
 import com.example.looma.data.assistant.InferenceOrigin
 import com.example.looma.data.assistant.InferenceRoute
-import com.example.looma.data.assistant.JsonPromptCodec
 import com.example.looma.data.assistant.ModelSource
-import com.example.looma.data.assistant.PlannerAction
-import com.example.looma.data.assistant.PlannerInput
 import com.example.looma.data.assistant.ThinkingEffort
 import com.example.looma.data.assistant.apiModelId
+import com.example.looma.data.assistant.runtime.LlmBackendProvider
+import com.example.looma.data.assistant.runtime.LlmGenerateRequest
+import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
+import com.example.looma.data.assistant.runtime.LlmStreamChunk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-internal class ApiAnswerGenerator(
+internal class ApiRuntimeBackend(
     private val connection: ApiConnection,
-    private val modelId: String,
+    override val modelId: String,
     private val client: KtorApiClient,
-) : AnswerGenerator {
+) : LlmRuntimeBackend {
+    override val origin: InferenceOrigin = InferenceOrigin.Cloud
     override val contextBudgetChars: Int = 24_000
+    override val maxContextTokens: Int = 32_768
+    override val supportsStatefulSession: Boolean = false
 
-    override suspend fun plan(input: PlannerInput): GenerationOutcome<PlannerAction> =
+    override suspend fun generate(request: LlmGenerateRequest): GenerationOutcome<String> =
         when (
             val result = client.generate(
                 connection = connection,
                 modelId = modelId,
-                systemInstruction = JsonPromptCodec.PLANNER_INSTRUCTION,
-                userPayload = JsonPromptCodec.encodePayload(input.question, input.passages, input.searched),
+                messages = request.messages,
+                systemInstruction = request.systemInstruction,
+                maxOutputTokens = request.maxOutputTokens,
+                responseMimeType = request.responseMimeType,
             )
         ) {
             is ApiResult.Success -> GenerationOutcome.Success(
-                value = JsonPromptCodec.decodePlannerAction(result.value) ?: PlannerAction.Finish,
+                value = result.value,
                 meta = GenerationMeta(InferenceOrigin.Cloud),
             )
             is ApiResult.Failure -> GenerationOutcome.Failure(result.error)
         }
 
-    override suspend fun answer(input: AnswerInput): GenerationOutcome<List<CitedClaim>> =
-        when (
-            val result = client.generate(
-                connection = connection,
-                modelId = modelId,
-                systemInstruction = JsonPromptCodec.ANSWER_INSTRUCTION,
-                userPayload = JsonPromptCodec.encodePayload(input.question, input.passages, emptySet()),
+    override fun generateStream(request: LlmGenerateRequest): Flow<GenerationOutcome<LlmStreamChunk>> = flow {
+        when (val outcome = generate(request)) {
+            is GenerationOutcome.Success -> emit(
+                GenerationOutcome.Success(
+                    value = LlmStreamChunk(text = outcome.value, done = true),
+                    meta = outcome.meta,
+                ),
             )
-        ) {
-            is ApiResult.Success -> GenerationOutcome.Success(
-                value = JsonPromptCodec.decodeClaims(result.value, input.passages.size),
-                meta = GenerationMeta(InferenceOrigin.Cloud),
-            )
-            is ApiResult.Failure -> GenerationOutcome.Failure(result.error)
+            is GenerationOutcome.Failure -> emit(outcome)
         }
+    }
 }
 
 internal class ApiModelProvider(
     private val connections: StateFlow<List<ApiConnection>>,
     private val client: KtorApiClient,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-) : AnswerModelProvider {
+) : LlmBackendProvider {
     override val models: StateFlow<List<AnswerModel>> =
         connections
             .map(::toAnswerModels)
             .stateIn(scope, SharingStarted.Eagerly, toAnswerModels(connections.value))
 
-    override fun generator(model: AnswerModel): AnswerGenerator? {
+    override fun backend(model: AnswerModel): LlmRuntimeBackend? {
         for (connection in connections.value) {
             if (connection.baseUrl.isBlank()) continue
             val match = connection.models.firstOrNull { apiModel ->
                 apiModel.enabled && apiModelId(connection.id, apiModel.id) == model.id
             } ?: continue
-            return ApiAnswerGenerator(connection, match.id, client)
+            return ApiRuntimeBackend(connection, match.id, client)
         }
         return null
     }

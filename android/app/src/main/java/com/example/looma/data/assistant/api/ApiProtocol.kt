@@ -3,6 +3,8 @@ package com.example.looma.data.assistant.api
 import com.example.looma.data.assistant.ApiConnection
 import com.example.looma.data.assistant.ApiProvider
 import com.example.looma.data.assistant.GenerationError
+import com.example.looma.data.assistant.runtime.LlmMessage
+import com.example.looma.data.assistant.runtime.LlmRole
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -27,8 +29,10 @@ internal interface ApiProtocol {
     fun buildGenerateRequest(
         connection: ApiConnection,
         modelId: String,
-        systemInstruction: String,
-        userPayload: String,
+        messages: List<LlmMessage>,
+        systemInstruction: String? = null,
+        maxOutputTokens: Int? = null,
+        responseMimeType: String? = null,
     ): ApiHttpRequest
     fun parseGeneratedText(body: String): String?
 }
@@ -50,22 +54,37 @@ internal object OpenAiCompatibleProtocol : ApiProtocol {
     override fun buildGenerateRequest(
         connection: ApiConnection,
         modelId: String,
-        systemInstruction: String,
-        userPayload: String,
-    ): ApiHttpRequest = ApiHttpRequest(
-        url = "${normalizedBase(connection)}/chat/completions",
-        headers = authHeaders(connection),
-        body = JSONObject()
+        messages: List<LlmMessage>,
+        systemInstruction: String?,
+        maxOutputTokens: Int?,
+        responseMimeType: String?,
+    ): ApiHttpRequest {
+        val jsonMessages = JSONArray()
+        systemInstruction?.takeIf { it.isNotBlank() }?.let {
+            jsonMessages.put(JSONObject().put("role", "system").put("content", it))
+        }
+        messages.forEach { message ->
+            val role = when (message.role) {
+                LlmRole.System -> "system"
+                LlmRole.Model -> "assistant"
+                LlmRole.User, LlmRole.Tool -> "user"
+            }
+            jsonMessages.put(JSONObject().put("role", role).put("content", message.content))
+        }
+        val body = JSONObject()
             .put("model", modelId)
             .put("temperature", 0.0)
-            .put(
-                "messages",
-                JSONArray()
-                    .put(JSONObject().put("role", "system").put("content", systemInstruction))
-                    .put(JSONObject().put("role", "user").put("content", userPayload)),
-            )
-            .toString(),
-    )
+            .put("messages", jsonMessages)
+        maxOutputTokens?.let { body.put("max_tokens", it) }
+        if (responseMimeType == "application/json") {
+            body.put("response_format", JSONObject().put("type", "json_object"))
+        }
+        return ApiHttpRequest(
+            url = "${normalizedBase(connection)}/chat/completions",
+            headers = authHeaders(connection),
+            body = body.toString(),
+        )
+    }
 
     override fun parseGeneratedText(body: String): String? {
         val root = parseJsonObject(body) ?: return null
@@ -102,22 +121,35 @@ internal object AnthropicProtocol : ApiProtocol {
     override fun buildGenerateRequest(
         connection: ApiConnection,
         modelId: String,
-        systemInstruction: String,
-        userPayload: String,
-    ): ApiHttpRequest = ApiHttpRequest(
-        url = "${v1Base(connection)}/messages",
-        headers = authHeaders(connection),
-        body = JSONObject()
+        messages: List<LlmMessage>,
+        systemInstruction: String?,
+        maxOutputTokens: Int?,
+        responseMimeType: String?,
+    ): ApiHttpRequest {
+        val systemParts = buildList {
+            systemInstruction?.takeIf { it.isNotBlank() }?.let(::add)
+            messages.filter { it.role == LlmRole.System && it.content.isNotBlank() }
+                .forEach { add(it.content) }
+        }
+        val jsonMessages = JSONArray()
+        messages.filter { it.role != LlmRole.System }.forEach { message ->
+            val role = if (message.role == LlmRole.Model) "assistant" else "user"
+            jsonMessages.put(JSONObject().put("role", role).put("content", message.content))
+        }
+        val body = JSONObject()
             .put("model", modelId)
-            .put("max_tokens", MAX_TOKENS)
+            .put("max_tokens", maxOutputTokens ?: MAX_TOKENS)
             .put("temperature", 0.0)
-            .put("system", systemInstruction)
-            .put(
-                "messages",
-                JSONArray().put(JSONObject().put("role", "user").put("content", userPayload)),
-            )
-            .toString(),
-    )
+            .put("messages", jsonMessages)
+        if (systemParts.isNotEmpty()) {
+            body.put("system", systemParts.joinToString("\n\n"))
+        }
+        return ApiHttpRequest(
+            url = "${v1Base(connection)}/messages",
+            headers = authHeaders(connection),
+            body = body.toString(),
+        )
+    }
 
     override fun parseGeneratedText(body: String): String? {
         val parts = parseJsonObject(body)?.optJSONArray("content") ?: return null
@@ -159,35 +191,47 @@ internal object GeminiApiProtocol : ApiProtocol {
     override fun buildGenerateRequest(
         connection: ApiConnection,
         modelId: String,
-        systemInstruction: String,
-        userPayload: String,
-    ): ApiHttpRequest = ApiHttpRequest(
-        url = "${v1BetaBase(connection)}/models/${modelId.removePrefix("models/")}:generateContent",
-        headers = authHeaders(connection),
-        body = JSONObject()
-            .put(
+        messages: List<LlmMessage>,
+        systemInstruction: String?,
+        maxOutputTokens: Int?,
+        responseMimeType: String?,
+    ): ApiHttpRequest {
+        val systemParts = buildList {
+            systemInstruction?.takeIf { it.isNotBlank() }?.let(::add)
+            messages.filter { it.role == LlmRole.System && it.content.isNotBlank() }
+                .forEach { add(it.content) }
+        }
+        val contents = JSONArray()
+        messages.filter { it.role != LlmRole.System }.forEach { message ->
+            val role = if (message.role == LlmRole.Model) "model" else "user"
+            contents.put(
+                JSONObject()
+                    .put("role", role)
+                    .put("parts", JSONArray().put(JSONObject().put("text", message.content))),
+            )
+        }
+        val generationConfig = JSONObject().put("temperature", 0.0)
+        maxOutputTokens?.let { generationConfig.put("maxOutputTokens", it) }
+        responseMimeType?.takeIf { it.isNotBlank() }?.let { generationConfig.put("responseMimeType", it) }
+
+        val body = JSONObject()
+            .put("contents", contents)
+            .put("generationConfig", generationConfig)
+        if (systemParts.isNotEmpty()) {
+            body.put(
                 "systemInstruction",
                 JSONObject().put(
                     "parts",
-                    JSONArray().put(JSONObject().put("text", systemInstruction)),
+                    JSONArray().put(JSONObject().put("text", systemParts.joinToString("\n\n"))),
                 ),
             )
-            .put(
-                "contents",
-                JSONArray().put(
-                    JSONObject()
-                        .put("role", "user")
-                        .put("parts", JSONArray().put(JSONObject().put("text", userPayload))),
-                ),
-            )
-            .put(
-                "generationConfig",
-                JSONObject()
-                    .put("temperature", 0.0)
-                    .put("responseMimeType", "application/json"),
-            )
-            .toString(),
-    )
+        }
+        return ApiHttpRequest(
+            url = "${v1BetaBase(connection)}/models/${modelId.removePrefix("models/")}:generateContent",
+            headers = authHeaders(connection),
+            body = body.toString(),
+        )
+    }
 
     override fun parseGeneratedText(body: String): String? {
         val parts = parseJsonObject(body)

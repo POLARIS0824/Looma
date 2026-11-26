@@ -2,6 +2,7 @@ package com.example.looma.data.assistant.api
 
 import com.example.looma.data.assistant.ApiConnection
 import com.example.looma.data.assistant.GenerationError
+import com.example.looma.data.assistant.runtime.LlmMessage
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -41,11 +42,20 @@ internal class KtorApiClient(
     suspend fun generate(
         connection: ApiConnection,
         modelId: String,
-        systemInstruction: String,
-        userPayload: String,
+        messages: List<LlmMessage>,
+        systemInstruction: String? = null,
+        maxOutputTokens: Int? = null,
+        responseMimeType: String? = null,
     ): ApiResult<String> {
         val protocol = connection.provider.protocol()
-        val request = protocol.buildGenerateRequest(connection, modelId, systemInstruction, userPayload)
+        val request = protocol.buildGenerateRequest(
+            connection = connection,
+            modelId = modelId,
+            messages = messages,
+            systemInstruction = systemInstruction,
+            maxOutputTokens = maxOutputTokens,
+            responseMimeType = responseMimeType,
+        )
         return execute(connection, request) { body ->
             val text = protocol.parseGeneratedText(body)
             if (text != null) {

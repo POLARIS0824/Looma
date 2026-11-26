@@ -1,7 +1,16 @@
 package com.example.looma.data.assistant
 
+import com.example.looma.data.assistant.runtime.AgentRequest
+import com.example.looma.data.assistant.runtime.DefaultAgentRuntimeExecutor
+import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
+import com.example.looma.data.assistant.sessions.DefaultLlmSessionManager
+import com.example.looma.data.assistant.sessions.SummarizationContextCompactor
+import com.example.looma.data.assistant.tools.ToolDispatcher
+import com.example.looma.data.assistant.tools.VaultToolsProvider
 import com.example.looma.domain.model.Vault
-import com.example.looma.data.search.cappedForModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 internal data class CitedClaim(val text: String, val citations: List<Int>)
@@ -21,7 +30,7 @@ internal class VaultAgent(private val evidence: VaultEvidence) {
     suspend fun answer(
         vault: Vault,
         question: String,
-        generator: AnswerGenerator?,
+        backend: LlmRuntimeBackend?,
         effort: ThinkingEffort,
         route: InferenceRoute? = null,
         progress: (String) -> Unit,
@@ -32,110 +41,133 @@ internal class VaultAgent(private val evidence: VaultEvidence) {
             val first = evidence.search(scope, question)
             val pool = first.hits.mapNotNull { evidence.resolve(vault, it) }.toMutableList()
             var partial = first.partial
-            val initial = VaultAnswer(pool.toList(), status = AnswerStatus.NoEvidence,
-                semantic = first.semantic, partial = partial)
+            val initial = VaultAnswer(
+                sources = pool.toList(),
+                status = AnswerStatus.NoEvidence,
+                semantic = first.semantic,
+                partial = partial,
+            )
             val investigate = effort.investigationSteps > 0
-            if (generator == null) return@withTimeout initial.copy(
-                status = if (pool.isEmpty()) AnswerStatus.NoEvidence else AnswerStatus.NeedsModel)
+            if (backend == null) {
+                return@withTimeout initial.copy(
+                    status = if (pool.isEmpty()) AnswerStatus.NoEvidence else AnswerStatus.NeedsModel,
+                )
+            }
             if (pool.isEmpty() && !investigate) return@withTimeout initial
 
-            val steps = mutableListOf<AgentStep>()
+            val executor = DefaultAgentRuntimeExecutor(
+                sessionManager = DefaultLlmSessionManager(),
+                toolDispatcher = ToolDispatcher(),
+                contextCompactor = SummarizationContextCompactor(),
+            )
+            val collectedSteps = mutableListOf<AgentStep>()
             try {
-                run {
-                    val searched = mutableSetOf(question.trim().lowercase())
-                    val expanded = mutableSetOf<Int>()
-                    if (investigate) {
-                        for (step in 1..effort.investigationSteps) {
-                            evidence.checkVault(vault)
-                            val outcome = generator.plan(
-                                PlannerInput(question, passages(question, pool, generator.contextBudgetChars), searched, route)
-                            )
-                            when (outcome) {
-                                is GenerationOutcome.Failure -> {
-                                    evidence.checkVault(vault)
-                                    return@withTimeout initial.copy(
-                                        sources = pool.toList(),
-                                        partial = partial,
-                                        error = outcome.error,
-                                        steps = steps.toList(),
-                                        status = AnswerStatus.ModelFailed,
-                                    )
-                                }
-                                is GenerationOutcome.Success -> when (val action = outcome.value) {
-                                    is PlannerAction.Search -> {
-                                        val query = action.query.trim()
-                                        if (query.length !in 1..200 || !searched.add(query.lowercase())) break
-                                        steps += AgentStep(query, outcome.meta.origin)
-                                        progress(query)
-                                        val found = evidence.search(scope, query, 4)
-                                        partial = partial || found.partial
-                                        pool += found.hits.filter { hit ->
-                                            pool.none { it.id == hit.id && it.anchor == hit.anchor }
-                                        }.take(2)
-                                    }
-                                    is PlannerAction.Read -> {
-                                        val index = action.passageId - 1
-                                        if (index !in pool.indices || !expanded.add(index)) break
-                                        val path = pool[index].id.path.relativePath
-                                        steps += AgentStep(path, outcome.meta.origin)
-                                        progress(path)
-                                        evidence.resolve(vault, pool[index], expand = true)?.let { pool[index] = it }
-                                    }
-                                    PlannerAction.Finish -> break
-                                }
-                            }
-                        }
+                evidence.checkVault(vault)
+                val searched = mutableSetOf(question.trim().lowercase())
+                val expanded = mutableSetOf<Int>()
+                val tools = if (investigate) {
+                    VaultToolsProvider(
+                        evidence = evidence,
+                        scope = scope,
+                        pool = pool,
+                        searched = searched,
+                        expanded = expanded,
+                        onPartial = { if (it) partial = true },
+                        onStep = progress,
+                    )
+                } else {
+                    null
+                }
+                val request = AgentRequest(
+                    question = JsonPromptCodec.encodePrompt(question, pool, backend.contextBudgetChars),
+                    systemInstruction = JsonPromptCodec.ANSWER_INSTRUCTION,
+                    maxSteps = if (investigate) effort.investigationSteps + 1 else 1,
+                    route = route,
+                )
+                val outcome = executor.execute(
+                    backend = backend,
+                    request = request,
+                    tools = tools,
+                    onStep = { step ->
+                        collectedSteps += step
+                        if (step.label == "generate") progress("")
+                    },
+                )
+                when (outcome) {
+                    is GenerationOutcome.Failure -> {
+                        evidence.checkVault(vault)
+                        initial.copy(
+                            sources = pool.toList(),
+                            partial = partial,
+                            error = outcome.error,
+                            steps = collectedSteps.toList(),
+                            status = AnswerStatus.ModelFailed,
+                        )
                     }
-                    val verified = pool.mapNotNull { evidence.resolve(vault, it) }
-                    if (verified.isEmpty()) return@run initial.copy(sources = emptyList(), partial = partial, steps = steps.toList())
-                    when (val outcome = generator.answer(AnswerInput(question, passages(question, verified, generator.contextBudgetChars), route))) {
-                        is GenerationOutcome.Failure -> {
-                            evidence.checkVault(vault)
-                            initial.copy(
-                                sources = verified,
-                                partial = partial,
-                                error = outcome.error,
-                                steps = steps.toList(),
-                                status = AnswerStatus.ModelFailed,
-                            )
-                        }
-                        is GenerationOutcome.Success -> {
-                            val claims = outcome.value
-                            evidence.checkVault(vault)
-                            val stillCurrent = claims.flatMap { it.citations }.distinct().all {
-                                evidence.resolve(vault, verified[it - 1]) != null
+                    is GenerationOutcome.Success -> {
+                        evidence.checkVault(vault)
+                        val response = outcome.value
+                        val resolvedPool = pool.map { evidence.resolve(vault, it) }
+                        val idRemap = buildMap {
+                            var nextId = 1
+                            resolvedPool.forEachIndexed { index, item ->
+                                if (item != null) {
+                                    put(index + 1, nextId++)
+                                }
                             }
-                            val usable = claims.takeIf { stillCurrent }.orEmpty()
-                            initial.copy(
-                                sources = verified,
-                                claims = usable,
-                                partial = partial,
-                                meta = outcome.meta,
-                                steps = steps.toList(),
-                                status = if (usable.isEmpty()) AnswerStatus.Insufficient else AnswerStatus.Answered,
-                            )
                         }
+                        val sources = resolvedPool.filterNotNull()
+                        val rawClaims = decodeOrFallback(response.text, pool.size)
+                        val usable = rawClaims.mapNotNull { claim ->
+                            if (claim.citations.isEmpty()) {
+                                claim
+                            } else {
+                                val remapped = claim.citations.mapNotNull { idRemap[it] }.distinct()
+                                if (remapped.isEmpty()) null else claim.copy(citations = remapped)
+                            }
+                        }
+                        initial.copy(
+                            sources = sources,
+                            claims = usable,
+                            partial = partial,
+                            meta = response.meta,
+                            steps = response.steps,
+                            status = if (usable.isEmpty()) AnswerStatus.Insufficient else AnswerStatus.Answered,
+                        )
                     }
                 }
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
+            } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Exception) {
                 evidence.checkVault(vault)
-                initial.copy(error = GenerationError.Failed(error.message), steps = steps.toList(), status = AnswerStatus.ModelFailed)
+                initial.copy(
+                    sources = pool.toList(),
+                    partial = partial,
+                    error = GenerationError.Failed(error.message),
+                    steps = collectedSteps.toList(),
+                    status = AnswerStatus.ModelFailed,
+                )
             } catch (error: LinkageError) {
-                initial.copy(error = GenerationError.Failed(error.message), steps = steps.toList(), status = AnswerStatus.ModelFailed)
+                initial.copy(
+                    sources = pool.toList(),
+                    partial = partial,
+                    error = GenerationError.Failed(error.message),
+                    steps = collectedSteps.toList(),
+                    status = AnswerStatus.ModelFailed,
+                )
+            } finally {
+                withContext(NonCancellable) {
+                    executor.cleanUp()
+                }
             }
         }
 
-    private fun passages(question: String, pool: List<Evidence>, budgetChars: Int): List<PassageInput> {
-        val perPassage = (budgetChars - question.length).coerceAtLeast(1800) / pool.size.coerceAtLeast(1)
-        return pool.mapIndexed { index, hit ->
-            PassageInput(
-                id = index + 1,
-                path = hit.id.path.relativePath.cappedForModel(160),
-                section = hit.section.cappedForModel(80),
-                text = hit.text.cappedForModel(perPassage),
-            )
+    private fun decodeOrFallback(raw: String, passageCount: Int): List<CitedClaim> {
+        val parsed = JsonPromptCodec.parseObject(raw)
+        if (parsed != null && parsed.has("claims")) {
+            return JsonPromptCodec.decodeClaims(raw, passageCount)
         }
+        val plain = JsonPromptCodec.stripThinking(raw)
+        return if (plain.isNotBlank()) listOf(CitedClaim(plain, emptyList())) else emptyList()
     }
 }
