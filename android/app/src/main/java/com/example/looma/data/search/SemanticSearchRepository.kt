@@ -1,6 +1,7 @@
 package com.example.looma.data.search
 
 import android.content.Context
+import android.util.Log
 import com.example.looma.data.index.IndexDelta
 import com.example.looma.data.inference.LocalModelSession
 import com.example.looma.data.note.NoteRepository
@@ -20,6 +21,7 @@ import com.example.looma.embedding.EmbeddingBackend
 import com.example.looma.embedding.EmbeddingGemma
 import java.io.IOException
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
@@ -81,11 +83,12 @@ class SemanticSearchRepository internal constructor(
     }
     internal suspend fun cancelModelDownload() = work.cancelDownload()
     internal suspend fun deleteModel() {
+        val spec = EmbeddingModelCatalog.resolve(syncBackend())
         work.cancelDownload()
         work.cancelIndex()
         releaseModel()
         withContext(Dispatchers.IO) {
-            modelFile.delete()
+            modelFile.delete(spec)
         }
         work.notifyModelChanged()
     }
@@ -229,6 +232,122 @@ class SemanticSearchRepository internal constructor(
         store.markSkipped(id, false)
     }
 
+    internal suspend fun searchRelated(
+        sourceId: NoteId,
+        sourceRevision: NoteRevision.Known?,
+        sourceTitle: String,
+        sourceBody: String,
+        focusedPassage: String?,
+        candidates: List<SearchableNote>,
+    ): List<SemanticSearchHit> = withContext(Dispatchers.IO) {
+        if (candidates.isEmpty()) return@withContext emptyList()
+        val vault = vaults.requireCurrentVault()
+        if (!store.hasDocuments(vault.id)) throw SemanticIndexMissingException()
+        val checkActive = coroutineContext::ensureActive
+        val title = sourceTitle.cappedForModel(128)
+        val queryCentroid: FloatArray
+        val queryChunks: List<FloatArray>
+        if (focusedPassage != null) {
+            queryCentroid = withModel(releaseWhenIdle = true) { embedder ->
+                embedder.document(focusedPassage.cappedForModel(1024), title)
+            }
+            queryChunks = listOf(queryCentroid)
+        } else {
+            val cached = sourceRevision?.let { store.vectorsFor(sourceId, it) }.orEmpty()
+            val sourceVectors = if (cached.isNotEmpty()) {
+                cached
+            } else {
+                val chunks = representativeChunks(semanticChunks(sourceBody, checkActive))
+                withModel(releaseWhenIdle = true) { embedder ->
+                    if (chunks.isEmpty()) {
+                        listOf(embedder.document(sourceBody.cappedForModel(1024), title))
+                    } else {
+                        chunks.map { chunk ->
+                            checkActive()
+                            val text = sourceBody.substring(chunk.start, chunk.end)
+                            val prompt = if (chunk.section.isEmpty()) text else "${chunk.section}\n$text"
+                            embedder.document(prompt, title)
+                        }
+                    }
+                }
+            }
+            queryCentroid = centroidVector(sourceVectors)
+            queryChunks = sampleVectors(sourceVectors, 6)
+        }
+        check(queryCentroid.size == EmbeddingGemma.DIMENSIONS && queryCentroid.all { it.isFinite() })
+        check(queryChunks.all { it.size == EmbeddingGemma.DIMENSIONS && it.all { v -> v.isFinite() } })
+
+        val ids = candidates.asSequence().map { it.id }.filter { it.vaultId == vault.id }.toSet()
+        val passageWeight = if (focusedPassage != null) 0.85 else 0.55
+        val current = store.rankRelated(vault.id, ids, queryCentroid, queryChunks, passageWeight, MIN_RELATED_SIMILARITY, checkActive)
+        val ranked = current.entries.map { RankedHit(it.key, it.value) }
+        val stale = mutableListOf<NoteId>()
+        if (store.initialized(vault.id)) {
+            stale += store.missing(vault.id, ids - current.keys, checkActive).filterNot(store::isSkipped)
+        }
+        val results = buildList {
+            for ((id, passage) in ranked.sortedWith(RANKING)) {
+                if (size == MAX_RESULTS) break
+                checkActive()
+                val note = read(id, vault) ?: continue
+                if (!passage.anchor.matches(note.revision, note.content)) {
+                    stale += id
+                    continue
+                }
+                add(SemanticSearchHit(
+                    id = id,
+                    anchor = passage.anchor,
+                    section = passage.section,
+                    similarity = passage.score,
+                    excerpt = note.content.substring(passage.anchor.start, passage.anchor.end),
+                ))
+            }
+        }
+        if (!SemanticVaultTarget(vault).matches(vaults.getCurrentVault())) return@withContext emptyList()
+        if (stale.isNotEmpty()) {
+            store.mark(vault.id, stale.map { it.path }, replaceTicket = false)
+            work.enqueueUpdates(vault)
+        }
+        results
+    }
+
+    private fun sampleVectors(vectors: List<FloatArray>, maxCount: Int): List<FloatArray> {
+        if (maxCount <= 1) return vectors.take(maxCount.coerceAtLeast(0))
+        if (vectors.size <= maxCount) return vectors
+        val indices = LinkedHashSet<Int>(maxCount)
+        indices += 0
+        for (i in 1 until maxCount - 1) {
+            indices += (i * (vectors.size - 1)) / (maxCount - 1)
+        }
+        indices += vectors.lastIndex
+        return indices.map { vectors[it] }
+    }
+
+    private fun representativeChunks(chunks: List<SemanticChunk>): List<SemanticChunk> {
+        if (chunks.isEmpty()) return emptyList()
+        val pool = chunks.filter { it.end - it.start >= 40 }.ifEmpty { chunks }
+        if (pool.size <= 6) return pool
+        val indices = LinkedHashSet<Int>()
+        indices += 0
+        for (i in 1..4) indices += (i * (pool.size - 1)) / 5
+        indices += pool.lastIndex
+        return indices.map { pool[it] }
+    }
+
+    private fun centroidVector(vectors: List<FloatArray>): FloatArray {
+        val sum = FloatArray(EmbeddingGemma.DIMENSIONS)
+        for (vec in vectors) {
+            for (i in sum.indices) sum[i] += vec[i]
+        }
+        var normSq = 0.0
+        for (v in sum) normSq += v.toDouble() * v.toDouble()
+        if (normSq > 0.0) {
+            val norm = kotlin.math.sqrt(normSq).toFloat()
+            for (i in sum.indices) sum[i] /= norm
+        }
+        return sum
+    }
+
     internal suspend fun search(
         query: String,
         candidates: List<SearchableNote>,
@@ -308,7 +427,9 @@ class SemanticSearchRepository internal constructor(
             if (npuFile != null) {
                 try {
                     return EmbeddingGemma(context, npuFile, EmbeddingBackend.NPU)
-                } catch (error: Exception) {
+                } catch (error: Throwable) {
+                    if (error is CancellationException || error is VirtualMachineError) throw error
+                    Log.w("SemanticSearch", "NPU embedding initialization failed", error)
                     val cpuFile = modelFile.open(EmbeddingModelCatalog.CPU_MODEL) ?: throw error
                     return EmbeddingGemma(context, cpuFile, EmbeddingBackend.CPU)
                 }
@@ -326,6 +447,7 @@ class SemanticSearchRepository internal constructor(
 
     companion object {
         private const val MAX_RESULTS = 20
+        private const val MIN_RELATED_SIMILARITY = 0.40
         private val RANKING = compareByDescending<RankedHit> { it.passage.score }.thenBy { it.id.path.relativePath }
     }
 

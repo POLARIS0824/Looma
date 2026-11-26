@@ -211,7 +211,10 @@ internal fun SemanticSearchSettingsScreen(
                 Spacer(Modifier.height(32.dp))
                 BackendGroup(
                     backend = state.backend,
-                    enabled = !state.model.status.active && state.model.action != SemanticSettingsAction.Submitting,
+                    enabled = !state.model.status.active &&
+                        !state.index.status.active &&
+                        state.model.action != SemanticSettingsAction.Submitting &&
+                        state.index.action != SemanticSettingsAction.Submitting,
                     onSelectBackend = onSelectBackend,
                 )
             }

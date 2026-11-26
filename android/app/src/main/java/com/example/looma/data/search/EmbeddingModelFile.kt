@@ -120,7 +120,7 @@ internal class EmbeddingModelFile(
     private val activeSpec: () -> EmbeddingModelSpec = { EmbeddingModelCatalog.CPU_MODEL },
 ) {
     private val mutex = Mutex()
-    private var verifiedFileName: String? = null
+    private val verifiedFileNames = mutableSetOf<String>()
 
     fun exists(spec: EmbeddingModelSpec = activeSpec()): Boolean {
         val file = targetFile(spec)
@@ -133,25 +133,23 @@ internal class EmbeddingModelFile(
     suspend fun open(spec: EmbeddingModelSpec = activeSpec()): File? =
         mutex.withLock { openPublishedModel(spec) }
 
-    suspend fun delete() = mutex.withLock {
-        verifiedFileName = null
-        for (spec in EmbeddingModelCatalog.allSpecs()) {
-            Files.deleteIfExists(targetFile(spec).toPath())
-            Files.deleteIfExists(pendingFile(spec).toPath())
-        }
+    suspend fun delete(spec: EmbeddingModelSpec = activeSpec()) = mutex.withLock {
+        verifiedFileNames.remove(spec.fileName)
+        Files.deleteIfExists(targetFile(spec).toPath())
+        Files.deleteIfExists(pendingFile(spec).toPath())
     }
 
     private suspend fun openPublishedModel(spec: EmbeddingModelSpec): File? {
         val file = targetFile(spec)
         if (!exists(spec)) {
-            if (verifiedFileName == spec.fileName) verifiedFileName = null
+            verifiedFileNames.remove(spec.fileName)
             return null
         }
-        if (verifiedFileName != spec.fileName && !file.hasExpectedDigest(spec.sha256)) {
+        if (spec.fileName !in verifiedFileNames && !file.hasExpectedDigest(spec.sha256)) {
             Files.deleteIfExists(file.toPath())
             return null
         }
-        verifiedFileName = spec.fileName
+        verifiedFileNames.add(spec.fileName)
         return file
     }
 
@@ -265,7 +263,7 @@ internal class EmbeddingModelFile(
         FileOutputStream(pending, true).use { it.fd.sync() }
         coroutineContext.ensureActive()
         Files.move(pending.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-        verifiedFileName = spec.fileName
+        verifiedFileNames.add(spec.fileName)
         return true
     }
 

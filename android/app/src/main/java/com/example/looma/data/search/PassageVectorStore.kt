@@ -218,6 +218,114 @@ internal class PassageVectorStore(context: Context, private val file: File) :
         }
     }
 
+    fun vectorsFor(id: NoteId, revision: NoteRevision.Known): List<FloatArray> {
+        if (!current(id, revision)) return emptyList()
+        val substantial = mutableListOf<FloatArray>()
+        val fallback = mutableListOf<FloatArray>()
+        val sql = """SELECT p.start,p.end,v.bytes FROM passages p
+            JOIN vectors v USING(vault,path,input)
+            WHERE p.vault=? AND p.path=? ORDER BY p.start"""
+        readableDatabase.rawQuery(sql, arrayOf(id.vaultId.value, id.path.relativePath)).use { cursor ->
+            while (cursor.moveToNext()) {
+                val length = cursor.getInt(1) - cursor.getInt(0)
+                val values = ByteBuffer.wrap(cursor.getBlob(2)).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
+                if (values.remaining() != EmbeddingGemma.DIMENSIONS) continue
+                val vector = FloatArray(EmbeddingGemma.DIMENSIONS)
+                values.get(vector)
+                if (!vector.all { it.isFinite() }) continue
+                fallback += vector
+                if (length >= MIN_RELATED_PASSAGE_CHARS) substantial += vector
+            }
+        }
+        return if (substantial.isNotEmpty()) substantial else fallback
+    }
+
+    fun rankRelated(
+        vault: VaultId,
+        ids: Collection<NoteId>,
+        queryCentroid: FloatArray,
+        queryChunks: List<FloatArray>,
+        passageWeight: Double,
+        minSimilarity: Double,
+        checkActive: () -> Unit,
+    ): Map<NoteId, ScoredPassage> {
+        class NoteAccumulator(val dims: Int) {
+            var bestSubstantial: ScoredPassage? = null
+            var bestFallback: ScoredPassage? = null
+            val sumSubstantial = FloatArray(dims)
+            var countSubstantial = 0
+            val sumFallback = FloatArray(dims)
+            var countFallback = 0
+        }
+        val byNote = LinkedHashMap<NoteId, NoteAccumulator>()
+        for (group in ids.chunked(400)) {
+            checkActive()
+            val slots = group.joinToString(",") { "?" }
+            val args = (listOf(vault.value) + group.map { it.path.relativePath }).toTypedArray()
+            val sql = """SELECT p.path,d.revision,p.start,p.end,p.section,v.bytes FROM passages p
+                JOIN documents d USING(vault,path) JOIN vectors v USING(vault,path,input)
+                WHERE p.vault=? AND p.path IN ($slots) ORDER BY p.path,p.start"""
+            readableDatabase.rawQuery(sql, args).use { cursor ->
+                while (cursor.moveToNext()) {
+                    checkActive()
+                    val values = ByteBuffer.wrap(cursor.getBlob(5)).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
+                    if (values.remaining() != queryCentroid.size) continue
+                    val start = cursor.getInt(2)
+                    val end = cursor.getInt(3)
+                    val vec = FloatArray(queryCentroid.size)
+                    values.get(vec)
+                    val score = if (queryChunks.isNotEmpty()) {
+                        var bestChunkScore = Double.NEGATIVE_INFINITY
+                        for (q in queryChunks) {
+                            var dot = 0.0
+                            for (i in q.indices) dot += q[i].toDouble() * vec[i]
+                            if (dot > bestChunkScore) bestChunkScore = dot
+                        }
+                        bestChunkScore
+                    } else {
+                        var dot = 0.0
+                        for (i in queryCentroid.indices) dot += queryCentroid[i].toDouble() * vec[i]
+                        dot
+                    }
+                    if (!score.isFinite()) continue
+                    val id = NoteId(vault, NotePath(cursor.getString(0)))
+                    val acc = byNote.getOrPut(id) { NoteAccumulator(queryCentroid.size) }
+                    val anchor = PassageAnchor(cursor.getString(1), start, end)
+                    val candidate = ScoredPassage(anchor, cursor.getString(4), score)
+                    if (score > (acc.bestFallback?.score ?: Double.NEGATIVE_INFINITY)) acc.bestFallback = candidate
+                    for (i in vec.indices) acc.sumFallback[i] += vec[i]
+                    acc.countFallback++
+                    if (end - start >= MIN_RELATED_PASSAGE_CHARS) {
+                        if (score > (acc.bestSubstantial?.score ?: Double.NEGATIVE_INFINITY)) acc.bestSubstantial = candidate
+                        for (i in vec.indices) acc.sumSubstantial[i] += vec[i]
+                        acc.countSubstantial++
+                    }
+                }
+            }
+        }
+        return buildMap {
+            for ((id, acc) in byNote) {
+                checkActive()
+                val best = acc.bestSubstantial ?: acc.bestFallback ?: continue
+                val sum = if (acc.countSubstantial > 0) acc.sumSubstantial else acc.sumFallback
+                val count = if (acc.countSubstantial > 0) acc.countSubstantial else acc.countFallback
+                if (count == 0) continue
+                var normSq = 0.0
+                for (v in sum) normSq += v.toDouble() * v.toDouble()
+                val centroidSim = if (normSq > 0.0) {
+                    val norm = kotlin.math.sqrt(normSq)
+                    var dot = 0.0
+                    for (i in queryCentroid.indices) dot += queryCentroid[i].toDouble() * (sum[i] / norm)
+                    dot
+                } else best.score
+                val combined = passageWeight * best.score + (1.0 - passageWeight) * centroidSim
+                if (combined.isFinite() && combined >= minSimilarity) {
+                    put(id, best.copy(score = combined))
+                }
+            }
+        }
+    }
+
     fun rank(vault: VaultId, ids: Collection<NoteId>, query: FloatArray, checkActive: () -> Unit): Map<NoteId, ScoredPassage> = buildMap<NoteId, ScoredPassage> {
         for (group in ids.chunked(400)) {
             checkActive()
@@ -243,5 +351,7 @@ internal class PassageVectorStore(context: Context, private val file: File) :
         }
     }
 }
+
+private const val MIN_RELATED_PASSAGE_CHARS = 40
 
 internal data class ScoredPassage(val anchor: PassageAnchor, val section: String, val score: Double)

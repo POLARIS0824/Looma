@@ -100,7 +100,7 @@ internal class SemanticSearchWork(
         modelVersion.update { it + 1 }
     }
 
-    suspend fun enqueueIndex() {
+    suspend fun enqueueIndex() = scheduling.withLock {
         check(supported)
         val vault = vaults.requireCurrentVault()
         if (!modelIsReady()) throw SemanticModelMissingException()
@@ -108,7 +108,8 @@ internal class SemanticSearchWork(
         val request = OneTimeWorkRequestBuilder<SemanticVaultIndexWorker>()
             .setInputData(workDataOf(VAULT_ID to vault.id.value, VAULT_PATH to vault.rootPath))
             .build()
-        manager.enqueueUniqueWork(indexName(vault), ExistingWorkPolicy.APPEND_OR_REPLACE, request).await()
+        manager.enqueueUniqueWork(indexName(vault), ExistingWorkPolicy.REPLACE, request).await()
+        Unit
     }
 
     suspend fun enqueueUpdates(vault: Vault) = scheduling.withLock {
@@ -122,9 +123,10 @@ internal class SemanticSearchWork(
         Unit
     }
 
-    suspend fun cancelIndex() {
-        val vault = vaults.getCurrentVault() ?: return
+    suspend fun cancelIndex() = scheduling.withLock {
+        val vault = vaults.getCurrentVault() ?: return@withLock
         manager.cancelUniqueWork(indexName(vault)).await()
+        Unit
     }
 
     private suspend fun modelIsReady(): Boolean = withContext(Dispatchers.IO) {
@@ -145,7 +147,7 @@ internal class SemanticSearchWork(
 
     private fun observe(name: String): Flow<WorkInfo?> =
         manager.getWorkInfosForUniqueWorkFlow(name).map { jobs ->
-            jobs.firstOrNull { it.state == WorkInfo.State.RUNNING } ?: jobs.firstOrNull { !it.state.isFinished } ?: jobs.firstOrNull { it.state == WorkInfo.State.FAILED } ?: jobs.lastOrNull()
+            selectWorkInfo(jobs) { it.state }
         }
 
     private fun WorkInfo?.state(ready: Boolean): SemanticWorkState = when (this?.state) {
@@ -175,3 +177,10 @@ internal class SemanticSearchWork(
         const val TOTAL = "total"
     }
 }
+
+internal fun <T> selectWorkInfo(jobs: List<T>, stateOf: (T) -> WorkInfo.State): T? =
+    jobs.firstOrNull { stateOf(it) == WorkInfo.State.RUNNING }
+        ?: jobs.firstOrNull { !stateOf(it).isFinished }
+        ?: jobs.firstOrNull { stateOf(it) == WorkInfo.State.FAILED }
+        ?: jobs.firstOrNull { stateOf(it) == WorkInfo.State.CANCELLED }
+        ?: jobs.lastOrNull()
