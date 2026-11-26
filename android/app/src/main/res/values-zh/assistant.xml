@@ -49,6 +49,15 @@
     <string name="ask_source_local">本地</string>
     <string name="ask_source_api">API</string>
     <string name="ask_source_hybrid">混合</string>
+    <string name="ask_route_prefer_on_device">自动</string>
+    <string name="ask_route_on_device_only">仅本地</string>
+    <string name="ask_route_prefer_cloud">优先云端</string>
+    <string name="ask_route_cloud_only">仅云端</string>
+    <string name="ask_model_download">下载模型</string>
+    <string name="ask_origin_on_device">由设备端生成</string>
+    <string name="ask_origin_cloud">由云端生成</string>
+    <string name="ask_origin_local_file">由本地模型生成</string>
+    <string name="ask_meta_fallback">已自动切换推理路径</string>
     <string name="ask_effort_off">关闭</string>
     <string name="ask_effort_low">低</string>
     <string name="ask_effort_medium">中</string>

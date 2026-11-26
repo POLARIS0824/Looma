@@ -11,6 +11,8 @@ import com.example.looma.data.assistant.WeaveFeedbackStore
 import com.example.looma.data.assistant.api.ApiConnectionStore
 import com.example.looma.data.assistant.api.ApiModelProvider
 import com.example.looma.data.assistant.api.KtorApiClient
+import com.example.looma.data.assistant.firebase.FirebaseBootstrap
+import com.example.looma.data.assistant.firebase.FirebaseHybridModelProvider
 import com.example.looma.data.folder.FolderRepository
 import com.example.looma.data.image.ImageUploader
 import com.example.looma.data.index.NoteIndexDatabase
@@ -31,6 +33,13 @@ import coil3.disk.directory
 import coil3.size.Precision
 
 class LoomaApp : Application(), SingletonImageLoader.Factory {
+    private var firebaseConfigured = false
+
+    override fun onCreate() {
+        super.onCreate()
+        firebaseConfigured = FirebaseBootstrap.initialize(this)
+    }
+
     val vaultRepository by lazy { VaultRepository(this) }
     private val indexDatabase by lazy { NoteIndexDatabase.get(this) }
     internal val httpClient by lazy { createLoomaHttpClient() }
@@ -67,8 +76,12 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
         LoomaModelSettingsRepository(apiConnectionStore, ktorApiClient, localGenerator)
     }
     private val apiModelProvider by lazy { ApiModelProvider(modelSettingsRepository.connections, ktorApiClient) }
+    private val firebaseHybridModelProvider by lazy { FirebaseHybridModelProvider(firebaseConfigured) }
     internal val answerModels by lazy {
-        AnswerModels(listOf(localGenerator, apiModelProvider), localImporter = localGenerator::install)
+        AnswerModels(
+            listOf(firebaseHybridModelProvider, localGenerator, apiModelProvider),
+            localImporter = localGenerator::install,
+        )
     }
     internal val vaultAgent by lazy { VaultAgent(evidence) }
     val folderRepository by lazy { FolderRepository(noteRepository) }

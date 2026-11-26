@@ -49,6 +49,15 @@
     <string name="ask_source_local">On device</string>
     <string name="ask_source_api">API</string>
     <string name="ask_source_hybrid">Hybrid</string>
+    <string name="ask_route_prefer_on_device">Auto</string>
+    <string name="ask_route_on_device_only">On-device</string>
+    <string name="ask_route_prefer_cloud">Prefer cloud</string>
+    <string name="ask_route_cloud_only">Cloud</string>
+    <string name="ask_model_download">Download model</string>
+    <string name="ask_origin_on_device">Generated on device</string>
+    <string name="ask_origin_cloud">Generated in cloud</string>
+    <string name="ask_origin_local_file">Generated from local model</string>
+    <string name="ask_meta_fallback">Used fallback route</string>
     <string name="ask_effort_off">Off</string>
     <string name="ask_effort_low">Low</string>
     <string name="ask_effort_medium">Medium</string>

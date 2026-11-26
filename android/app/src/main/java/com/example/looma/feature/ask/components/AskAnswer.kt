@@ -219,6 +219,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.answerItems(
     }
     val notes = listOfNotNull(
         status,
+        answer.meta?.originLabelRes(),
+        R.string.ask_meta_fallback.takeIf { answer.meta?.fallbackUsed == true },
         R.string.ask_lexical.takeIf { !answer.semantic },
         R.string.ask_partial.takeIf { answer.partial },
     )

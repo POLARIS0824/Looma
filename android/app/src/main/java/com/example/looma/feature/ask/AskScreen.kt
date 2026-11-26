@@ -143,6 +143,8 @@ internal fun AskScreen(
             onPage = { sheetPage = it },
             onSelect = model::select,
             onEffort = model::setEffort,
+            onRoute = model::setRoute,
+            onPrepareModel = model::prepareSelectedModel,
             onManageModels = {
                 sheet = null
                 sheetPage = null

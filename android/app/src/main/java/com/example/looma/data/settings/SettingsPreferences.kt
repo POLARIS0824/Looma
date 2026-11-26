@@ -47,6 +47,7 @@ data class SettingsPreferencesData(
     val syncCredentialsUnavailable: Boolean = false,
     val askModelId: String? = null,
     val askEffort: String? = null,
+    val askRoute: String? = null,
 )
 
 class SettingsPreferences(context: Context) {
@@ -98,6 +99,7 @@ class SettingsPreferences(context: Context) {
                     syncCredentialsUnavailable = encryptedSyncCredentials != null && syncCredentials == null,
                     askModelId = preferences[KEY_ASK_MODEL],
                     askEffort = preferences[KEY_ASK_EFFORT],
+                    askRoute = preferences[KEY_ASK_ROUTE],
                 )
             }
             .flowOn(Dispatchers.IO)
@@ -209,10 +211,11 @@ class SettingsPreferences(context: Context) {
         dataStore.edit { it[KEY_EMBEDDING_BACKEND] = backend }
     }
 
-    suspend fun saveAskModel(modelId: String, effort: String) {
+    suspend fun saveAskModel(modelId: String, effort: String, route: String?) {
         dataStore.edit {
             it[KEY_ASK_MODEL] = modelId
             it[KEY_ASK_EFFORT] = effort
+            if (route == null) it.remove(KEY_ASK_ROUTE) else it[KEY_ASK_ROUTE] = route
         }
     }
 
@@ -242,5 +245,6 @@ class SettingsPreferences(context: Context) {
         val KEY_EMBEDDING_BACKEND = stringPreferencesKey("key_embedding_backend")
         val KEY_ASK_MODEL = stringPreferencesKey("key_ask_model")
         val KEY_ASK_EFFORT = stringPreferencesKey("key_ask_effort")
+        val KEY_ASK_ROUTE = stringPreferencesKey("key_ask_route")
     }
 }

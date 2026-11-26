@@ -58,6 +58,7 @@ class SettingsRepository(
                 syncCredentialsUnavailable = data.syncCredentialsUnavailable,
                 askModelId = data.askModelId,
                 askEffort = data.askEffort,
+                askRoute = data.askRoute,
             )
         }
 
@@ -98,6 +99,6 @@ class SettingsRepository(
     }
 
     internal suspend fun setAskModel(choice: ModelChoice) {
-        preferences.saveAskModel(choice.model.id, choice.effort.name)
+        preferences.saveAskModel(choice.model.id, choice.effort.name, choice.route?.name)
     }
 }

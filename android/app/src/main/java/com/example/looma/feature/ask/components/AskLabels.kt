@@ -19,6 +19,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.example.looma.R
 import com.example.looma.data.assistant.AnswerModel
+import com.example.looma.data.assistant.GenerationMeta
+import com.example.looma.data.assistant.InferenceOrigin
+import com.example.looma.data.assistant.InferenceRoute
 import com.example.looma.data.assistant.ModelSource
 import com.example.looma.data.assistant.ThinkingEffort
 import com.example.looma.ui.components.LoomaIcon
@@ -50,6 +53,21 @@ internal fun AnswerModel.sourceRes(): Int = when (source) {
     ModelSource.Hybrid -> R.string.ask_source_hybrid
     ModelSource.Local -> R.string.ask_source_local
     ModelSource.Api -> R.string.ask_source_api
+}
+
+@StringRes
+internal fun InferenceRoute.labelRes(): Int = when (this) {
+    InferenceRoute.PreferOnDevice -> R.string.ask_route_prefer_on_device
+    InferenceRoute.OnDeviceOnly -> R.string.ask_route_on_device_only
+    InferenceRoute.PreferCloud -> R.string.ask_route_prefer_cloud
+    InferenceRoute.CloudOnly -> R.string.ask_route_cloud_only
+}
+
+@StringRes
+internal fun GenerationMeta.originLabelRes(): Int = when (origin) {
+    InferenceOrigin.OnDevice -> R.string.ask_origin_on_device
+    InferenceOrigin.Cloud -> R.string.ask_origin_cloud
+    InferenceOrigin.LocalFile -> R.string.ask_origin_local_file
 }
 
 @Composable

@@ -19,6 +19,7 @@ data class AppSettings(
     val syncCredentialsUnavailable: Boolean = false,
     val askModelId: String? = null,
     val askEffort: String? = null,
+    val askRoute: String? = null,
 )
 
 enum class ThemePreset(val seed: Color?) {

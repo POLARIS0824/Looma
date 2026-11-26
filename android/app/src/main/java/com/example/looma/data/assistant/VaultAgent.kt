@@ -48,7 +48,7 @@ internal class VaultAgent(private val evidence: VaultEvidence) {
                         for (step in 1..effort.investigationSteps) {
                             evidence.checkVault(vault)
                             val outcome = generator.plan(
-                                PlannerInput(question, passages(question, pool, generator.contextBudgetChars), searched, route)
+                                PlannerInput(question, passages(question, pool, generator.contextBudgetChars(route, multiStep = true)), searched, route)
                             )
                             when (outcome) {
                                 is GenerationOutcome.Failure -> {
@@ -88,7 +88,7 @@ internal class VaultAgent(private val evidence: VaultEvidence) {
                     }
                     val verified = pool.mapNotNull { evidence.resolve(vault, it) }
                     if (verified.isEmpty()) return@run initial.copy(sources = emptyList(), partial = partial, steps = steps.toList())
-                    when (val outcome = generator.answer(AnswerInput(question, passages(question, verified, generator.contextBudgetChars), route))) {
+                    when (val outcome = generator.answer(AnswerInput(question, passages(question, verified, generator.contextBudgetChars(route, multiStep = investigate)), route, multiStep = investigate))) {
                         is GenerationOutcome.Failure -> {
                             evidence.checkVault(vault)
                             initial.copy(

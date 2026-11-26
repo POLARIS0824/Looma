@@ -67,6 +67,7 @@ internal data class AnswerInput(
     val question: String,
     val passages: List<PassageInput>,
     val route: InferenceRoute? = null,
+    val multiStep: Boolean = false,
 )
 
 internal data class GenerationMeta(
@@ -84,6 +85,7 @@ internal data class AgentStep(val label: String, val origin: InferenceOrigin)
 
 internal interface AnswerGenerator {
     val contextBudgetChars: Int get() = 3600
+    fun contextBudgetChars(route: InferenceRoute?, multiStep: Boolean): Int = contextBudgetChars
     suspend fun plan(input: PlannerInput): GenerationOutcome<PlannerAction>
     suspend fun answer(input: AnswerInput): GenerationOutcome<List<CitedClaim>>
 }

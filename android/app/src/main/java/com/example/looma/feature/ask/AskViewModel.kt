@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.looma.data.assistant.AnswerModel
 import com.example.looma.data.assistant.AnswerModels
 import com.example.looma.data.assistant.Evidence
+import com.example.looma.data.assistant.GeneratorAvailability
+import com.example.looma.data.assistant.InferenceRoute
 import com.example.looma.data.assistant.ModelChoice
 import com.example.looma.data.assistant.ThinkingEffort
 import com.example.looma.data.assistant.VaultAgent
@@ -55,7 +57,7 @@ internal class AskViewModel(
     private val settings: SettingsRepository,
 ) : ViewModel() {
     private val mutable = MutableStateFlow(models.installed().let { installed ->
-        AskState(vault.name, installed, restoredChoice(installed, null, null))
+        AskState(vault.name, installed, restoredChoice(installed, null, null, null))
     })
     val state = mutable.asStateFlow()
     private var task: Job? = null
@@ -65,15 +67,18 @@ internal class AskViewModel(
         viewModelScope.launch {
             val stored = settings.settings.first()
             mutable.update { current ->
-                if (picked) current else current.copy(choice = restoredChoice(current.models, stored.askModelId, stored.askEffort))
+                if (picked) current else current.copy(choice = restoredChoice(current.models, stored.askModelId, stored.askEffort, stored.askRoute))
             }
             models.models.collect { installed ->
                 mutable.update { current ->
                     val next = if (picked) {
-                        current.choice?.takeIf { it.model in installed }
-                            ?: installed.firstOrNull()?.let { ModelChoice(it, it.defaultEffort) }
+                        current.choice?.let { prev ->
+                            installed.firstOrNull { it.id == prev.model.id }?.let { updated ->
+                                prev.copy(model = updated)
+                            }
+                        } ?: installed.firstOrNull()?.let { ModelChoice(it, it.defaultEffort, it.defaultRoute) }
                     } else {
-                        restoredChoice(installed, stored.askModelId, stored.askEffort)
+                        restoredChoice(installed, stored.askModelId, stored.askEffort, stored.askRoute)
                     }
                     current.copy(models = installed, choice = next)
                 }
@@ -86,23 +91,40 @@ internal class AskViewModel(
         val installed = models.installed()
         mutable.update { current ->
             if (current.models == installed) return@update current
-            val kept = current.choice?.takeIf { it.model in installed }
+            val kept = current.choice?.let { prev ->
+                installed.firstOrNull { it.id == prev.model.id }?.let { updated ->
+                    prev.copy(model = updated)
+                }
+            }
             current.copy(
                 models = installed,
-                choice = kept ?: installed.firstOrNull()?.let { ModelChoice(it, it.defaultEffort) },
+                choice = kept ?: installed.firstOrNull()?.let { ModelChoice(it, it.defaultEffort, it.defaultRoute) },
             )
+        }
+        if (mutable.value.choice?.model?.availability is GeneratorAvailability.Downloadable) {
+            prepareSelectedModel()
         }
     }
 
     fun select(model: AnswerModel) = pick { current ->
         if (model !in current.models) return@pick current
         val effort = current.choice?.effort?.takeIf { it in model.efforts } ?: model.defaultEffort
-        current.copy(choice = ModelChoice(model, effort))
+        current.copy(choice = ModelChoice(model, effort, model.defaultRoute))
     }
 
     fun setEffort(effort: ThinkingEffort) = pick { current ->
         val choice = current.choice ?: return@pick current
         if (effort !in choice.model.efforts) current else current.copy(choice = choice.copy(effort = effort))
+    }
+
+    fun setRoute(route: InferenceRoute) = pick { current ->
+        val choice = current.choice ?: return@pick current
+        if (route !in choice.model.supportedRoutes) current else current.copy(choice = choice.copy(route = route))
+    }
+
+    fun prepareSelectedModel() {
+        val model = mutable.value.choice?.model ?: return
+        viewModelScope.launch { models.prepare(model) }
     }
 
     private fun pick(change: (AskState) -> AskState) {
@@ -179,10 +201,21 @@ internal class AskViewModel(
     }
 }
 
-private fun restoredChoice(installed: List<AnswerModel>, modelId: String?, effortName: String?): ModelChoice? {
-    val model = installed.firstOrNull { it.id == modelId } ?: return installed.firstOrNull()?.let { ModelChoice(it, it.defaultEffort) }
-    val stored = ThinkingEffort.entries.firstOrNull { it.name == effortName } ?: return ModelChoice(model, model.defaultEffort)
-    return ModelChoice(model, model.efforts.lastOrNull { it <= stored } ?: model.efforts.firstOrNull() ?: model.defaultEffort)
+private fun restoredChoice(
+    installed: List<AnswerModel>,
+    modelId: String?,
+    effortName: String?,
+    routeName: String?,
+): ModelChoice? {
+    val model = installed.firstOrNull { it.id == modelId }
+        ?: return installed.firstOrNull()?.let { ModelChoice(it, it.defaultEffort, it.defaultRoute) }
+    val storedEffort = ThinkingEffort.entries.firstOrNull { it.name == effortName }
+    val effort = storedEffort?.let { s ->
+        model.efforts.lastOrNull { it <= s } ?: model.efforts.firstOrNull()
+    } ?: model.defaultEffort
+    val storedRoute = InferenceRoute.entries.firstOrNull { it.name == routeName }
+    val route = storedRoute?.takeIf { it in model.supportedRoutes } ?: model.defaultRoute
+    return ModelChoice(model, effort, route)
 }
 
 internal fun VaultAnswer.asMarkdown(question: String, sourcesTitle: String): String = buildString {

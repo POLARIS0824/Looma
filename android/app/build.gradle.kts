@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.example.looma"
     compileSdk {
@@ -50,6 +54,12 @@ android {
             useLegacyPackaging = true
         }
     }
+    sourceSets {
+        named("devRelease") {
+            java.srcDir("src/release/java")
+            kotlin.srcDir("src/release/java")
+        }
+    }
 }
 
 ksp {
@@ -85,6 +95,10 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.work.runtime)
     implementation(libs.kotlinx.serialization.core)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.ai)
+    implementation(libs.firebase.ai.ondevice)
     implementation(libs.markdown.renderer.m3)
     implementation(libs.ratex.compose)
     implementation(libs.coil.compose)
@@ -95,6 +109,7 @@ dependencies {
     implementation(libs.sora.editor)
 
     ksp(libs.androidx.room.compiler)
+    ksp(libs.firebase.ai.ksp.processor)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -104,6 +119,9 @@ dependencies {
     androidTestImplementation(libs.androidx.room.testing)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.firebase.appcheck.debug)
+    releaseImplementation(libs.firebase.appcheck.playintegrity)
+    "devReleaseImplementation"(libs.firebase.appcheck.playintegrity)
 }
 
 val verifyTypography = tasks.register("verifyTypography") {

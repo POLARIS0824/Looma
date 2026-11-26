@@ -35,10 +35,13 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalToggleButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
@@ -65,7 +68,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
@@ -74,6 +79,8 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.data.assistant.AnswerModel
+import com.example.looma.data.assistant.GeneratorAvailability
+import com.example.looma.data.assistant.InferenceRoute
 import com.example.looma.data.assistant.ModelChoice
 import com.example.looma.data.assistant.ThinkingEffort
 import com.example.looma.ui.components.LoomaIcon
@@ -102,6 +109,8 @@ internal fun AskModelSheet(
     onPage: (AskSheetPage) -> Unit,
     onSelect: (AnswerModel) -> Unit,
     onEffort: (ThinkingEffort) -> Unit,
+    onRoute: (InferenceRoute) -> Unit,
+    onPrepareModel: () -> Unit,
     onManageModels: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -162,6 +171,8 @@ internal fun AskModelSheet(
                     models = models,
                     choice = choice,
                     onSelect = onSelect,
+                    onRoute = onRoute,
+                    onPrepareModel = onPrepareModel,
                     onOpenEffort = { showPage(AskSheetPage.Effort) },
                     onManageModels = onManageModels,
                 )
@@ -176,6 +187,8 @@ private fun ModelPage(
     models: List<AnswerModel>,
     choice: ModelChoice?,
     onSelect: (AnswerModel) -> Unit,
+    onRoute: (InferenceRoute) -> Unit,
+    onPrepareModel: () -> Unit,
     onOpenEffort: () -> Unit,
     onManageModels: () -> Unit,
 ) {
@@ -193,6 +206,46 @@ private fun ModelPage(
             )
         } else {
             ModelWheel(models = models, choice = choice, onSelect = onSelect, onOpenEffort = onOpenEffort)
+            val routes = choice?.model?.supportedRoutes.orEmpty()
+            if (routes.size > 1) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+                ) {
+                    routes.forEachIndexed { index, route ->
+                        FilledTonalToggleButton(
+                            checked = choice?.route == route,
+                            onCheckedChange = { if (it) onRoute(route) },
+                            shapes = when (index) {
+                                0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                routes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                            },
+                            modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
+                        ) {
+                            Text(
+                                stringResource(route.labelRes()),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+            when (val availability = choice?.model?.availability) {
+                is GeneratorAvailability.Downloading -> {
+                    LinearWavyProgressIndicator(
+                        progress = { availability.progress ?: Float.NaN },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                is GeneratorAvailability.Downloadable -> {
+                    FilledTonalButton(onClick = onPrepareModel, shapes = ButtonDefaults.shapes()) {
+                        Text(stringResource(R.string.ask_model_download))
+                    }
+                }
+                else -> Unit
+            }
             AnimatedContent(
                 targetState = choice?.model,
                 transitionSpec = { fadeIn(motion.fastEffectsSpec()).togetherWith(fadeOut(motion.fastEffectsSpec())) },
@@ -220,7 +273,7 @@ private fun ModelWheel(
     onOpenEffort: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val selected = models.indexOf(choice?.model).coerceAtLeast(0)
+    val selected = models.indexOfFirst { it.id == choice?.model?.id }.coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = selected)
     val centered by remember(listState) { derivedStateOf { listState.centeredIndex() } }
     val select by rememberUpdatedState(onSelect)
@@ -283,7 +336,7 @@ private fun ModelWheel(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.weight(1f))
-                    val effort = choice?.effort?.takeIf { choice.model == model }
+                    val effort = choice?.effort?.takeIf { choice.model.id == model.id }
                     if (isCentered && effort != null && model.efforts.size > 1) {
                         EffortMeterButton(efforts = model.efforts, current = effort, onClick = onOpenEffort)
                     }
