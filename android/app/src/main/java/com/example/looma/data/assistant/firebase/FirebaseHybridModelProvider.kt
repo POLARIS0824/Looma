@@ -1,12 +1,12 @@
 package com.example.looma.data.assistant.firebase
 
-import com.example.looma.data.assistant.AnswerGenerator
 import com.example.looma.data.assistant.AnswerModel
-import com.example.looma.data.assistant.AnswerModelProvider
 import com.example.looma.data.assistant.GeneratorAvailability
 import com.example.looma.data.assistant.InferenceRoute
 import com.example.looma.data.assistant.ModelSource
 import com.example.looma.data.assistant.ThinkingEffort
+import com.example.looma.data.assistant.runtime.LlmBackendProvider
+import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
 import com.google.firebase.Firebase
 import com.google.firebase.ai.DownloadStatus
 import com.google.firebase.ai.OnDeviceExtension
@@ -29,7 +29,7 @@ import kotlinx.coroutines.sync.withLock
 internal class FirebaseHybridModelProvider(
     private val firebaseConfigured: Boolean,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-) : AnswerModelProvider {
+) : LlmBackendProvider {
     private val prepareMutex = Mutex()
     private val generatorInstance by lazy { FirebaseHybridGenerator() }
     private val onDeviceExtension: OnDeviceExtension? by lazy {
@@ -60,7 +60,7 @@ internal class FirebaseHybridModelProvider(
         }
     }
 
-    override fun generator(model: AnswerModel): AnswerGenerator? {
+    override fun backend(model: AnswerModel): LlmRuntimeBackend? {
         if (model.id != MODEL_ID) return null
         val availability = mutableModels.value.firstOrNull()?.availability
         return if (firebaseConfigured || availability is GeneratorAvailability.Ready) {

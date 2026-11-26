@@ -2,9 +2,16 @@ package com.example.looma.data.assistant
 
 import android.content.Context
 import android.net.Uri
+import com.example.looma.data.assistant.runtime.LlmBackendProvider
+import com.example.looma.data.assistant.runtime.LlmGenerateRequest
+import com.example.looma.data.assistant.runtime.LlmMessage
+import com.example.looma.data.assistant.runtime.LlmRole
+import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
+import com.example.looma.data.assistant.runtime.LlmStreamChunk
 import com.example.looma.data.inference.LocalModelSession
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
@@ -16,21 +23,47 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 
 internal class LocalGenerator(
     private val context: Context,
     private val session: LocalModelSession,
-) : AnswerGenerator, AnswerModelProvider {
+) : LlmRuntimeBackend, LlmBackendProvider {
     private val file = File(context.noBackupFilesDir, "answer-model.litertlm")
     private var engine: Engine? = null
+    private var cachedConversation: Conversation? = null
+    private var cachedSystemInstruction: String? = null
+    private var cachedMessageCount: Int = 0
+
+    @Volatile
+    private var activeConversation: Conversation? = null
+
     private val mutableModels = MutableStateFlow(currentModels())
     override val models: StateFlow<List<AnswerModel>> = mutableModels.asStateFlow()
 
+    override val modelId: String = AnswerModels.LocalModel.id
+    override val origin: InferenceOrigin = InferenceOrigin.LocalFile
+    override val contextBudgetChars: Int = 3600
+    override val maxContextTokens: Int = 4096
+    override val supportsStatefulSession: Boolean = true
+
+    private fun closeConversation() {
+        val current = cachedConversation
+        cachedConversation = null
+        cachedSystemInstruction = null
+        cachedMessageCount = 0
+        runCatching { current?.close() }
+    }
+
     private fun closeEngine() {
+        closeConversation()
         val current = engine
         engine = null
         current?.close()
@@ -47,7 +80,7 @@ internal class LocalGenerator(
         mutableModels.value = currentModels()
     }
 
-    override fun generator(model: AnswerModel): AnswerGenerator? =
+    override fun backend(model: AnswerModel): LlmRuntimeBackend? =
         if (model.id == AnswerModels.LocalModel.id && installed) this else null
 
     suspend fun install(uri: Uri) = withContext(Dispatchers.IO) {
@@ -78,65 +111,134 @@ internal class LocalGenerator(
         }
     }
 
-    override suspend fun plan(input: PlannerInput): GenerationOutcome<PlannerAction> = try {
-        val raw = generate(
-            JsonPromptCodec.PLANNER_INSTRUCTION,
-            JsonPromptCodec.encodePayload(input.question, input.passages, input.searched),
-        )
-        GenerationOutcome.Success(
-            JsonPromptCodec.decodePlannerAction(raw) ?: PlannerAction.Finish,
-            GenerationMeta(InferenceOrigin.LocalFile),
-        )
-    } catch (cancel: CancellationException) {
-        throw cancel
-    } catch (error: Exception) {
-        GenerationOutcome.Failure(GenerationError.Failed(error.message))
-    } catch (error: LinkageError) {
-        GenerationOutcome.Failure(GenerationError.Failed(error.message))
-    }
-
-    override suspend fun answer(input: AnswerInput): GenerationOutcome<List<CitedClaim>> = try {
-        val raw = generate(
-            JsonPromptCodec.ANSWER_INSTRUCTION,
-            JsonPromptCodec.encodePayload(input.question, input.passages, emptySet()),
-        )
-        GenerationOutcome.Success(
-            JsonPromptCodec.decodeClaims(raw, input.passages.size),
-            GenerationMeta(InferenceOrigin.LocalFile),
-        )
-    } catch (cancel: CancellationException) {
-        throw cancel
-    } catch (error: Exception) {
-        GenerationOutcome.Failure(GenerationError.Failed(error.message))
-    } catch (error: LinkageError) {
-        GenerationOutcome.Failure(GenerationError.Failed(error.message))
-    }
-
-    suspend fun generate(instruction: String, payload: String): String = withContext(Dispatchers.IO) {
-        session.use(LocalModelSession.Model.Generation, 30_000, ::closeEngine) {
-            val active = engine ?: engine(file).also {
-                engine = it
-                it.initialize()
-            }
-            coroutineContext.ensureActive()
-            active.createConversation(ConversationConfig(systemInstruction = Contents.of(instruction))).use { conversation ->
-                val text = StringBuilder()
-                try {
-                    conversation.sendMessageAsync(payload).collect { part ->
-                        coroutineContext.ensureActive()
-                        text.append(part.toString())
-                        check(text.length <= 12000)
-                    }
-                } catch (error: Exception) {
-                    runCatching { conversation.cancelProcess() }.exceptionOrNull()?.let(error::addSuppressed)
-                    throw error
+    override suspend fun generate(request: LlmGenerateRequest): GenerationOutcome<String> {
+        val text = StringBuilder()
+        var lastMeta = GenerationMeta(InferenceOrigin.LocalFile)
+        var failure: GenerationOutcome.Failure? = null
+        generateStream(request).collect { outcome ->
+            when (outcome) {
+                is GenerationOutcome.Success -> {
+                    text.append(outcome.value.text)
+                    lastMeta = outcome.meta
                 }
-                text.toString().trim()
+                is GenerationOutcome.Failure -> failure = outcome
             }
+        }
+        return failure ?: GenerationOutcome.Success(text.toString().trim(), lastMeta)
+    }
+
+    override fun generateStream(request: LlmGenerateRequest): Flow<GenerationOutcome<LlmStreamChunk>> = flow {
+        if (request.messages.isEmpty()) {
+            emit(GenerationOutcome.Failure(GenerationError.Failed("Empty messages")))
+            return@flow
+        }
+        session.use(LocalModelSession.Model.Generation, IDLE_TIMEOUT_MS, ::closeEngine) {
+            val active = ensureEngine()
+            coroutineContext.ensureActive()
+            val (conversation, payload) = acquireConversation(active, request)
+            val total = StringBuilder()
+            activeConversation = conversation
+            try {
+                conversation.sendMessageAsync(payload).collect { part ->
+                    coroutineContext.ensureActive()
+                    val chunk = part.toString()
+                    total.append(chunk)
+                    check(total.length <= MAX_OUTPUT_CHARS)
+                    emit(GenerationOutcome.Success(LlmStreamChunk(text = chunk), GenerationMeta(InferenceOrigin.LocalFile)))
+                }
+                if (!request.ephemeral) {
+                    cachedMessageCount = request.messages.size + 1
+                }
+                emit(GenerationOutcome.Success(LlmStreamChunk(done = true), GenerationMeta(InferenceOrigin.LocalFile)))
+            } catch (error: Exception) {
+                runCatching { conversation.cancelProcess() }.exceptionOrNull()?.let(error::addSuppressed)
+                if (!request.ephemeral) closeConversation()
+                throw error
+            } finally {
+                activeConversation = null
+                if (request.ephemeral) {
+                    runCatching { conversation.close() }
+                }
+            }
+        }
+    }.catch { error ->
+        when (error) {
+            is CancellationException -> throw error
+            is Exception, is LinkageError -> emit(GenerationOutcome.Failure(GenerationError.Failed(error.message)))
+            else -> throw error
+        }
+    }.flowOn(Dispatchers.IO)
+
+    override suspend fun resetSession() {
+        withContext(Dispatchers.IO) {
+            session.use(LocalModelSession.Model.Generation, IDLE_TIMEOUT_MS, ::closeEngine) {
+                closeConversation()
+            }
+        }
+    }
+
+    override suspend fun stop() {
+        activeConversation?.let { runCatching { it.cancelProcess() } }
+    }
+
+    private fun ensureEngine(): Engine =
+        engine ?: engine(file).also {
+            engine = it
+            it.initialize()
+        }
+
+    private fun acquireConversation(active: Engine, request: LlmGenerateRequest): Pair<Conversation, String> {
+        if (request.ephemeral) {
+            return createConversation(active, request.systemInstruction) to formatMessages(request.messages)
+        }
+        val existing = cachedConversation
+        if (
+            existing != null &&
+            cachedSystemInstruction == request.systemInstruction &&
+            cachedMessageCount > 0 &&
+            request.messages.size > cachedMessageCount
+        ) {
+            return existing to formatMessages(request.messages.drop(cachedMessageCount))
+        }
+        closeConversation()
+        val created = createConversation(active, request.systemInstruction)
+        cachedConversation = created
+        cachedSystemInstruction = request.systemInstruction
+        cachedMessageCount = 0
+        return created to formatMessages(request.messages)
+    }
+
+    private fun createConversation(active: Engine, systemInstruction: String?): Conversation {
+        val instruction = systemInstruction?.takeIf { it.isNotBlank() }
+        val config = if (instruction != null) {
+            ConversationConfig(systemInstruction = Contents.of(instruction))
+        } else {
+            ConversationConfig()
+        }
+        return active.createConversation(config)
+    }
+
+    private fun formatMessages(messages: List<LlmMessage>): String {
+        if (messages.size == 1 && messages[0].role == LlmRole.User) {
+            return messages[0].content
+        }
+        return messages.joinToString("\n\n") { message ->
+            val role = when (message.role) {
+                LlmRole.System -> "System"
+                LlmRole.User -> "User"
+                LlmRole.Model -> "Assistant"
+                LlmRole.Tool -> "Tool"
+            }
+            "$role: ${message.content}"
         }
     }
 
     private fun engine(model: File) = Engine(EngineConfig(
         modelPath = model.absolutePath, backend = Backend.CPU(), cacheDir = context.cacheDir.absolutePath,
     ))
+
+    private companion object {
+        const val IDLE_TIMEOUT_MS = 30_000L
+        const val MAX_OUTPUT_CHARS = 12_000
+    }
 }

@@ -1,8 +1,9 @@
 package com.example.looma.data.assistant
 
 import android.net.Uri
+import com.example.looma.data.assistant.runtime.LlmBackendProvider
+import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 
@@ -48,28 +49,6 @@ internal data class ModelChoice(
     val route: InferenceRoute? = model.defaultRoute,
 )
 
-internal data class PassageInput(val id: Int, val path: String, val section: String, val text: String)
-
-internal data class PlannerInput(
-    val question: String,
-    val passages: List<PassageInput>,
-    val searched: Set<String>,
-    val route: InferenceRoute? = null,
-)
-
-internal sealed interface PlannerAction {
-    data object Finish : PlannerAction
-    data class Search(val query: String) : PlannerAction
-    data class Read(val passageId: Int) : PlannerAction
-}
-
-internal data class AnswerInput(
-    val question: String,
-    val passages: List<PassageInput>,
-    val route: InferenceRoute? = null,
-    val multiStep: Boolean = false,
-)
-
 internal data class GenerationMeta(
     val origin: InferenceOrigin,
     val fallbackUsed: Boolean = false,
@@ -83,22 +62,8 @@ internal sealed interface GenerationOutcome<out T> {
 
 internal data class AgentStep(val label: String, val origin: InferenceOrigin)
 
-internal interface AnswerGenerator {
-    val contextBudgetChars: Int get() = 3600
-    fun contextBudgetChars(route: InferenceRoute?, multiStep: Boolean): Int = contextBudgetChars
-    suspend fun plan(input: PlannerInput): GenerationOutcome<PlannerAction>
-    suspend fun answer(input: AnswerInput): GenerationOutcome<List<CitedClaim>>
-}
-
-internal interface AnswerModelProvider {
-    val models: StateFlow<List<AnswerModel>>
-    fun refresh() {}
-    fun generator(model: AnswerModel): AnswerGenerator?
-    suspend fun prepare(model: AnswerModel): Result<Unit> = Result.success(Unit)
-}
-
 internal class AnswerModels(
-    private val providers: List<AnswerModelProvider>,
+    private val providers: List<LlmBackendProvider>,
     private val localImporter: (suspend (Uri) -> Unit)? = null,
 ) {
     val models: Flow<List<AnswerModel>> = if (providers.isEmpty()) {
@@ -113,12 +78,12 @@ internal class AnswerModels(
         providers.forEach { it.refresh() }
     }
 
-    fun generator(model: AnswerModel): AnswerGenerator? =
-        providers.firstNotNullOfOrNull { it.generator(model) }
+    fun backend(model: AnswerModel): LlmRuntimeBackend? =
+        providers.firstNotNullOfOrNull { it.backend(model) }
 
     suspend fun prepare(model: AnswerModel): Result<Unit> {
         val owner = providers.firstOrNull { provider ->
-            provider.models.value.any { it.id == model.id } || provider.generator(model) != null
+            provider.models.value.any { it.id == model.id } || provider.backend(model) != null
         } ?: return Result.failure(IllegalArgumentException("Unknown model: ${model.id}"))
         return owner.prepare(model)
     }

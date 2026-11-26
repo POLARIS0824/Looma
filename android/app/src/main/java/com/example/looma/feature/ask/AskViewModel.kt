@@ -142,7 +142,7 @@ internal class AskViewModel(
         val answer = agent.answer(
             vault,
             question.trim(),
-            choice?.let { models.generator(it.model) },
+            choice?.let { models.backend(it.model) },
             choice?.effort ?: ThinkingEffort.Off,
             choice?.route,
         ) { step ->
@@ -170,7 +170,7 @@ internal class AskViewModel(
         if (current.saved != null || title.isBlank()) return@start
         val answer = current.answer ?: return@start
         val cited = answer.claims.flatMap { it.citations }.distinct()
-        if (cited.isEmpty() || cited.any { evidence.resolve(vault, answer.sources[it - 1]) == null }) {
+        if (answer.claims.isEmpty() || cited.any { evidence.resolve(vault, answer.sources[it - 1]) == null }) {
             mutable.update { it.copy(issue = AskIssue.Changed) }
             return@start
         }
@@ -223,19 +223,25 @@ internal fun VaultAnswer.asMarkdown(question: String, sourcesTitle: String): Str
     for (claim in claims) {
         appendLine()
         append(escapeMarkdown(claim.text))
-        appendLine(claim.citations.joinToString(" ", prefix = " ") { "[$it]" })
-    }
-    appendLine()
-    appendLine("## $sourcesTitle")
-    claims.flatMap { it.citations }.distinct().sorted().forEach { number ->
-        val source = sources[number - 1]
-        val path = wikiPathOf(source.id.path)
-        val link = if (path.none { it in "[]#|\r\n" }) "[[$path]]" else {
-            "[" + escapeMarkdown(path) + "](<" + LocalNoteLink.fromRoot(source.id.path) + ">)"
+        if (claim.citations.isNotEmpty()) {
+            append(claim.citations.joinToString(" ", prefix = " ") { "[$it]" })
         }
         appendLine()
-        appendLine("[$number] $link")
-        source.text.lineSequence().forEach { appendLine("> " + escapeMarkdown(it)) }
+    }
+    val cited = claims.flatMap { it.citations }.distinct().sorted()
+    if (cited.isNotEmpty()) {
+        appendLine()
+        appendLine("## $sourcesTitle")
+        cited.forEach { number ->
+            val source = sources[number - 1]
+            val path = wikiPathOf(source.id.path)
+            val link = if (path.none { it in "[]#|\r\n" }) "[[$path]]" else {
+                "[" + escapeMarkdown(path) + "](<" + LocalNoteLink.fromRoot(source.id.path) + ">)"
+            }
+            appendLine()
+            appendLine("[$number] $link")
+            source.text.lineSequence().forEach { appendLine("> " + escapeMarkdown(it)) }
+        }
     }
 }
 
