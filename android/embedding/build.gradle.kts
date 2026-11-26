@@ -19,4 +19,7 @@ android {
 dependencies {
     implementation(libs.mediapipe.retrieval)
     implementation(libs.litertlm.android)
+    implementation(libs.litert.npu.runtime.qualcomm)
+    implementation(libs.litert.npu.runtime.mediatek)
+    implementation(libs.litert.npu.runtime.google.tensor)
 }

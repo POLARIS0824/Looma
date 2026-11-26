@@ -23,6 +23,7 @@ markdownRenderer = "0.46.0"
 benchmarkOrt = "1.23.2"
 mediaPipeRetrieval = "1.2.3"
 liteRtLm = "0.19.1"
+liteRtNpu = "2.4.0"
 jmh = "1.37"
 ratex = "0.1.14"
 coil = "3.6.3"
@@ -69,6 +70,9 @@ markdown-renderer-core = { group = "com.mikepenz", name = "multiplatform-markdow
 benchmark-ort = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "benchmarkOrt" }
 mediapipe-retrieval = { group = "com.google.mediapipe", name = "tasks-retrieval", version.ref = "mediaPipeRetrieval" }
 litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "liteRtLm" }
+litert-npu-runtime-qualcomm = { group = "com.google.ai.edge.litert", name = "litert-npu-runtime-qualcomm", version.ref = "liteRtNpu" }
+litert-npu-runtime-mediatek = { group = "com.google.ai.edge.litert", name = "litert-npu-runtime-mediatek", version.ref = "liteRtNpu" }
+litert-npu-runtime-google-tensor = { group = "com.google.ai.edge.litert", name = "litert-npu-runtime-google-tensor", version.ref = "liteRtNpu" }
 jmh-core = { group = "org.openjdk.jmh", name = "jmh-core", version.ref = "jmh" }
 jmh-generator = { group = "org.openjdk.jmh", name = "jmh-generator-annprocess", version.ref = "jmh" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
