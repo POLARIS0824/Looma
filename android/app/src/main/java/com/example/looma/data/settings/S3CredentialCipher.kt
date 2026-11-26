@@ -18,6 +18,7 @@ import javax.crypto.spec.GCMParameterSpec
 internal object S3CredentialCipher {
     const val DEFAULT_KEY_ALIAS = "looma_s3_credentials_v1"
     const val SYNC_KEY_ALIAS = "looma_sync_s3_credentials_v1"
+    const val API_KEYS_ALIAS = "looma_api_keys_v1"
     private const val KEYSTORE = "AndroidKeyStore"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val IV_BYTES = 12
@@ -28,6 +29,16 @@ internal object S3CredentialCipher {
         secretKey: String,
         replaceInvalidKey: Boolean,
         keyAlias: String = DEFAULT_KEY_ALIAS,
+    ): String = encryptText(
+        plaintext = JSONArray().put(accessKey).put(secretKey).toString(),
+        replaceInvalidKey = replaceInvalidKey,
+        keyAlias = keyAlias,
+    )
+
+    fun encryptText(
+        plaintext: String,
+        replaceInvalidKey: Boolean,
+        keyAlias: String,
     ): String = try {
         val keyStore = openKeyStore()
         val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -39,20 +50,31 @@ internal object S3CredentialCipher {
             keyStore.deleteEntry(keyAlias)
             cipher.init(Cipher.ENCRYPT_MODE, generateKey(keyAlias))
         }
-        val payload = JSONArray().put(accessKey).put(secretKey).toString().toByteArray(Charsets.UTF_8)
+        val payload = plaintext.toByteArray(Charsets.UTF_8)
         Base64.getEncoder().encodeToString(cipher.iv + cipher.doFinal(payload))
     } catch (exception: GeneralSecurityException) {
-        throw IOException("Could not encrypt S3 credentials", exception)
+        throw IOException("Could not encrypt credentials", exception)
     } catch (exception: ProviderException) {
-        throw IOException("Could not encrypt S3 credentials", exception)
+        throw IOException("Could not encrypt credentials", exception)
     } catch (exception: SecurityException) {
-        throw IOException("Could not encrypt S3 credentials", exception)
+        throw IOException("Could not encrypt credentials", exception)
     }
 
     fun decrypt(
         encoded: String,
         keyAlias: String = DEFAULT_KEY_ALIAS,
     ): Pair<String, String>? = try {
+        val plaintext = decryptText(encoded, keyAlias) ?: return null
+        val payload = JSONArray(plaintext)
+        payload.getString(0) to payload.getString(1)
+    } catch (_: JSONException) {
+        null
+    }
+
+    fun decryptText(
+        encoded: String,
+        keyAlias: String,
+    ): String? = try {
         val bytes = Base64.getDecoder().decode(encoded)
         val key = openKeyStore().getKey(keyAlias, null) as SecretKey?
         if (key == null || bytes.size < IV_BYTES + TAG_BITS / 8) {
@@ -60,8 +82,7 @@ internal object S3CredentialCipher {
         } else {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, bytes, 0, IV_BYTES))
-            val payload = JSONArray(cipher.doFinal(bytes, IV_BYTES, bytes.size - IV_BYTES).toString(Charsets.UTF_8))
-            payload.getString(0) to payload.getString(1)
+            cipher.doFinal(bytes, IV_BYTES, bytes.size - IV_BYTES).toString(Charsets.UTF_8)
         }
     } catch (_: GeneralSecurityException) {
         null
@@ -72,8 +93,6 @@ internal object S3CredentialCipher {
     } catch (_: IOException) {
         null
     } catch (_: IllegalArgumentException) {
-        null
-    } catch (_: JSONException) {
         null
     }
 

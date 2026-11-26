@@ -17,6 +17,8 @@ data class AppSettings(
     val s3CredentialsUnavailable: Boolean = false,
     val syncConfig: S3SyncConfig = S3SyncConfig(),
     val syncCredentialsUnavailable: Boolean = false,
+    val askModelId: String? = null,
+    val askEffort: String? = null,
 )
 
 enum class ThemePreset(val seed: Color?) {

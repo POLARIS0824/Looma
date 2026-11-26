@@ -45,6 +45,8 @@ data class SettingsPreferencesData(
     val syncRemotePrefix: String? = null,
     val syncPathStyle: Boolean? = null,
     val syncCredentialsUnavailable: Boolean = false,
+    val askModelId: String? = null,
+    val askEffort: String? = null,
 )
 
 class SettingsPreferences(context: Context) {
@@ -94,6 +96,8 @@ class SettingsPreferences(context: Context) {
                     syncRemotePrefix = preferences[KEY_SYNC_S3_REMOTE_PREFIX],
                     syncPathStyle = preferences[KEY_SYNC_S3_PATH_STYLE],
                     syncCredentialsUnavailable = encryptedSyncCredentials != null && syncCredentials == null,
+                    askModelId = preferences[KEY_ASK_MODEL],
+                    askEffort = preferences[KEY_ASK_EFFORT],
                 )
             }
             .flowOn(Dispatchers.IO)
@@ -205,6 +209,13 @@ class SettingsPreferences(context: Context) {
         dataStore.edit { it[KEY_EMBEDDING_BACKEND] = backend }
     }
 
+    suspend fun saveAskModel(modelId: String, effort: String) {
+        dataStore.edit {
+            it[KEY_ASK_MODEL] = modelId
+            it[KEY_ASK_EFFORT] = effort
+        }
+    }
+
     companion object {
         val KEY_DYNAMIC_COLOR = booleanPreferencesKey("key_dynamic_color")
         val KEY_THEME_PRESET = stringPreferencesKey("key_theme_preset")
@@ -229,5 +240,7 @@ class SettingsPreferences(context: Context) {
         val KEY_SYNC_S3_REMOTE_PREFIX = stringPreferencesKey("key_sync_s3_remote_prefix")
         val KEY_SYNC_S3_PATH_STYLE = booleanPreferencesKey("key_sync_s3_path_style")
         val KEY_EMBEDDING_BACKEND = stringPreferencesKey("key_embedding_backend")
+        val KEY_ASK_MODEL = stringPreferencesKey("key_ask_model")
+        val KEY_ASK_EFFORT = stringPreferencesKey("key_ask_effort")
     }
 }

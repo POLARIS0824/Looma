@@ -49,7 +49,7 @@ fun FeaturePage(
     @DrawableRes iconRes: Int,
     title: String,
     subtitle: String,
-    actions: @Composable FlowRowScope.() -> Unit,
+    actions: (@Composable FlowRowScope.() -> Unit)?,
     modifier: Modifier = Modifier,
     topBar: (@Composable (TopAppBarScrollBehavior) -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
@@ -85,13 +85,15 @@ fun FeaturePage(
                 Spacer(Modifier.height(32.dp))
                 content()
             }
-            Spacer(Modifier.height(16.dp))
-            FlowRow(
-                modifier = Modifier.fillMaxWidth().heightIn(min = ButtonDefaults.MediumContainerHeight),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                content = actions,
-            )
+            if (actions != null) {
+                Spacer(Modifier.height(16.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = ButtonDefaults.MediumContainerHeight),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    content = actions,
+                )
+            }
         }
     }
 }

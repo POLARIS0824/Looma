@@ -1,6 +1,7 @@
 package com.example.looma.data.settings
 
 import android.content.Context
+import com.example.looma.data.assistant.ModelChoice
 import com.example.looma.domain.markdown.ToolbarItem
 import com.example.looma.domain.markdown.ToolbarOrder
 import com.example.looma.embedding.EmbeddingBackend
@@ -55,6 +56,8 @@ class SettingsRepository(
                     pathStyle = data.syncPathStyle ?: false,
                 ),
                 syncCredentialsUnavailable = data.syncCredentialsUnavailable,
+                askModelId = data.askModelId,
+                askEffort = data.askEffort,
             )
         }
 
@@ -92,5 +95,9 @@ class SettingsRepository(
 
     suspend fun setEmbeddingBackend(backend: EmbeddingBackend) {
         preferences.saveEmbeddingBackend(backend.name)
+    }
+
+    internal suspend fun setAskModel(choice: ModelChoice) {
+        preferences.saveAskModel(choice.model.id, choice.effort.name)
     }
 }

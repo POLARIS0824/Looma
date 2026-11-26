@@ -13,13 +13,22 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
-internal class LocalGenerator(private val context: Context, private val session: LocalModelSession) {
+internal class LocalGenerator(
+    private val context: Context,
+    private val session: LocalModelSession,
+) : AnswerGenerator, AnswerModelProvider {
     private val file = File(context.noBackupFilesDir, "answer-model.litertlm")
     private var engine: Engine? = null
+    private val mutableModels = MutableStateFlow(currentModels())
+    override val models: StateFlow<List<AnswerModel>> = mutableModels.asStateFlow()
 
     private fun closeEngine() {
         val current = engine
@@ -28,6 +37,18 @@ internal class LocalGenerator(private val context: Context, private val session:
     }
 
     val installed get() = file.isFile
+
+    val installedBytes: Long get() = if (file.isFile) file.length() else 0L
+
+    private fun currentModels(): List<AnswerModel> =
+        if (installed) listOf(AnswerModels.LocalModel) else emptyList()
+
+    override fun refresh() {
+        mutableModels.value = currentModels()
+    }
+
+    override fun generator(model: AnswerModel): AnswerGenerator? =
+        if (model.id == AnswerModels.LocalModel.id && installed) this else null
 
     suspend fun install(uri: Uri) = withContext(Dispatchers.IO) {
         val stage = File.createTempFile("answer-import-", ".litertlm", file.parentFile)
@@ -51,9 +72,44 @@ internal class LocalGenerator(private val context: Context, private val session:
                 Files.move(stage.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
                 Unit
             }
+            refresh()
         } finally {
             stage.delete()
         }
+    }
+
+    override suspend fun plan(input: PlannerInput): GenerationOutcome<PlannerAction> = try {
+        val raw = generate(
+            JsonPromptCodec.PLANNER_INSTRUCTION,
+            JsonPromptCodec.encodePayload(input.question, input.passages, input.searched),
+        )
+        GenerationOutcome.Success(
+            JsonPromptCodec.decodePlannerAction(raw) ?: PlannerAction.Finish,
+            GenerationMeta(InferenceOrigin.LocalFile),
+        )
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (error: Exception) {
+        GenerationOutcome.Failure(GenerationError.Failed(error.message))
+    } catch (error: LinkageError) {
+        GenerationOutcome.Failure(GenerationError.Failed(error.message))
+    }
+
+    override suspend fun answer(input: AnswerInput): GenerationOutcome<List<CitedClaim>> = try {
+        val raw = generate(
+            JsonPromptCodec.ANSWER_INSTRUCTION,
+            JsonPromptCodec.encodePayload(input.question, input.passages, emptySet()),
+        )
+        GenerationOutcome.Success(
+            JsonPromptCodec.decodeClaims(raw, input.passages.size),
+            GenerationMeta(InferenceOrigin.LocalFile),
+        )
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (error: Exception) {
+        GenerationOutcome.Failure(GenerationError.Failed(error.message))
+    } catch (error: LinkageError) {
+        GenerationOutcome.Failure(GenerationError.Failed(error.message))
     }
 
     suspend fun generate(instruction: String, payload: String): String = withContext(Dispatchers.IO) {
