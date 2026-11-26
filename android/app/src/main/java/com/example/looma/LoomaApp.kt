@@ -11,7 +11,12 @@ import com.example.looma.data.assistant.runtime.AgentRuntimeExecutor
 import com.example.looma.data.assistant.runtime.DefaultAgentRuntimeExecutor
 import com.example.looma.data.assistant.sessions.DefaultLlmSessionManager
 import com.example.looma.data.assistant.sessions.LlmSessionManager
+import com.example.looma.data.assistant.tools.CreateNoteTool
 import com.example.looma.data.assistant.tools.DefaultToolsProvider
+import com.example.looma.data.assistant.tools.KeywordSearchTool
+import com.example.looma.data.assistant.tools.ListNotesTool
+import com.example.looma.data.assistant.tools.NoteLinksTool
+import com.example.looma.data.assistant.tools.ReadNoteTool
 import com.example.looma.data.assistant.tools.SemanticSearchTool
 import com.example.looma.data.assistant.tools.ToolsProvider
 import com.example.looma.data.assistant.api.ApiConnectionStore
@@ -94,7 +99,14 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     }
     internal val askToolsProvider: ToolsProvider by lazy {
         DefaultToolsProvider(
-            listOf(SemanticSearchTool(semanticSearchRepository, vaultRepository, noteRepository)),
+            listOf(
+                SemanticSearchTool(semanticSearchRepository, vaultRepository, noteRepository),
+                ReadNoteTool(vaultRepository, noteRepository),
+                ListNotesTool(vaultRepository, noteRepository),
+                KeywordSearchTool(vaultRepository, noteRepository),
+                NoteLinksTool(vaultRepository, noteRepository),
+                CreateNoteTool(vaultRepository, noteRepository),
+            ),
         )
     }
     val folderRepository by lazy { FolderRepository(noteRepository) }

@@ -379,7 +379,10 @@ internal class AskViewModel(
 private fun buildSystemInstruction(vaultName: String): String =
     "You are Looma, a helpful assistant for the user's personal Markdown note vault \"$vaultName\". " +
         "Respond naturally in the user's language using clear Markdown. " +
-        "When the user's question may depend on their notes, use the available search_vault tool to look up relevant passages and cite note paths when referencing them."
+        "When the user's question may depend on their notes, use the available vault tools " +
+        "(search_vault for semantic search, keyword_search for exact text, list_notes to browse by folder/tag, " +
+        "read_note to inspect a note, get_note_links for wiki links/backlinks, and create_note to create a new note) " +
+        "and cite note paths when referencing them."
 
 private fun restoredChoice(
     installed: List<AnswerModel>,
