@@ -37,6 +37,7 @@ import com.example.looma.domain.model.NoteId
 import com.example.looma.feature.ask.components.AskComposer
 import com.example.looma.feature.ask.components.AskConversation
 import com.example.looma.feature.ask.components.AskEmpty
+import com.example.looma.feature.ask.components.AskHistorySheet
 import com.example.looma.feature.ask.components.AskModelSheet
 import com.example.looma.feature.ask.components.AskQuestionLimit
 import com.example.looma.ui.components.LoomaIcon
@@ -57,6 +58,7 @@ internal fun AskScreen(
     val focus = LocalFocusManager.current
     var saveTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
+    var historyOpen by rememberSaveable { mutableStateOf(false) }
 
     val firstUserMessage = state.messages.firstOrNull { it.role == ChatRole.User }?.text
     val topBarTitle = firstUserMessage ?: stringResource(R.string.ask_title)
@@ -77,6 +79,13 @@ internal fun AskScreen(
                     scrolledContainerColor = LoomaTokens.colors.page,
                 ),
                 actions = {
+                    IconButton(
+                        onClick = { historyOpen = true },
+                        enabled = !state.saving,
+                        shapes = IconButtonDefaults.shapes(),
+                    ) {
+                        LoomaIcon(R.drawable.ic_history, stringResource(R.string.ask_history))
+                    }
                     if (state.messages.isNotEmpty() && !state.saving) {
                         IconButton(onClick = model::newChat, shapes = IconButtonDefaults.shapes()) {
                             LoomaIcon(R.drawable.ic_new_chat, stringResource(R.string.ask_new_chat))
@@ -127,6 +136,20 @@ internal fun AskScreen(
                 contentPadding = padding,
             )
         }
+    }
+
+    if (historyOpen) {
+        AskHistorySheet(
+            conversations = state.conversations,
+            currentConversationId = state.conversationId,
+            busy = state.busy,
+            onSelect = { id ->
+                historyOpen = false
+                model.loadConversation(id)
+            },
+            onDelete = model::deleteConversation,
+            onDismiss = { historyOpen = false },
+        )
     }
 
     if (sheetOpen) {

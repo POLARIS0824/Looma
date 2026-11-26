@@ -222,6 +222,7 @@ internal fun LoomaNavGraph(
                             models = app.answerModels,
                             notes = app.noteRepository,
                             settings = app.settingsRepository,
+                            history = app.askHistoryRepository,
                         )
                     }
                     AskScreen(

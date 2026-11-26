@@ -459,4 +459,7 @@
     <string name="editor_export">Export a copy</string>
     <string name="editor_exported">Copy exported</string>
     <string name="editor_export_failed">Could not export the copy</string>
+    <string name="ask_history">Chat history</string>
+    <string name="ask_history_empty">No saved conversations yet</string>
+    <string name="ask_history_delete">Delete conversation</string>
 </resources>

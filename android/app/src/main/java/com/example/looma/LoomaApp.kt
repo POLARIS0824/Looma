@@ -7,6 +7,8 @@ import com.example.looma.data.assistant.LoomaModelSettingsRepository
 import com.example.looma.data.assistant.ModelSettingsRepository
 import com.example.looma.data.assistant.VaultEvidence
 import com.example.looma.data.assistant.WeaveFeedbackStore
+import com.example.looma.data.assistant.history.AskHistoryRepository
+import com.example.looma.data.assistant.history.RoomAskHistoryRepository
 import com.example.looma.data.assistant.runtime.AgentRuntimeExecutor
 import com.example.looma.data.assistant.runtime.DefaultAgentRuntimeExecutor
 import com.example.looma.data.assistant.sessions.DefaultLlmSessionManager
@@ -96,6 +98,9 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     internal val llmSessionManager: LlmSessionManager by lazy { DefaultLlmSessionManager() }
     internal val agentRuntimeExecutor: AgentRuntimeExecutor by lazy {
         DefaultAgentRuntimeExecutor(sessionManager = llmSessionManager)
+    }
+    internal val askHistoryRepository: AskHistoryRepository by lazy {
+        RoomAskHistoryRepository(indexDatabase.askHistoryDao())
     }
     internal val askToolsProvider: ToolsProvider by lazy {
         DefaultToolsProvider(

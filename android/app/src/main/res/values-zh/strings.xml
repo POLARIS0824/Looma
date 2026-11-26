@@ -453,4 +453,7 @@
     <string name="editor_export">导出副本</string>
     <string name="editor_exported">已导出副本</string>
     <string name="editor_export_failed">未能导出副本</string>
+    <string name="ask_history">对话历史</string>
+    <string name="ask_history_empty">暂无历史对话</string>
+    <string name="ask_history_delete">删除对话</string>
 </resources>

@@ -7,27 +7,38 @@ import com.example.looma.data.assistant.AnswerModels
 import com.example.looma.data.assistant.GenerationError
 import com.example.looma.data.assistant.GenerationMeta
 import com.example.looma.data.assistant.GeneratorAvailability
+import com.example.looma.data.assistant.InferenceOrigin
 import com.example.looma.data.assistant.InferenceRoute
 import com.example.looma.data.assistant.ModelChoice
 import com.example.looma.data.assistant.ThinkingEffort
+import com.example.looma.data.assistant.history.AskConversationSummary
+import com.example.looma.data.assistant.history.AskHistoryRepository
+import com.example.looma.data.assistant.history.StoredChatMessage
 import com.example.looma.data.assistant.runtime.AgentEvent
 import com.example.looma.data.assistant.runtime.AgentRequest
 import com.example.looma.data.assistant.runtime.AgentRuntimeExecutor
+import com.example.looma.data.assistant.runtime.LlmMessage
+import com.example.looma.data.assistant.runtime.LlmRole
 import com.example.looma.data.assistant.sessions.CompactionResult
 import com.example.looma.data.assistant.toGenerationError
 import com.example.looma.data.assistant.toGenerationMeta
 import com.example.looma.data.assistant.tools.ToolsProvider
 import com.example.looma.data.note.NoteRepository
+import com.example.looma.data.settings.AppSettings
 import com.example.looma.data.settings.SettingsRepository
+import com.example.looma.domain.model.Note
 import com.example.looma.domain.model.NoteId
+import com.example.looma.domain.model.NotePath
 import com.example.looma.domain.model.Vault
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -66,9 +77,20 @@ internal data class AskState(
     val phase: AskPhase = AskPhase.Idle,
     val compactionNotice: CompactionResult? = null,
     val issue: AskIssue? = null,
+    val conversationId: String? = null,
+    val conversations: List<AskConversationSummary> = emptyList(),
 ) {
     val busy: Boolean get() = phase != AskPhase.Idle
     val saving: Boolean get() = phase is AskPhase.Saving
+}
+
+internal interface AskModelSettings {
+    val settings: Flow<AppSettings>
+    suspend fun setAskModel(choice: ModelChoice)
+}
+
+internal fun interface AskNoteSaver {
+    suspend fun saveNote(vault: Vault, title: String, content: String): Note
 }
 
 internal class AskViewModel(
@@ -76,9 +98,30 @@ internal class AskViewModel(
     private val executor: AgentRuntimeExecutor,
     private val tools: ToolsProvider,
     private val models: AnswerModels,
-    private val notes: NoteRepository,
-    private val settings: SettingsRepository,
+    private val noteSaver: AskNoteSaver,
+    private val modelSettings: AskModelSettings,
+    private val history: AskHistoryRepository = NoopAskHistoryRepository,
 ) : ViewModel() {
+    constructor(
+        vault: Vault,
+        executor: AgentRuntimeExecutor,
+        tools: ToolsProvider,
+        models: AnswerModels,
+        notes: NoteRepository,
+        settings: SettingsRepository,
+        history: AskHistoryRepository = NoopAskHistoryRepository,
+    ) : this(
+        vault = vault,
+        executor = executor,
+        tools = tools,
+        models = models,
+        noteSaver = AskNoteSaver { v, title, content -> notes.createWithContent(v, title, content) },
+        modelSettings = object : AskModelSettings {
+            override val settings: Flow<AppSettings> = settings.settings
+            override suspend fun setAskModel(choice: ModelChoice) = settings.setAskModel(choice)
+        },
+        history = history,
+    )
     private val mutable = MutableStateFlow(
         models.installed().let { installed ->
             AskState(vault.name, installed, restoredChoice(installed, null, null, null))
@@ -90,7 +133,12 @@ internal class AskViewModel(
 
     init {
         viewModelScope.launch {
-            val stored = settings.settings.first()
+            history.conversations(vault.id.value).collect { list ->
+                mutable.update { it.copy(conversations = list) }
+            }
+        }
+        viewModelScope.launch {
+            val stored = modelSettings.settings.first()
             mutable.update { current ->
                 if (picked) {
                     current
@@ -162,7 +210,7 @@ internal class AskViewModel(
         val choice = mutable.value.choice ?: return
         if (choice == before) return
         picked = true
-        viewModelScope.launch { settings.setAskModel(choice) }
+        viewModelScope.launch { modelSettings.setAskModel(choice) }
     }
 
     fun ask(question: String) {
@@ -201,7 +249,11 @@ internal class AskViewModel(
                 }
                 add(ChatMessage(id = assistantId, role = ChatRole.Assistant, text = "", isStreaming = true))
             }
-            current.copy(messages = updated, issue = null)
+            current.copy(
+                messages = updated,
+                issue = null,
+                conversationId = current.conversationId ?: UUID.randomUUID().toString(),
+            )
         }
 
         val maxSteps = 2 + choice.effort.investigationSteps * 2
@@ -255,14 +307,17 @@ internal class AskViewModel(
                                 meta = event.response.metadata.toGenerationMeta(),
                             )
                         }
+                        persistCurrentConversation()
                     }
                     AgentEvent.LoopCancelled -> {
                         finalizeCancelledAssistant(assistantId)
+                        persistCurrentConversation()
                     }
                     is AgentEvent.Error -> {
                         updateAssistant(assistantId) { msg ->
                             msg.copy(isStreaming = false, error = event.error.toGenerationError())
                         }
+                        persistCurrentConversation()
                     }
                 }
             }
@@ -283,7 +338,59 @@ internal class AskViewModel(
                     phase = AskPhase.Idle,
                     compactionNotice = null,
                     issue = null,
+                    conversationId = null,
                 )
+            }
+        }
+    }
+
+    fun loadConversation(conversationId: String) {
+        if (mutable.value.busy) return
+        viewModelScope.launch {
+            val stored = history.loadMessages(conversationId)
+            val loaded = stored.map { it.toChatMessage(vault) }
+            val llmMessages = loaded
+                .filter { it.text.isNotBlank() && it.error == null }
+                .map { msg ->
+                    LlmMessage(
+                        role = if (msg.role == ChatRole.User) LlmRole.User else LlmRole.Model,
+                        content = msg.text,
+                    )
+                }
+            executor.sessionManager.replaceHistory(llmMessages)
+            mutable.update {
+                it.copy(
+                    conversationId = conversationId,
+                    messages = loaded,
+                    compactionNotice = null,
+                    issue = null,
+                )
+            }
+        }
+    }
+
+    fun deleteConversation(conversationId: String) {
+        if (mutable.value.saving) return
+        val isCurrent = conversationId == mutable.value.conversationId
+        if (isCurrent) {
+            val runningTask = task
+            task = null
+            runningTask?.cancel()
+        }
+        viewModelScope.launch {
+            history.deleteConversation(conversationId)
+            if (isCurrent) {
+                executor.interrupt()
+                executor.resetSession()
+                mutable.update {
+                    it.copy(
+                        messages = emptyList(),
+                        conversationId = null,
+                        compactionNotice = null,
+                        issue = null,
+                        phase = AskPhase.Idle,
+                    )
+                }
             }
         }
     }
@@ -294,8 +401,9 @@ internal class AskViewModel(
         val message = current.messages.firstOrNull { it.id == messageId && it.role == ChatRole.Assistant } ?: return
         if (message.savedNoteId != null || message.text.isBlank()) return
         start(AskPhase.Saving, AskIssue.Save) {
-            val note = notes.createWithContent(vault, title, message.text)
+            val note = noteSaver.saveNote(vault, title, message.text)
             updateAssistant(messageId) { it.copy(savedNoteId = note.id) }
+            persistCurrentConversation()
         }
     }
 
@@ -314,7 +422,38 @@ internal class AskViewModel(
                 }
                 current.copy(messages = cleaned, phase = AskPhase.Idle)
             }
+            persistCurrentConversation()
         }
+    }
+
+    private suspend fun persistCurrentConversation() {
+        val current = mutable.value
+        val conversationId = current.conversationId ?: return
+        val persistedMessages = current.messages.filter { !it.isStreaming }
+        if (persistedMessages.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val createdAt = current.conversations.firstOrNull { it.id == conversationId }?.createdAt ?: now
+        val title = persistedMessages
+            .firstOrNull { it.role == ChatRole.User }
+            ?.text
+            ?.lineSequence()
+            ?.firstOrNull()
+            ?.trim()
+            ?.take(80)
+            .orEmpty()
+            .ifBlank { vault.name }
+        val summary = AskConversationSummary(
+            id = conversationId,
+            vaultId = vault.id.value,
+            title = title,
+            createdAt = createdAt,
+            updatedAt = now,
+            modelId = current.choice?.model?.id,
+        )
+        history.saveConversation(
+            summary = summary,
+            messages = persistedMessages.mapIndexed { index, msg -> msg.toStored(now + index) },
+        )
     }
 
     private fun updateAssistant(assistantId: String, transform: (ChatMessage) -> ChatMessage) {
@@ -399,4 +538,51 @@ private fun restoredChoice(
     val storedRoute = InferenceRoute.entries.firstOrNull { it.name == routeName }
     val route = storedRoute?.takeIf { it in model.supportedRoutes } ?: model.defaultRoute
     return ModelChoice(model, effort, route)
+}
+
+private object NoopAskHistoryRepository : AskHistoryRepository {
+    override fun conversations(vaultId: String): Flow<List<AskConversationSummary>> = flowOf(emptyList())
+    override suspend fun loadMessages(conversationId: String): List<StoredChatMessage> = emptyList()
+    override suspend fun saveConversation(summary: AskConversationSummary, messages: List<StoredChatMessage>) = Unit
+    override suspend fun deleteConversation(conversationId: String) = Unit
+}
+
+private fun ChatMessage.toStored(createdAt: Long): StoredChatMessage = StoredChatMessage(
+    id = id,
+    role = role.name,
+    text = text,
+    thinking = thinking,
+    origin = meta?.origin?.name,
+    errorCode = error?.toStoredCode(),
+    savedNotePath = savedNoteId?.path?.relativePath,
+    createdAt = createdAt,
+)
+
+private fun StoredChatMessage.toChatMessage(vault: Vault): ChatMessage = ChatMessage(
+    id = id,
+    role = ChatRole.entries.firstOrNull { it.name == role } ?: ChatRole.Assistant,
+    text = text,
+    thinking = thinking,
+    isStreaming = false,
+    meta = origin?.let { name -> InferenceOrigin.entries.firstOrNull { it.name == name } }?.let { GenerationMeta(it) },
+    error = errorCode?.toStoredGenerationError(),
+    savedNoteId = savedNotePath?.let { NoteId(vault.id, NotePath(it)) },
+)
+
+private fun GenerationError.toStoredCode(): String = when (this) {
+    GenerationError.Offline -> "offline"
+    GenerationError.OnDeviceUnavailable -> "unavailable"
+    GenerationError.AppCheckFailed -> "auth_failed"
+    GenerationError.QuotaExceeded -> "quota_exceeded"
+    is GenerationError.Failed -> if (message == null) "failed" else "failed:$message"
+}
+
+private fun String.toStoredGenerationError(): GenerationError = when {
+    this == "offline" -> GenerationError.Offline
+    this == "unavailable" -> GenerationError.OnDeviceUnavailable
+    this == "auth_failed" -> GenerationError.AppCheckFailed
+    this == "quota_exceeded" -> GenerationError.QuotaExceeded
+    this == "failed" -> GenerationError.Failed()
+    startsWith("failed:") -> GenerationError.Failed(removePrefix("failed:"))
+    else -> GenerationError.Failed(this)
 }
