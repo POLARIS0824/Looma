@@ -456,4 +456,8 @@
     <string name="ask_history">对话历史</string>
     <string name="ask_history_empty">暂无历史对话</string>
     <string name="ask_history_delete">删除对话</string>
+    <string name="ask_skills">技能</string>
+    <string name="ask_skills_empty">暂无可用技能</string>
+    <string name="ask_skill_built_in">内置</string>
+    <string name="ask_skill_custom">自定义</string>
 </resources>

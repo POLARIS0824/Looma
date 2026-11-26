@@ -22,6 +22,8 @@ import com.example.looma.data.assistant.runtime.LlmRole
 import com.example.looma.data.assistant.sessions.CompactionResult
 import com.example.looma.data.assistant.toGenerationError
 import com.example.looma.data.assistant.toGenerationMeta
+import com.example.looma.data.assistant.tools.AgentSkillSummary
+import com.example.looma.data.assistant.tools.SkillCatalog
 import com.example.looma.data.assistant.tools.ToolsProvider
 import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.settings.AppSettings
@@ -79,6 +81,7 @@ internal data class AskState(
     val issue: AskIssue? = null,
     val conversationId: String? = null,
     val conversations: List<AskConversationSummary> = emptyList(),
+    val skills: List<AgentSkillSummary> = emptyList(),
 ) {
     val busy: Boolean get() = phase != AskPhase.Idle
     val saving: Boolean get() = phase is AskPhase.Saving
@@ -101,6 +104,7 @@ internal class AskViewModel(
     private val noteSaver: AskNoteSaver,
     private val modelSettings: AskModelSettings,
     private val history: AskHistoryRepository = NoopAskHistoryRepository,
+    private val skills: SkillCatalog? = null,
 ) : ViewModel() {
     constructor(
         vault: Vault,
@@ -110,6 +114,7 @@ internal class AskViewModel(
         notes: NoteRepository,
         settings: SettingsRepository,
         history: AskHistoryRepository = NoopAskHistoryRepository,
+        skills: SkillCatalog? = null,
     ) : this(
         vault = vault,
         executor = executor,
@@ -121,6 +126,7 @@ internal class AskViewModel(
             override suspend fun setAskModel(choice: ModelChoice) = settings.setAskModel(choice)
         },
         history = history,
+        skills = skills,
     )
     private val mutable = MutableStateFlow(
         models.installed().let { installed ->
@@ -132,6 +138,14 @@ internal class AskViewModel(
     private var picked = false
 
     init {
+        skills?.let { catalog ->
+            viewModelScope.launch {
+                catalog.skills.collect { list ->
+                    mutable.update { it.copy(skills = list) }
+                }
+            }
+            refreshSkills()
+        }
         viewModelScope.launch {
             history.conversations(vault.id.value).collect { list ->
                 mutable.update { it.copy(conversations = list) }
@@ -161,6 +175,16 @@ internal class AskViewModel(
                 }
             }
         }
+    }
+
+    fun refreshSkills() {
+        val catalog = skills ?: return
+        viewModelScope.launch { catalog.refresh() }
+    }
+
+    fun setSkillEnabled(name: String, enabled: Boolean) {
+        val catalog = skills ?: return
+        viewModelScope.launch { catalog.setEnabled(name, enabled) }
     }
 
     fun refreshModels() {
@@ -257,13 +281,14 @@ internal class AskViewModel(
         }
 
         val maxSteps = 2 + choice.effort.investigationSteps * 2
-        val request = AgentRequest(
-            question = question,
-            systemInstruction = buildSystemInstruction(vault.name),
-            maxSteps = maxSteps,
-        )
 
         start(AskPhase.Running(AskStatus.Thinking), AskIssue.Run, assistantId) {
+            val enabledSkills = skills?.enabledSkills() ?: mutable.value.skills.filter { it.enabled }
+            val request = AgentRequest(
+                question = question,
+                systemInstruction = buildSystemInstruction(vault.name, enabledSkills),
+                maxSteps = maxSteps,
+            )
             executor.executeStream(backend, request, tools).collect { event ->
                 when (event) {
                     AgentEvent.LoopInitiated -> {
@@ -515,13 +540,27 @@ internal class AskViewModel(
     }
 }
 
-private fun buildSystemInstruction(vaultName: String): String =
-    "You are Looma, a helpful assistant for the user's personal Markdown note vault \"$vaultName\". " +
-        "Respond naturally in the user's language using clear Markdown. " +
-        "When the user's question may depend on their notes, use the available vault tools " +
-        "(search_vault for semantic search, keyword_search for exact text, list_notes to browse by folder/tag, " +
-        "read_note to inspect a note, get_note_links for wiki links/backlinks, and create_note to create a new note) " +
-        "and cite note paths when referencing them."
+private fun buildSystemInstruction(
+    vaultName: String,
+    enabledSkills: List<AgentSkillSummary> = emptyList(),
+): String = buildString {
+    append(
+        "You are Looma, a helpful assistant for the user's personal Markdown note vault \"$vaultName\". " +
+            "Respond naturally in the user's language using clear Markdown. " +
+            "When the user's question may depend on their notes, use the available vault tools " +
+            "(search_vault for semantic search, keyword_search for exact text, list_notes to browse by folder/tag, " +
+            "read_note to inspect a note, get_note_links for wiki links/backlinks, and create_note to create a new note) " +
+            "and cite note paths when referencing them.",
+    )
+    if (enabledSkills.isNotEmpty()) {
+        appendLine()
+        appendLine()
+        appendLine("Available skills (call `load_skill` with `skill_name` when a task matches):")
+        for (skill in enabledSkills) {
+            appendLine("- ${skill.name}: ${skill.description}")
+        }
+    }
+}.trimEnd()
 
 private fun restoredChoice(
     installed: List<AnswerModel>,

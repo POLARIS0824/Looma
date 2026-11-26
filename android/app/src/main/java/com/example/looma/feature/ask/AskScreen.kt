@@ -40,6 +40,7 @@ import com.example.looma.feature.ask.components.AskEmpty
 import com.example.looma.feature.ask.components.AskHistorySheet
 import com.example.looma.feature.ask.components.AskModelSheet
 import com.example.looma.feature.ask.components.AskQuestionLimit
+import com.example.looma.feature.ask.components.AskSkillsSheet
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
 
@@ -59,6 +60,7 @@ internal fun AskScreen(
     var saveTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
     var historyOpen by rememberSaveable { mutableStateOf(false) }
+    var skillsOpen by rememberSaveable { mutableStateOf(false) }
 
     val firstUserMessage = state.messages.firstOrNull { it.role == ChatRole.User }?.text
     val topBarTitle = firstUserMessage ?: stringResource(R.string.ask_title)
@@ -79,6 +81,16 @@ internal fun AskScreen(
                     scrolledContainerColor = LoomaTokens.colors.page,
                 ),
                 actions = {
+                    IconButton(
+                        onClick = {
+                            model.refreshSkills()
+                            skillsOpen = true
+                        },
+                        enabled = !state.saving,
+                        shapes = IconButtonDefaults.shapes(),
+                    ) {
+                        LoomaIcon(R.drawable.ic_sparkle, stringResource(R.string.ask_skills))
+                    }
                     IconButton(
                         onClick = { historyOpen = true },
                         enabled = !state.saving,
@@ -149,6 +161,15 @@ internal fun AskScreen(
             },
             onDelete = model::deleteConversation,
             onDismiss = { historyOpen = false },
+        )
+    }
+
+    if (skillsOpen) {
+        AskSkillsSheet(
+            skills = state.skills,
+            busy = state.busy,
+            onToggle = model::setSkillEnabled,
+            onDismiss = { skillsOpen = false },
         )
     }
 

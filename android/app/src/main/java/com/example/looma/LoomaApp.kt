@@ -13,13 +13,16 @@ import com.example.looma.data.assistant.runtime.AgentRuntimeExecutor
 import com.example.looma.data.assistant.runtime.DefaultAgentRuntimeExecutor
 import com.example.looma.data.assistant.sessions.DefaultLlmSessionManager
 import com.example.looma.data.assistant.sessions.LlmSessionManager
+import com.example.looma.data.assistant.skills.VaultSkillManager
 import com.example.looma.data.assistant.tools.CreateNoteTool
 import com.example.looma.data.assistant.tools.DefaultToolsProvider
 import com.example.looma.data.assistant.tools.KeywordSearchTool
 import com.example.looma.data.assistant.tools.ListNotesTool
+import com.example.looma.data.assistant.tools.LoadSkillTool
 import com.example.looma.data.assistant.tools.NoteLinksTool
 import com.example.looma.data.assistant.tools.ReadNoteTool
 import com.example.looma.data.assistant.tools.SemanticSearchTool
+import com.example.looma.data.assistant.tools.SkillCatalog
 import com.example.looma.data.assistant.tools.ToolsProvider
 import com.example.looma.data.assistant.api.ApiConnectionStore
 import com.example.looma.data.assistant.api.ApiModelProvider
@@ -102,6 +105,9 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     internal val askHistoryRepository: AskHistoryRepository by lazy {
         RoomAskHistoryRepository(indexDatabase.askHistoryDao())
     }
+    internal val skillCatalog: SkillCatalog by lazy {
+        VaultSkillManager(vaultRepository)
+    }
     internal val askToolsProvider: ToolsProvider by lazy {
         DefaultToolsProvider(
             listOf(
@@ -111,6 +117,7 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
                 KeywordSearchTool(vaultRepository, noteRepository),
                 NoteLinksTool(vaultRepository, noteRepository),
                 CreateNoteTool(vaultRepository, noteRepository),
+                LoadSkillTool(skillCatalog),
             ),
         )
     }

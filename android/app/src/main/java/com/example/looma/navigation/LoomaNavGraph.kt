@@ -223,6 +223,7 @@ internal fun LoomaNavGraph(
                             notes = app.noteRepository,
                             settings = app.settingsRepository,
                             history = app.askHistoryRepository,
+                            skills = app.skillCatalog,
                         )
                     }
                     AskScreen(

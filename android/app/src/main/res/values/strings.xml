@@ -462,4 +462,8 @@
     <string name="ask_history">Chat history</string>
     <string name="ask_history_empty">No saved conversations yet</string>
     <string name="ask_history_delete">Delete conversation</string>
+    <string name="ask_skills">Skills</string>
+    <string name="ask_skills_empty">No skills available</string>
+    <string name="ask_skill_built_in">Built-in</string>
+    <string name="ask_skill_custom">Custom</string>
 </resources>
