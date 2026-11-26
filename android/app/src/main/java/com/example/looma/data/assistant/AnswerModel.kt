@@ -1,9 +1,10 @@
 package com.example.looma.data.assistant
 
-import android.net.Uri
-import com.example.looma.data.assistant.runtime.LlmBackendProvider
+import com.example.looma.data.assistant.runtime.LlmError
+import com.example.looma.data.assistant.runtime.LlmMetadata
 import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 
@@ -55,16 +56,15 @@ internal data class GenerationMeta(
     val fallbackReason: String? = null,
 )
 
-internal sealed interface GenerationOutcome<out T> {
-    data class Success<T>(val value: T, val meta: GenerationMeta) : GenerationOutcome<T>
-    data class Failure(val error: GenerationError) : GenerationOutcome<Nothing>
+internal interface LlmBackendProvider {
+    val models: StateFlow<List<AnswerModel>>
+    fun refresh() {}
+    fun backend(model: AnswerModel, route: InferenceRoute? = model.defaultRoute): LlmRuntimeBackend?
+    suspend fun prepare(model: AnswerModel): Result<Unit> = Result.success(Unit)
 }
-
-internal data class AgentStep(val label: String, val origin: InferenceOrigin)
 
 internal class AnswerModels(
     private val providers: List<LlmBackendProvider>,
-    private val localImporter: (suspend (Uri) -> Unit)? = null,
 ) {
     val models: Flow<List<AnswerModel>> = if (providers.isEmpty()) {
         flowOf(emptyList())
@@ -78,8 +78,11 @@ internal class AnswerModels(
         providers.forEach { it.refresh() }
     }
 
-    fun backend(model: AnswerModel): LlmRuntimeBackend? =
-        providers.firstNotNullOfOrNull { it.backend(model) }
+    fun backend(model: AnswerModel, route: InferenceRoute? = model.defaultRoute): LlmRuntimeBackend? =
+        providers.firstNotNullOfOrNull { it.backend(model, route) }
+
+    fun backend(choice: ModelChoice): LlmRuntimeBackend? =
+        backend(choice.model, choice.route)
 
     suspend fun prepare(model: AnswerModel): Result<Unit> {
         val owner = providers.firstOrNull { provider ->
@@ -88,13 +91,56 @@ internal class AnswerModels(
         return owner.prepare(model)
     }
 
-    suspend fun importLocal(uri: Uri) {
-        val importer = localImporter ?: error("Local model import not supported")
-        importer(uri)
-        refresh()
-    }
-
     companion object {
         val LocalModel = AnswerModel("local", ModelSource.Local, ThinkingEffort.entries, ThinkingEffort.Off)
     }
+}
+
+private const val META_ORIGIN = "origin"
+private const val META_FALLBACK_USED = "fallback_used"
+private const val META_FALLBACK_REASON = "fallback_reason"
+
+internal fun GenerationMeta.toLlmMetadata(): LlmMetadata = LlmMetadata(
+    attributes = buildMap {
+        put(
+            META_ORIGIN,
+            when (origin) {
+                InferenceOrigin.OnDevice -> "on_device"
+                InferenceOrigin.Cloud -> "cloud"
+                InferenceOrigin.LocalFile -> "local_file"
+            },
+        )
+        if (fallbackUsed) put(META_FALLBACK_USED, "true")
+        fallbackReason?.let { put(META_FALLBACK_REASON, it) }
+    },
+)
+
+internal fun LlmMetadata.toGenerationMeta(): GenerationMeta? {
+    val origin = when (attributes[META_ORIGIN]) {
+        "on_device" -> InferenceOrigin.OnDevice
+        "cloud" -> InferenceOrigin.Cloud
+        "local_file" -> InferenceOrigin.LocalFile
+        else -> return null
+    }
+    return GenerationMeta(
+        origin = origin,
+        fallbackUsed = attributes[META_FALLBACK_USED] == "true",
+        fallbackReason = attributes[META_FALLBACK_REASON],
+    )
+}
+
+internal fun GenerationError.toLlmError(): LlmError = when (this) {
+    GenerationError.Offline -> LlmError(LlmError.OFFLINE)
+    GenerationError.QuotaExceeded -> LlmError(LlmError.QUOTA_EXCEEDED)
+    GenerationError.OnDeviceUnavailable -> LlmError(LlmError.UNAVAILABLE)
+    GenerationError.AppCheckFailed -> LlmError(LlmError.AUTH_FAILED)
+    is GenerationError.Failed -> LlmError(LlmError.FAILED, message)
+}
+
+internal fun LlmError.toGenerationError(): GenerationError = when (code) {
+    LlmError.OFFLINE -> GenerationError.Offline
+    LlmError.QUOTA_EXCEEDED -> GenerationError.QuotaExceeded
+    LlmError.UNAVAILABLE -> GenerationError.OnDeviceUnavailable
+    LlmError.AUTH_FAILED -> GenerationError.AppCheckFailed
+    else -> GenerationError.Failed(message)
 }

@@ -61,11 +61,9 @@ internal fun AskComposer(
     running: Boolean,
     busy: Boolean,
     sheetOpen: Boolean,
-    effortOpen: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
     onModel: () -> Unit,
-    onEffort: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val motion = MaterialTheme.motionScheme
@@ -122,7 +120,7 @@ internal fun AskComposer(
                     exit = shrinkVertically(motion.defaultSpatialSpec()) + fadeOut(motion.defaultEffectsSpec()),
                 ) {
                     Row(Modifier.fillMaxWidth().padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        ModelChip(choice = choice, effortOpen = effortOpen, onModel = onModel, onEffort = onEffort)
+                        ModelChip(choice = choice, sheetOpen = sheetOpen, onModel = onModel)
                         Spacer(Modifier.weight(1f))
                         SendButton(running = running, enabled = canSend, onSend = onSend, onStop = onStop)
                     }
@@ -147,7 +145,7 @@ private fun SendButton(running: Boolean, enabled: Boolean, onSend: () -> Unit, o
 }
 
 @Composable
-private fun ModelChip(choice: ModelChoice?, effortOpen: Boolean, onModel: () -> Unit, onEffort: () -> Unit) {
+private fun ModelChip(choice: ModelChoice?, sheetOpen: Boolean, onModel: () -> Unit) {
     val height = SplitButtonDefaults.ExtraSmallContainerHeight
     if (choice == null) {
         FilledTonalButton(
@@ -173,16 +171,15 @@ private fun ModelChip(choice: ModelChoice?, effortOpen: Boolean, onModel: () -> 
         },
         trailingButton = {
             SplitButtonDefaults.TonalTrailingButton(
-                checked = effortOpen,
-                onCheckedChange = { onEffort() },
+                checked = sheetOpen,
+                onCheckedChange = { onModel() },
                 modifier = Modifier.height(height),
                 shapes = SplitButtonDefaults.trailingButtonShapesFor(height),
                 contentPadding = SplitButtonDefaults.trailingButtonContentPaddingFor(height),
             ) {
-                SwapText(stringResource(choice.effort.labelRes()))
                 LoomaIcon(
                     iconRes = R.drawable.ic_expand_more,
-                    contentDescription = stringResource(R.string.ask_effort_title),
+                    contentDescription = stringResource(R.string.ask_choose_model),
                     modifier = Modifier.size(SplitButtonDefaults.trailingButtonIconSizeFor(height)),
                 )
             }

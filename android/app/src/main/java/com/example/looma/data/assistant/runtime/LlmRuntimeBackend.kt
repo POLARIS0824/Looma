@@ -1,11 +1,6 @@
 package com.example.looma.data.assistant.runtime
 
-import com.example.looma.data.assistant.AnswerModel
-import com.example.looma.data.assistant.GenerationOutcome
-import com.example.looma.data.assistant.InferenceOrigin
-import com.example.looma.data.assistant.InferenceRoute
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.StateFlow
 
 internal enum class LlmRole { System, User, Model, Tool }
 
@@ -21,7 +16,6 @@ internal data class LlmGenerateRequest(
     val maxOutputTokens: Int? = null,
     val responseMimeType: String? = null,
     val ephemeral: Boolean = false,
-    val route: InferenceRoute? = null,
 )
 
 internal data class LlmStreamChunk(
@@ -30,22 +24,37 @@ internal data class LlmStreamChunk(
     val done: Boolean = false,
 )
 
+internal data class LlmError(
+    val code: String,
+    val message: String? = null,
+) {
+    companion object {
+        const val OFFLINE = "offline"
+        const val QUOTA_EXCEEDED = "quota_exceeded"
+        const val UNAVAILABLE = "unavailable"
+        const val AUTH_FAILED = "auth_failed"
+        const val FAILED = "failed"
+    }
+}
+
+internal data class LlmMetadata(
+    val attributes: Map<String, String> = emptyMap(),
+)
+
+internal sealed interface LlmResult<out T> {
+    data class Success<T>(val value: T, val metadata: LlmMetadata = LlmMetadata()) : LlmResult<T>
+    data class Failure(val error: LlmError) : LlmResult<Nothing>
+}
+
 internal interface LlmRuntimeBackend {
     val modelId: String
-    val origin: InferenceOrigin
+    val sessionKey: String get() = modelId
     val contextBudgetChars: Int
     val maxContextTokens: Int
     val supportsStatefulSession: Boolean get() = false
 
-    suspend fun generate(request: LlmGenerateRequest): GenerationOutcome<String>
-    fun generateStream(request: LlmGenerateRequest): Flow<GenerationOutcome<LlmStreamChunk>>
+    suspend fun generate(request: LlmGenerateRequest): LlmResult<String>
+    fun generateStream(request: LlmGenerateRequest): Flow<LlmResult<LlmStreamChunk>>
     suspend fun resetSession() {}
     suspend fun stop() {}
-}
-
-internal interface LlmBackendProvider {
-    val models: StateFlow<List<AnswerModel>>
-    fun refresh() {}
-    fun backend(model: AnswerModel): LlmRuntimeBackend?
-    suspend fun prepare(model: AnswerModel): Result<Unit> = Result.success(Unit)
 }

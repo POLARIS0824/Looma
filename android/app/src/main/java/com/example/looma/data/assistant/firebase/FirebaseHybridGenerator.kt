@@ -2,14 +2,16 @@ package com.example.looma.data.assistant.firebase
 
 import com.example.looma.data.assistant.GenerationError
 import com.example.looma.data.assistant.GenerationMeta
-import com.example.looma.data.assistant.GenerationOutcome
 import com.example.looma.data.assistant.InferenceOrigin
 import com.example.looma.data.assistant.InferenceRoute
 import com.example.looma.data.assistant.runtime.LlmGenerateRequest
 import com.example.looma.data.assistant.runtime.LlmMessage
+import com.example.looma.data.assistant.runtime.LlmResult
 import com.example.looma.data.assistant.runtime.LlmRole
 import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
 import com.example.looma.data.assistant.runtime.LlmStreamChunk
+import com.example.looma.data.assistant.toLlmError
+import com.example.looma.data.assistant.toLlmMetadata
 import com.google.firebase.Firebase
 import com.google.firebase.ai.InferenceMode
 import com.google.firebase.ai.InferenceSource
@@ -29,83 +31,69 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 @OptIn(PublicPreviewAPI::class)
-internal class FirebaseHybridGenerator : LlmRuntimeBackend {
+internal class FirebaseHybridGenerator(
+    private val route: InferenceRoute = InferenceRoute.PreferOnDevice,
+) : LlmRuntimeBackend {
     override val modelId: String = FirebaseHybridModelProvider.MODEL_ID
-    override val origin: InferenceOrigin = InferenceOrigin.OnDevice
-    override val contextBudgetChars: Int = HybridRoutingPolicy.ON_DEVICE_CHAR_BUDGET
-    override val maxContextTokens: Int = 4_000
+    override val sessionKey: String = "${FirebaseHybridModelProvider.MODEL_ID}:${route.name}"
+    override val contextBudgetChars: Int = HybridRoutingPolicy.contextBudgetFor(route, multiStep = false)
+    override val maxContextTokens: Int =
+        if (route == InferenceRoute.CloudOnly || route == InferenceRoute.PreferCloud) 32_768 else 4_000
     override val supportsStatefulSession: Boolean = false
 
-    override suspend fun generate(request: LlmGenerateRequest): GenerationOutcome<String> {
+    override suspend fun generate(request: LlmGenerateRequest): LlmResult<String> {
         val totalChars = request.messages.sumOf { it.content.length } + request.systemInstruction.orEmpty().length
         val effectiveRoute = HybridRoutingPolicy.resolveEffectiveRoute(
-            requested = request.route,
+            requested = route,
             multiStep = request.messages.size > 1,
             promptChars = totalChars,
         )
         return try {
             val model = buildModel(request.systemInstruction, effectiveRoute, request.maxOutputTokens)
-            val singleUserPrompt = request.messages.singleOrNull()?.takeIf { it.role == LlmRole.User }?.content
-            if (request.responseMimeType == "application/json" && singleUserPrompt != null) {
-                val response = model.generateObject(HybridAnswerClaims.firebaseAISchema(), singleUserPrompt)
-                val claims = response.getObject() ?: HybridAnswerClaims(emptyList())
-                val json = Json.encodeToString(claims)
-                val actualOrigin = response.response.inferenceSource.toOrigin()
-                GenerationOutcome.Success(
-                    value = json,
-                    meta = GenerationMeta(
-                        origin = actualOrigin,
-                        fallbackUsed = isFallback(effectiveRoute, actualOrigin),
-                    ),
-                )
-            } else {
-                val contents = request.messages.toContents()
-                val response = model.generateContent(contents)
-                val actualOrigin = response.inferenceSource.toOrigin()
-                GenerationOutcome.Success(
-                    value = response.text.orEmpty(),
-                    meta = GenerationMeta(
-                        origin = actualOrigin,
-                        fallbackUsed = isFallback(effectiveRoute, actualOrigin),
-                    ),
-                )
-            }
+            val contents = request.messages.toContents()
+            val response = model.generateContent(contents)
+            val actualOrigin = response.inferenceSource.toOrigin()
+            LlmResult.Success(
+                value = response.text.orEmpty(),
+                metadata = GenerationMeta(
+                    origin = actualOrigin,
+                    fallbackUsed = isFallback(effectiveRoute, actualOrigin),
+                ).toLlmMetadata(),
+            )
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Throwable) {
-            GenerationOutcome.Failure(mapError(error))
+            LlmResult.Failure(mapError(error).toLlmError())
         }
     }
 
-    override fun generateStream(request: LlmGenerateRequest): Flow<GenerationOutcome<LlmStreamChunk>> = flow<GenerationOutcome<LlmStreamChunk>> {
+    override fun generateStream(request: LlmGenerateRequest): Flow<LlmResult<LlmStreamChunk>> = flow<LlmResult<LlmStreamChunk>> {
         val totalChars = request.messages.sumOf { it.content.length } + request.systemInstruction.orEmpty().length
         val effectiveRoute = HybridRoutingPolicy.resolveEffectiveRoute(
-            requested = request.route,
+            requested = route,
             multiStep = request.messages.size > 1,
             promptChars = totalChars,
         )
         val model = buildModel(request.systemInstruction, effectiveRoute, request.maxOutputTokens)
         val contents = request.messages.toContents()
-        var lastMeta = GenerationMeta(origin = defaultOriginFor(effectiveRoute))
+        var lastMeta = GenerationMeta(origin = defaultOriginFor(effectiveRoute)).toLlmMetadata()
         model.generateContentStream(contents).collect { chunk ->
             val actualOrigin = chunk.inferenceSource.toOrigin()
             lastMeta = GenerationMeta(
                 origin = actualOrigin,
                 fallbackUsed = isFallback(effectiveRoute, actualOrigin),
-            )
+            ).toLlmMetadata()
             val text = chunk.text.orEmpty()
             if (text.isNotEmpty()) {
-                emit(GenerationOutcome.Success(LlmStreamChunk(text = text, done = false), lastMeta))
+                emit(LlmResult.Success(LlmStreamChunk(text = text, done = false), lastMeta))
             }
         }
-        emit(GenerationOutcome.Success(LlmStreamChunk(done = true), lastMeta))
+        emit(LlmResult.Success(LlmStreamChunk(done = true), lastMeta))
     }.catch { error ->
         if (error is CancellationException) throw error
-        emit(GenerationOutcome.Failure(mapError(error)))
+        emit(LlmResult.Failure(mapError(error).toLlmError()))
     }
 
     private fun buildModel(instruction: String?, route: InferenceRoute, maxOutputTokens: Int?) =

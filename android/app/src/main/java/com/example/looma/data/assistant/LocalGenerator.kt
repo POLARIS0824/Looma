@@ -2,9 +2,11 @@ package com.example.looma.data.assistant
 
 import android.content.Context
 import android.net.Uri
-import com.example.looma.data.assistant.runtime.LlmBackendProvider
+import com.example.looma.data.assistant.runtime.LlmError
 import com.example.looma.data.assistant.runtime.LlmGenerateRequest
+import com.example.looma.data.assistant.runtime.LlmMetadata
 import com.example.looma.data.assistant.runtime.LlmMessage
+import com.example.looma.data.assistant.runtime.LlmResult
 import com.example.looma.data.assistant.runtime.LlmRole
 import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
 import com.example.looma.data.assistant.runtime.LlmStreamChunk
@@ -49,7 +51,6 @@ internal class LocalGenerator(
     override val models: StateFlow<List<AnswerModel>> = mutableModels.asStateFlow()
 
     override val modelId: String = AnswerModels.LocalModel.id
-    override val origin: InferenceOrigin = InferenceOrigin.LocalFile
     override val contextBudgetChars: Int = 3600
     override val maxContextTokens: Int = 4096
     override val supportsStatefulSession: Boolean = true
@@ -80,7 +81,7 @@ internal class LocalGenerator(
         mutableModels.value = currentModels()
     }
 
-    override fun backend(model: AnswerModel): LlmRuntimeBackend? =
+    override fun backend(model: AnswerModel, route: InferenceRoute?): LlmRuntimeBackend? =
         if (model.id == AnswerModels.LocalModel.id && installed) this else null
 
     suspend fun install(uri: Uri) = withContext(Dispatchers.IO) {
@@ -111,25 +112,25 @@ internal class LocalGenerator(
         }
     }
 
-    override suspend fun generate(request: LlmGenerateRequest): GenerationOutcome<String> {
+    override suspend fun generate(request: LlmGenerateRequest): LlmResult<String> {
         val text = StringBuilder()
-        var lastMeta = GenerationMeta(InferenceOrigin.LocalFile)
-        var failure: GenerationOutcome.Failure? = null
+        var lastMeta = localMetadata()
+        var failure: LlmResult.Failure? = null
         generateStream(request).collect { outcome ->
             when (outcome) {
-                is GenerationOutcome.Success -> {
+                is LlmResult.Success -> {
                     text.append(outcome.value.text)
-                    lastMeta = outcome.meta
+                    lastMeta = outcome.metadata
                 }
-                is GenerationOutcome.Failure -> failure = outcome
+                is LlmResult.Failure -> failure = outcome
             }
         }
-        return failure ?: GenerationOutcome.Success(text.toString().trim(), lastMeta)
+        return failure ?: LlmResult.Success(text.toString().trim(), lastMeta)
     }
 
-    override fun generateStream(request: LlmGenerateRequest): Flow<GenerationOutcome<LlmStreamChunk>> = flow {
+    override fun generateStream(request: LlmGenerateRequest): Flow<LlmResult<LlmStreamChunk>> = flow {
         if (request.messages.isEmpty()) {
-            emit(GenerationOutcome.Failure(GenerationError.Failed("Empty messages")))
+            emit(LlmResult.Failure(LlmError(LlmError.FAILED, "Empty messages")))
             return@flow
         }
         session.use(LocalModelSession.Model.Generation, IDLE_TIMEOUT_MS, ::closeEngine) {
@@ -141,15 +142,17 @@ internal class LocalGenerator(
             try {
                 conversation.sendMessageAsync(payload).collect { part ->
                     coroutineContext.ensureActive()
-                    val chunk = part.toString()
-                    total.append(chunk)
-                    check(total.length <= MAX_OUTPUT_CHARS)
-                    emit(GenerationOutcome.Success(LlmStreamChunk(text = chunk), GenerationMeta(InferenceOrigin.LocalFile)))
+                    val chunk = filterControlTokens(part.toString())
+                    if (chunk.isNotEmpty()) {
+                        total.append(chunk)
+                        check(total.length <= MAX_OUTPUT_CHARS)
+                        emit(LlmResult.Success(LlmStreamChunk(text = chunk), localMetadata()))
+                    }
                 }
                 if (!request.ephemeral) {
                     cachedMessageCount = request.messages.size + 1
                 }
-                emit(GenerationOutcome.Success(LlmStreamChunk(done = true), GenerationMeta(InferenceOrigin.LocalFile)))
+                emit(LlmResult.Success(LlmStreamChunk(done = true), localMetadata()))
             } catch (error: Exception) {
                 runCatching { conversation.cancelProcess() }.exceptionOrNull()?.let(error::addSuppressed)
                 if (!request.ephemeral) closeConversation()
@@ -164,7 +167,7 @@ internal class LocalGenerator(
     }.catch { error ->
         when (error) {
             is CancellationException -> throw error
-            is Exception, is LinkageError -> emit(GenerationOutcome.Failure(GenerationError.Failed(error.message)))
+            is Exception, is LinkageError -> emit(LlmResult.Failure(LlmError(LlmError.FAILED, error.message)))
             else -> throw error
         }
     }.flowOn(Dispatchers.IO)
@@ -237,8 +240,13 @@ internal class LocalGenerator(
         modelPath = model.absolutePath, backend = Backend.CPU(), cacheDir = context.cacheDir.absolutePath,
     ))
 
+    private fun localMetadata(): LlmMetadata = GenerationMeta(InferenceOrigin.LocalFile).toLlmMetadata()
+
+    private fun filterControlTokens(text: String): String = text.replace(CTRL_TOKEN_REGEX, "")
+
     private companion object {
         const val IDLE_TIMEOUT_MS = 30_000L
         const val MAX_OUTPUT_CHARS = 12_000
+        val CTRL_TOKEN_REGEX = Regex("<ctrl[^>]*>?")
     }
 }

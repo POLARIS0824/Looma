@@ -3,9 +3,9 @@ package com.example.looma.data.assistant.firebase
 import com.example.looma.data.assistant.AnswerModel
 import com.example.looma.data.assistant.GeneratorAvailability
 import com.example.looma.data.assistant.InferenceRoute
+import com.example.looma.data.assistant.LlmBackendProvider
 import com.example.looma.data.assistant.ModelSource
 import com.example.looma.data.assistant.ThinkingEffort
-import com.example.looma.data.assistant.runtime.LlmBackendProvider
 import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
 import com.google.firebase.Firebase
 import com.google.firebase.ai.DownloadStatus
@@ -14,6 +14,7 @@ import com.google.firebase.ai.OnDeviceModelStatus
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.type.PublicPreviewAPI
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +32,7 @@ internal class FirebaseHybridModelProvider(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) : LlmBackendProvider {
     private val prepareMutex = Mutex()
-    private val generatorInstance by lazy { FirebaseHybridGenerator() }
+    private val generators = ConcurrentHashMap<InferenceRoute, FirebaseHybridGenerator>()
     private val onDeviceExtension: OnDeviceExtension? by lazy {
         if (!firebaseConfigured) {
             null
@@ -60,11 +61,12 @@ internal class FirebaseHybridModelProvider(
         }
     }
 
-    override fun backend(model: AnswerModel): LlmRuntimeBackend? {
+    override fun backend(model: AnswerModel, route: InferenceRoute?): LlmRuntimeBackend? {
         if (model.id != MODEL_ID) return null
         val availability = mutableModels.value.firstOrNull()?.availability
         return if (firebaseConfigured || availability is GeneratorAvailability.Ready) {
-            generatorInstance
+            val effectiveRoute = route ?: InferenceRoute.PreferOnDevice
+            generators.getOrPut(effectiveRoute) { FirebaseHybridGenerator(effectiveRoute) }
         } else {
             null
         }

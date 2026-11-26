@@ -215,12 +215,19 @@ internal fun LoomaNavGraph(
                 entry<LoomaRoute.Ask>(clazzContentKey = { "ask/${vault?.id?.value.orEmpty()}" }) {
                     val active = vault ?: return@entry
                     val model = viewModel<AskViewModel> {
-                        AskViewModel(active, app.vaultAgent, app.evidence, app.answerModels, app.noteRepository, app.settingsRepository)
+                        AskViewModel(
+                            vault = active,
+                            executor = app.agentRuntimeExecutor,
+                            tools = app.askToolsProvider,
+                            models = app.answerModels,
+                            notes = app.noteRepository,
+                            settings = app.settingsRepository,
+                        )
                     }
-                    AskScreen(model,
-                        openNote = { backStack.add(LoomaRoute.Note.from(it)) },
+                    AskScreen(
+                        model = model,
                         navigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
-                        open = { backStack.add(LoomaRoute.Note.from(it.id, passage = it.anchor)) },
+                        openNote = { backStack.add(LoomaRoute.Note.from(it)) },
                         manageModels = {
                             if (backStack.lastOrNull() == LoomaRoute.Ask) backStack.add(LoomaRoute.ModelSettings)
                         },

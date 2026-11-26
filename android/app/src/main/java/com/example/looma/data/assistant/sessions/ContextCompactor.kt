@@ -6,5 +6,5 @@ internal interface ContextCompactor {
     suspend fun compactIfNeeded(
         sessionManager: LlmSessionManager,
         backend: LlmRuntimeBackend,
-    ): Boolean
+    ): CompactionResult
 }

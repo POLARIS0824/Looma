@@ -64,6 +64,14 @@ internal fun InferenceRoute.labelRes(): Int = when (this) {
 }
 
 @StringRes
+internal fun InferenceRoute.descriptionRes(): Int = when (this) {
+    InferenceRoute.PreferOnDevice -> R.string.ask_route_prefer_on_device_desc
+    InferenceRoute.OnDeviceOnly -> R.string.ask_route_on_device_only_desc
+    InferenceRoute.PreferCloud -> R.string.ask_route_prefer_cloud_desc
+    InferenceRoute.CloudOnly -> R.string.ask_route_cloud_only_desc
+}
+
+@StringRes
 internal fun GenerationMeta.originLabelRes(): Int = when (origin) {
     InferenceOrigin.OnDevice -> R.string.ask_origin_on_device
     InferenceOrigin.Cloud -> R.string.ask_origin_cloud

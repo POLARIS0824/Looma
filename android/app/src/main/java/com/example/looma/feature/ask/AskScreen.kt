@@ -33,14 +33,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.looma.R
-import com.example.looma.data.assistant.Evidence
 import com.example.looma.domain.model.NoteId
 import com.example.looma.feature.ask.components.AskComposer
 import com.example.looma.feature.ask.components.AskConversation
 import com.example.looma.feature.ask.components.AskEmpty
 import com.example.looma.feature.ask.components.AskModelSheet
 import com.example.looma.feature.ask.components.AskQuestionLimit
-import com.example.looma.feature.ask.components.AskSheetPage
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
 
@@ -49,27 +47,26 @@ internal fun AskScreen(
     model: AskViewModel,
     navigateUp: () -> Unit,
     openNote: (NoteId) -> Unit,
-    open: (Evidence) -> Unit,
     manageModels: () -> Unit,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     LaunchedEffect(model) { model.refreshModels() }
     BackHandler(enabled = state.saving) { }
+
     val input = rememberTextFieldState()
     val focus = LocalFocusManager.current
-    var preview by rememberSaveable { mutableStateOf(false) }
-    var sheet by rememberSaveable { mutableStateOf<AskSheetPage?>(null) }
-    var sheetPage by rememberSaveable { mutableStateOf<AskSheetPage?>(null) }
-    val openSheet = { page: AskSheetPage ->
-        sheet = page
-        sheetPage = page
-    }
+    var saveTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var sheetOpen by rememberSaveable { mutableStateOf(false) }
+
+    val firstUserMessage = state.messages.firstOrNull { it.role == ChatRole.User }?.text
+    val topBarTitle = firstUserMessage ?: stringResource(R.string.ask_title)
     val phase = state.phase
+
     Scaffold(
         containerColor = LoomaTokens.colors.page,
         topBar = {
             TopAppBar(
-                title = { Text(state.question, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(topBarTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = navigateUp, enabled = !state.saving, shapes = IconButtonDefaults.shapes()) {
                         LoomaIcon(R.drawable.ic_arrow_back, stringResource(R.string.nav_back))
@@ -80,7 +77,7 @@ internal fun AskScreen(
                     scrolledContainerColor = LoomaTokens.colors.page,
                 ),
                 actions = {
-                    if (state.question.isNotEmpty() && !state.busy) {
+                    if (state.messages.isNotEmpty() && !state.saving) {
                         IconButton(onClick = model::newChat, shapes = IconButtonDefaults.shapes()) {
                             LoomaIcon(R.drawable.ic_new_chat, stringResource(R.string.ask_new_chat))
                         }
@@ -94,8 +91,7 @@ internal fun AskScreen(
                 choice = state.choice,
                 running = phase is AskPhase.Running,
                 busy = state.busy,
-                sheetOpen = sheet != null,
-                effortOpen = sheet != null && sheetPage == AskSheetPage.Effort,
+                sheetOpen = sheetOpen,
                 onSend = {
                     val question = input.text.toString()
                     if (question.isNotBlank() && question.length <= AskQuestionLimit && !state.busy) {
@@ -105,12 +101,11 @@ internal fun AskScreen(
                     }
                 },
                 onStop = model::cancel,
-                onModel = { openSheet(AskSheetPage.Model) },
-                onEffort = { openSheet(AskSheetPage.Effort) },
+                onModel = { sheetOpen = true },
             )
         },
     ) { padding ->
-        if (state.question.isEmpty()) {
+        if (state.messages.isEmpty()) {
             AskEmpty(
                 vaultName = state.vaultName,
                 hasModel = state.models.isNotEmpty(),
@@ -120,48 +115,49 @@ internal fun AskScreen(
             )
         } else {
             AskConversation(
-                question = state.question,
-                answer = state.answer,
-                step = (phase as? AskPhase.Running)?.step,
+                messages = state.messages,
+                status = (phase as? AskPhase.Running)?.status,
                 saving = state.saving,
-                saved = state.saved,
                 busy = state.busy,
+                compacted = state.compactionNotice != null,
                 issue = state.issue,
-                onOpen = { model.open(it, open) },
-                onSave = { preview = true },
+                onSaveMessage = { message -> saveTarget = message.id },
                 onOpenSaved = openNote,
                 onRetry = model::retry,
                 contentPadding = padding,
             )
         }
     }
-    sheet?.let { start ->
+
+    if (sheetOpen) {
         AskModelSheet(
-            start = start,
             models = state.models,
             choice = state.choice,
-            onPage = { sheetPage = it },
             onSelect = model::select,
             onEffort = model::setEffort,
             onRoute = model::setRoute,
             onPrepareModel = model::prepareSelectedModel,
             onManageModels = {
-                sheet = null
-                sheetPage = null
+                sheetOpen = false
                 manageModels()
             },
-            onDismiss = {
-                sheet = null
-                sheetPage = null
-            },
+            onDismiss = { sheetOpen = false },
         )
     }
-    val answer = state.answer
-    if (preview && answer != null && answer.claims.isNotEmpty()) {
-        val title = rememberTextFieldState(initialText = state.question.lineSequence().first().take(72))
-        val sources = stringResource(R.string.ask_sources)
-        val markdown = remember(answer, state.question, sources) { answer.asMarkdown(state.question, sources) }
-        AlertDialog(onDismissRequest = { preview = false }, title = { Text(stringResource(R.string.ask_save_note)) },
+
+    val messageToSave = saveTarget?.let { id ->
+        state.messages.firstOrNull { it.id == id && it.role == ChatRole.Assistant && it.text.isNotBlank() }
+    }
+    if (messageToSave != null) {
+        val defaultTitle = remember(messageToSave.id) {
+            val idx = state.messages.indexOfFirst { it.id == messageToSave.id }
+            val prompt = state.messages.take(idx.coerceAtLeast(0)).lastOrNull { it.role == ChatRole.User }?.text
+            (prompt ?: messageToSave.text).lineSequence().firstOrNull().orEmpty().take(72)
+        }
+        val title = rememberTextFieldState(initialText = defaultTitle)
+        AlertDialog(
+            onDismissRequest = { saveTarget = null },
+            title = { Text(stringResource(R.string.ask_save_note)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     OutlinedTextField(
@@ -171,17 +167,23 @@ internal fun AskScreen(
                         shape = OutlinedTextFieldDefaults.roundedShape,
                         lineLimits = TextFieldLineLimits.SingleLine,
                     )
-                    Text(markdown, style = MaterialTheme.typography.bodyMedium)
+                    Text(messageToSave.text, style = MaterialTheme.typography.bodyMedium)
                 }
             },
             confirmButton = {
-                TextButton(enabled = title.text.isNotBlank() && !state.busy, shapes = ButtonDefaults.shapes(), onClick = {
-                    model.save(title.text.toString(), markdown)
-                    preview = false
-                }) { Text(stringResource(R.string.ask_save_note)) }
+                TextButton(
+                    enabled = title.text.isNotBlank() && !state.busy,
+                    shapes = ButtonDefaults.shapes(),
+                    onClick = {
+                        model.saveMessage(messageToSave.id, title.text.toString())
+                        saveTarget = null
+                    },
+                ) {
+                    Text(stringResource(R.string.ask_save_note))
+                }
             },
             dismissButton = {
-                TextButton(onClick = { preview = false }, shapes = ButtonDefaults.shapes()) {
+                TextButton(onClick = { saveTarget = null }, shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(android.R.string.cancel))
                 }
             },

@@ -2,16 +2,14 @@ package com.example.looma.feature.ask.components
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -28,7 +26,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -38,8 +35,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilledTonalToggleButton
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -47,7 +44,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetState
@@ -65,8 +61,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -75,7 +74,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.data.assistant.AnswerModel
@@ -92,21 +90,17 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-internal enum class AskSheetPage { Model, Effort }
+private enum class AskSheetPage { Model, Effort }
 
 private val WheelItemHeight = 56.dp
 private const val WheelVisibleItems = 3
-private val EffortTrackHeight = 40.dp
-private val EffortTrackCorner = 12.dp
-private val EffortThumbSize = DpSize(4.dp, 52.dp)
+private val EffortTrackHeight = 56.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AskModelSheet(
-    start: AskSheetPage,
     models: List<AnswerModel>,
     choice: ModelChoice?,
-    onPage: (AskSheetPage) -> Unit,
     onSelect: (AnswerModel) -> Unit,
     onEffort: (ThinkingEffort) -> Unit,
     onRoute: (InferenceRoute) -> Unit,
@@ -119,40 +113,34 @@ internal fun AskModelSheet(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
-    val entry = rememberSaveable { start }
-    var page by rememberSaveable { mutableStateOf(start) }
-    val showPage = { target: AskSheetPage ->
-        page = target
-        onPage(target)
-    }
-    val back = page == AskSheetPage.Effort && entry == AskSheetPage.Model
-    val titleStart by animateDpAsState(if (back) 0.dp else 12.dp, motion.fastSpatialSpec(), label = "sheetTitleStart")
+    var page by rememberSaveable { mutableStateOf(AskSheetPage.Model) }
+    val isEffort = page == AskSheetPage.Effort
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = LoomaTokens.colors.sheet,
-        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = !back),
+        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = !isEffort),
     ) {
-        BackHandler(enabled = back) { showPage(AskSheetPage.Model) }
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        BackHandler(enabled = isEffort) { page = AskSheetPage.Model }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 16.dp),
         ) {
-            AnimatedVisibility(
-                visible = back,
-                enter = expandHorizontally(motion.fastSpatialSpec()) + fadeIn(motion.fastEffectsSpec()),
-                exit = shrinkHorizontally(motion.fastSpatialSpec()) + fadeOut(motion.fastEffectsSpec()),
+            FilledTonalIconButton(
+                onClick = { if (isEffort) page = AskSheetPage.Model else onDismiss() },
+                modifier = Modifier.align(Alignment.CenterStart),
+                shapes = IconButtonDefaults.shapes(),
             ) {
-                Row {
-                    IconButton(onClick = { showPage(AskSheetPage.Model) }, shapes = IconButtonDefaults.shapes()) {
-                        LoomaIcon(R.drawable.ic_arrow_back, stringResource(R.string.nav_back))
-                    }
-                    Spacer(Modifier.width(4.dp))
-                }
+                SwapIcon(
+                    iconRes = if (isEffort) R.drawable.ic_arrow_back else R.drawable.ic_close,
+                    contentDescription = stringResource(if (isEffort) R.string.nav_back else android.R.string.cancel),
+                )
             }
             SwapText(
-                text = stringResource(if (page == AskSheetPage.Model) R.string.ask_model_title else R.string.ask_effort_title),
-                modifier = Modifier.padding(start = titleStart).semantics { heading() },
+                text = stringResource(if (isEffort) R.string.ask_effort_title else R.string.ask_model_title),
+                modifier = Modifier.align(Alignment.Center).semantics { heading() },
                 style = MaterialTheme.typography.titleMedium,
             )
         }
@@ -173,7 +161,7 @@ internal fun AskModelSheet(
                     onSelect = onSelect,
                     onRoute = onRoute,
                     onPrepareModel = onPrepareModel,
-                    onOpenEffort = { showPage(AskSheetPage.Effort) },
+                    onOpenEffort = { page = AskSheetPage.Effort },
                     onManageModels = onManageModels,
                 )
                 AskSheetPage.Effort -> EffortPage(choice = choice, onEffort = onEffort)
@@ -208,27 +196,44 @@ private fun ModelPage(
             ModelWheel(models = models, choice = choice, onSelect = onSelect, onOpenEffort = onOpenEffort)
             val routes = choice?.model?.supportedRoutes.orEmpty()
             if (routes.size > 1) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                ) {
-                    routes.forEachIndexed { index, route ->
-                        FilledTonalToggleButton(
-                            checked = choice?.route == route,
-                            onCheckedChange = { if (it) onRoute(route) },
-                            shapes = when (index) {
-                                0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                routes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                                else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                            },
-                            modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
-                        ) {
-                            Text(
-                                stringResource(route.labelRes()),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+                    ) {
+                        routes.forEachIndexed { index, route ->
+                            FilledTonalToggleButton(
+                                checked = choice?.route == route,
+                                onCheckedChange = { if (it) onRoute(route) },
+                                shapes = when (index) {
+                                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                    routes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                                },
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                                modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
+                            ) {
+                                Text(
+                                    stringResource(route.labelRes()),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
+                    }
+                    AnimatedContent(
+                        targetState = choice?.route,
+                        transitionSpec = { fadeIn(motion.fastEffectsSpec()).togetherWith(fadeOut(motion.fastEffectsSpec())) },
+                        label = "routeDescription",
+                    ) { route ->
+                        Text(
+                            text = route?.let { stringResource(it.descriptionRes()) }.orEmpty(),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -360,8 +365,8 @@ private fun EffortMeterButton(efforts: List<ThinkingEffort>, current: ThinkingEf
             .heightIn(min = 48.dp)
             .clip(CircleShape)
             .clickable(onClickLabel = stringResource(R.string.ask_effort_title), onClick = onClick)
-            .padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(start = 10.dp, end = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -380,6 +385,12 @@ private fun EffortMeterButton(efforts: List<ThinkingEffort>, current: ThinkingEf
             text = stringResource(current.labelRes()),
             style = MaterialTheme.typography.labelLarge,
         )
+        LoomaIcon(
+            iconRes = R.drawable.ic_chevron_right,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -388,7 +399,7 @@ private fun EffortPage(choice: ModelChoice?, onEffort: (ThinkingEffort) -> Unit)
     val efforts = choice?.model?.efforts.orEmpty()
     Column(
         Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (choice == null || efforts.size < 2) {
             Text(
@@ -402,7 +413,7 @@ private fun EffortPage(choice: ModelChoice?, onEffort: (ThinkingEffort) -> Unit)
         SwapText(
             text = label,
             modifier = Modifier.fillMaxWidth(),
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
         val sliderState = remember(efforts) {
@@ -417,61 +428,67 @@ private fun EffortPage(choice: ModelChoice?, onEffort: (ThinkingEffort) -> Unit)
             if (sliderState.value != index) sliderState.value = index
         }
         val interaction = remember { MutableInteractionSource() }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Slider(
-                state = sliderState,
-                onValueChange = { value ->
-                    sliderState.value = value
-                    efforts.getOrNull(value.roundToInt())?.let(onEffort)
-                },
-                modifier = Modifier.fillMaxWidth().semantics { stateDescription = label },
-                interactionSource = interaction,
-                thumb = {
-                    SliderDefaults.Thumb(interactionSource = interaction, isVertical = false, thumbSize = EffortThumbSize)
-                },
-                track = { state ->
-                    SliderDefaults.Track(
-                        sliderState = state,
-                        trackCornerSize = EffortTrackCorner,
-                        modifier = Modifier.height(EffortTrackHeight),
+        val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+        val fillColor = MaterialTheme.colorScheme.primary
+        val onFillColor = MaterialTheme.colorScheme.onPrimary
+        val dotColor = MaterialTheme.colorScheme.onSurfaceVariant
+        Slider(
+            state = sliderState,
+            onValueChange = { value ->
+                sliderState.value = value
+                efforts.getOrNull(value.roundToInt())?.let(onEffort)
+            },
+            modifier = Modifier.fillMaxWidth().semantics { stateDescription = label },
+            interactionSource = interaction,
+            thumb = { Box(Modifier.size(1.dp)) },
+            track = { state ->
+                val count = efforts.size
+                val fraction = (state.value / (count - 1).coerceAtLeast(1)).coerceIn(0f, 1f)
+                Canvas(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(EffortTrackHeight)
+                        .clip(CircleShape),
+                ) {
+                    val radius = size.height / 2f
+                    drawRoundRect(
+                        color = trackColor,
+                        cornerRadius = CornerRadius(radius, radius),
                     )
-                },
-            )
-            EffortStops(efforts = efforts)
-        }
+                    val fillWidth = (size.height + (size.width - size.height) * fraction).coerceIn(size.height, size.width)
+                    drawRoundRect(
+                        color = fillColor,
+                        size = Size(fillWidth, size.height),
+                        cornerRadius = CornerRadius(radius, radius),
+                    )
+                    val barX = (fillWidth - 14.dp.toPx()).coerceIn(radius, size.width - 14.dp.toPx())
+                    val barHalf = 11.dp.toPx()
+                    drawLine(
+                        color = onFillColor,
+                        start = Offset(barX, size.height / 2f - barHalf),
+                        end = Offset(barX, size.height / 2f + barHalf),
+                        strokeWidth = 3.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                    val dotRadius = 2.5.dp.toPx()
+                    val stepSpan = (size.width - size.height) / (count - 1).coerceAtLeast(1)
+                    for (i in 0 until count) {
+                        val cx = radius + stepSpan * i
+                        if (abs(cx - barX) > 10.dp.toPx()) {
+                            drawCircle(
+                                color = if (cx < fillWidth) onFillColor else dotColor,
+                                radius = dotRadius,
+                                center = Offset(cx, size.height / 2f),
+                            )
+                        }
+                    }
+                }
+            },
+        )
         Text(
             stringResource(R.string.ask_effort_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-@Composable
-private fun EffortStops(efforts: List<ThinkingEffort>) {
-    Layout(
-        content = {
-            efforts.forEach { effort ->
-                Text(
-                    stringResource(effort.labelRes()),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        modifier = Modifier.fillMaxWidth(),
-    ) { measurables, constraints ->
-        val placeables = measurables.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
-        val width = constraints.maxWidth
-        val inset = EffortTrackCorner.roundToPx()
-        val span = (width - inset * 2).coerceAtLeast(0)
-        val height = placeables.maxOfOrNull { it.height } ?: 0
-        layout(width, height) {
-            placeables.forEachIndexed { index, placeable ->
-                val stop = inset + span * index / (placeables.size - 1).coerceAtLeast(1)
-                val x = (stop - placeable.width / 2).coerceIn(0, (width - placeable.width).coerceAtLeast(0))
-                placeable.placeRelative(x, 0)
-            }
-        }
     }
 }

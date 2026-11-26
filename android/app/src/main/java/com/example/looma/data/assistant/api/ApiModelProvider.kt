@@ -4,17 +4,19 @@ import com.example.looma.data.assistant.AnswerModel
 import com.example.looma.data.assistant.ApiConnection
 import com.example.looma.data.assistant.ConnectionStatus
 import com.example.looma.data.assistant.GenerationMeta
-import com.example.looma.data.assistant.GenerationOutcome
 import com.example.looma.data.assistant.GeneratorAvailability
 import com.example.looma.data.assistant.InferenceOrigin
 import com.example.looma.data.assistant.InferenceRoute
+import com.example.looma.data.assistant.LlmBackendProvider
 import com.example.looma.data.assistant.ModelSource
 import com.example.looma.data.assistant.ThinkingEffort
 import com.example.looma.data.assistant.apiModelId
-import com.example.looma.data.assistant.runtime.LlmBackendProvider
 import com.example.looma.data.assistant.runtime.LlmGenerateRequest
+import com.example.looma.data.assistant.runtime.LlmResult
 import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
 import com.example.looma.data.assistant.runtime.LlmStreamChunk
+import com.example.looma.data.assistant.toLlmError
+import com.example.looma.data.assistant.toLlmMetadata
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,14 +30,14 @@ import kotlinx.coroutines.flow.stateIn
 internal class ApiRuntimeBackend(
     private val connection: ApiConnection,
     override val modelId: String,
+    override val sessionKey: String,
     private val client: KtorApiClient,
 ) : LlmRuntimeBackend {
-    override val origin: InferenceOrigin = InferenceOrigin.Cloud
     override val contextBudgetChars: Int = 24_000
     override val maxContextTokens: Int = 32_768
     override val supportsStatefulSession: Boolean = false
 
-    override suspend fun generate(request: LlmGenerateRequest): GenerationOutcome<String> =
+    override suspend fun generate(request: LlmGenerateRequest): LlmResult<String> =
         when (
             val result = client.generate(
                 connection = connection,
@@ -46,22 +48,22 @@ internal class ApiRuntimeBackend(
                 responseMimeType = request.responseMimeType,
             )
         ) {
-            is ApiResult.Success -> GenerationOutcome.Success(
+            is ApiResult.Success -> LlmResult.Success(
                 value = result.value,
-                meta = GenerationMeta(InferenceOrigin.Cloud),
+                metadata = GenerationMeta(InferenceOrigin.Cloud).toLlmMetadata(),
             )
-            is ApiResult.Failure -> GenerationOutcome.Failure(result.error)
+            is ApiResult.Failure -> LlmResult.Failure(result.error.toLlmError())
         }
 
-    override fun generateStream(request: LlmGenerateRequest): Flow<GenerationOutcome<LlmStreamChunk>> = flow {
+    override fun generateStream(request: LlmGenerateRequest): Flow<LlmResult<LlmStreamChunk>> = flow {
         when (val outcome = generate(request)) {
-            is GenerationOutcome.Success -> emit(
-                GenerationOutcome.Success(
+            is LlmResult.Success -> emit(
+                LlmResult.Success(
                     value = LlmStreamChunk(text = outcome.value, done = true),
-                    meta = outcome.meta,
+                    metadata = outcome.metadata,
                 ),
             )
-            is GenerationOutcome.Failure -> emit(outcome)
+            is LlmResult.Failure -> emit(outcome)
         }
     }
 }
@@ -76,13 +78,13 @@ internal class ApiModelProvider(
             .map(::toAnswerModels)
             .stateIn(scope, SharingStarted.Eagerly, toAnswerModels(connections.value))
 
-    override fun backend(model: AnswerModel): LlmRuntimeBackend? {
+    override fun backend(model: AnswerModel, route: InferenceRoute?): LlmRuntimeBackend? {
         for (connection in connections.value) {
             if (connection.baseUrl.isBlank()) continue
             val match = connection.models.firstOrNull { apiModel ->
                 apiModel.enabled && apiModelId(connection.id, apiModel.id) == model.id
             } ?: continue
-            return ApiRuntimeBackend(connection, match.id, client)
+            return ApiRuntimeBackend(connection, match.id, model.id, client)
         }
         return null
     }

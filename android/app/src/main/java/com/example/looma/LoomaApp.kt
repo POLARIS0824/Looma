@@ -5,9 +5,15 @@ import com.example.looma.data.assistant.AnswerModels
 import com.example.looma.data.assistant.LocalGenerator
 import com.example.looma.data.assistant.LoomaModelSettingsRepository
 import com.example.looma.data.assistant.ModelSettingsRepository
-import com.example.looma.data.assistant.VaultAgent
 import com.example.looma.data.assistant.VaultEvidence
 import com.example.looma.data.assistant.WeaveFeedbackStore
+import com.example.looma.data.assistant.runtime.AgentRuntimeExecutor
+import com.example.looma.data.assistant.runtime.DefaultAgentRuntimeExecutor
+import com.example.looma.data.assistant.sessions.DefaultLlmSessionManager
+import com.example.looma.data.assistant.sessions.LlmSessionManager
+import com.example.looma.data.assistant.tools.DefaultToolsProvider
+import com.example.looma.data.assistant.tools.SemanticSearchTool
+import com.example.looma.data.assistant.tools.ToolsProvider
 import com.example.looma.data.assistant.api.ApiConnectionStore
 import com.example.looma.data.assistant.api.ApiModelProvider
 import com.example.looma.data.assistant.api.KtorApiClient
@@ -80,10 +86,17 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     internal val answerModels by lazy {
         AnswerModels(
             listOf(firebaseHybridModelProvider, localGenerator, apiModelProvider),
-            localImporter = localGenerator::install,
         )
     }
-    internal val vaultAgent by lazy { VaultAgent(evidence) }
+    internal val llmSessionManager: LlmSessionManager by lazy { DefaultLlmSessionManager() }
+    internal val agentRuntimeExecutor: AgentRuntimeExecutor by lazy {
+        DefaultAgentRuntimeExecutor(sessionManager = llmSessionManager)
+    }
+    internal val askToolsProvider: ToolsProvider by lazy {
+        DefaultToolsProvider(
+            listOf(SemanticSearchTool(semanticSearchRepository, vaultRepository, noteRepository)),
+        )
+    }
     val folderRepository by lazy { FolderRepository(noteRepository) }
     val imageUploader by lazy { ImageUploader(this, vaultRepository, httpClient) }
     val syncRepository by lazy {

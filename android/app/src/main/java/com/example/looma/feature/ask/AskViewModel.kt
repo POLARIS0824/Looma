@@ -1,23 +1,27 @@
 package com.example.looma.feature.ask
 
-import com.example.looma.data.note.NoteRepository
-import com.example.looma.data.settings.SettingsRepository
-import com.example.looma.domain.model.NoteId
-import com.example.looma.domain.wiki.LocalNoteLink
-import com.example.looma.domain.wiki.wikiPathOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.looma.data.assistant.AnswerModel
 import com.example.looma.data.assistant.AnswerModels
-import com.example.looma.data.assistant.Evidence
+import com.example.looma.data.assistant.GenerationError
+import com.example.looma.data.assistant.GenerationMeta
 import com.example.looma.data.assistant.GeneratorAvailability
 import com.example.looma.data.assistant.InferenceRoute
 import com.example.looma.data.assistant.ModelChoice
 import com.example.looma.data.assistant.ThinkingEffort
-import com.example.looma.data.assistant.VaultAgent
-import com.example.looma.data.assistant.VaultAnswer
-import com.example.looma.data.assistant.VaultEvidence
+import com.example.looma.data.assistant.runtime.AgentEvent
+import com.example.looma.data.assistant.runtime.AgentRequest
+import com.example.looma.data.assistant.runtime.AgentRuntimeExecutor
+import com.example.looma.data.assistant.sessions.CompactionResult
+import com.example.looma.data.assistant.toGenerationError
+import com.example.looma.data.assistant.toGenerationMeta
+import com.example.looma.data.assistant.tools.ToolsProvider
+import com.example.looma.data.note.NoteRepository
+import com.example.looma.data.settings.SettingsRepository
+import com.example.looma.domain.model.NoteId
 import com.example.looma.domain.model.Vault
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -27,10 +31,30 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-internal enum class AskIssue { Run, Timeout, Changed, Save }
+internal enum class AskIssue { Run, Timeout, NoModel, Save }
+
+internal enum class ChatRole { User, Assistant }
+
+internal data class ChatMessage(
+    val id: String = UUID.randomUUID().toString(),
+    val role: ChatRole,
+    val text: String,
+    val thinking: String = "",
+    val isStreaming: Boolean = false,
+    val meta: GenerationMeta? = null,
+    val error: GenerationError? = null,
+    val savedNoteId: NoteId? = null,
+)
+
+internal sealed interface AskStatus {
+    data object Thinking : AskStatus
+    data class ToolCalling(val toolName: String) : AskStatus
+    data object Compacting : AskStatus
+}
+
 internal sealed interface AskPhase {
     data object Idle : AskPhase
-    data class Running(val step: String = "") : AskPhase
+    data class Running(val status: AskStatus = AskStatus.Thinking) : AskPhase
     data object Saving : AskPhase
 }
 
@@ -38,10 +62,9 @@ internal data class AskState(
     val vaultName: String,
     val models: List<AnswerModel>,
     val choice: ModelChoice?,
+    val messages: List<ChatMessage> = emptyList(),
     val phase: AskPhase = AskPhase.Idle,
-    val answer: VaultAnswer? = null,
-    val question: String = "",
-    val saved: NoteId? = null,
+    val compactionNotice: CompactionResult? = null,
     val issue: AskIssue? = null,
 ) {
     val busy: Boolean get() = phase != AskPhase.Idle
@@ -50,15 +73,17 @@ internal data class AskState(
 
 internal class AskViewModel(
     private val vault: Vault,
-    private val agent: VaultAgent,
-    private val evidence: VaultEvidence,
+    private val executor: AgentRuntimeExecutor,
+    private val tools: ToolsProvider,
     private val models: AnswerModels,
     private val notes: NoteRepository,
     private val settings: SettingsRepository,
 ) : ViewModel() {
-    private val mutable = MutableStateFlow(models.installed().let { installed ->
-        AskState(vault.name, installed, restoredChoice(installed, null, null, null))
-    })
+    private val mutable = MutableStateFlow(
+        models.installed().let { installed ->
+            AskState(vault.name, installed, restoredChoice(installed, null, null, null))
+        },
+    )
     val state = mutable.asStateFlow()
     private var task: Job? = null
     private var picked = false
@@ -67,7 +92,11 @@ internal class AskViewModel(
         viewModelScope.launch {
             val stored = settings.settings.first()
             mutable.update { current ->
-                if (picked) current else current.copy(choice = restoredChoice(current.models, stored.askModelId, stored.askEffort, stored.askRoute))
+                if (picked) {
+                    current
+                } else {
+                    current.copy(choice = restoredChoice(current.models, stored.askModelId, stored.askEffort, stored.askRoute))
+                }
             }
             models.models.collect { installed ->
                 mutable.update { current ->
@@ -136,70 +165,221 @@ internal class AskViewModel(
         viewModelScope.launch { settings.setAskModel(choice) }
     }
 
-    fun ask(question: String) = start(AskPhase.Running(), AskIssue.Run) {
-        mutable.update { it.copy(answer = null, question = question, saved = null) }
-        val choice = mutable.value.choice
-        val answer = agent.answer(
-            vault,
-            question.trim(),
-            choice?.let { models.backend(it.model) },
-            choice?.effort ?: ThinkingEffort.Off,
-            choice?.route,
-        ) { step ->
-            mutable.update { it.copy(phase = AskPhase.Running(step)) }
-        }
-        mutable.update { it.copy(answer = answer) }
+    fun ask(question: String) {
+        val trimmed = question.trim()
+        if (trimmed.isEmpty() || mutable.value.busy) return
+        sendTurn(trimmed, appendUserMessage = true)
     }
 
     fun retry() {
-        val question = mutable.value.question
-        if (question.isNotBlank()) ask(question)
-    }
-
-    fun newChat() = mutable.update {
-        if (it.busy) it else it.copy(question = "", answer = null, saved = null, issue = null)
-    }
-
-    fun open(hit: Evidence, navigate: (Evidence) -> Unit) = start(AskPhase.Running(), AskIssue.Changed) {
-        val current = evidence.resolve(vault, hit)
-        if (current == null) mutable.update { it.copy(issue = AskIssue.Changed) } else navigate(current)
-    }
-
-    fun save(title: String, markdown: String) = start(AskPhase.Saving, AskIssue.Save) {
-        val current = mutable.value
-        if (current.saved != null || title.isBlank()) return@start
-        val answer = current.answer ?: return@start
-        val cited = answer.claims.flatMap { it.citations }.distinct()
-        if (answer.claims.isEmpty() || cited.any { evidence.resolve(vault, answer.sources[it - 1]) == null }) {
-            mutable.update { it.copy(issue = AskIssue.Changed) }
-            return@start
+        if (mutable.value.busy) return
+        val messages = mutable.value.messages
+        val lastUser = messages.lastOrNull { it.role == ChatRole.User } ?: return
+        val trimmedList = if (messages.lastOrNull()?.role == ChatRole.Assistant) {
+            messages.dropLast(1)
+        } else {
+            messages
         }
-        val note = notes.createWithContent(vault, title, markdown)
-        mutable.update { it.copy(saved = note.id) }
+        mutable.update { it.copy(messages = trimmedList, issue = null) }
+        sendTurn(lastUser.text, appendUserMessage = false)
     }
 
-    fun cancel() { if (!mutable.value.saving) task?.cancel() }
+    private fun sendTurn(question: String, appendUserMessage: Boolean) {
+        val choice = mutable.value.choice
+        val backend = choice?.let { models.backend(it) }
+        if (backend == null) {
+            mutable.update { it.copy(issue = AskIssue.NoModel) }
+            return
+        }
 
-    private fun start(phase: AskPhase, failure: AskIssue, action: suspend () -> Unit) {
+        val assistantId = UUID.randomUUID().toString()
+        mutable.update { current ->
+            val updated = buildList {
+                addAll(current.messages)
+                if (appendUserMessage) {
+                    add(ChatMessage(role = ChatRole.User, text = question))
+                }
+                add(ChatMessage(id = assistantId, role = ChatRole.Assistant, text = "", isStreaming = true))
+            }
+            current.copy(messages = updated, issue = null)
+        }
+
+        val maxSteps = 2 + choice.effort.investigationSteps * 2
+        val request = AgentRequest(
+            question = question,
+            systemInstruction = buildSystemInstruction(vault.name),
+            maxSteps = maxSteps,
+        )
+
+        start(AskPhase.Running(AskStatus.Thinking), AskIssue.Run, assistantId) {
+            executor.executeStream(backend, request, tools).collect { event ->
+                when (event) {
+                    AgentEvent.LoopInitiated -> {
+                        mutable.update { it.copy(phase = AskPhase.Running(AskStatus.Thinking)) }
+                    }
+                    is AgentEvent.StepStarted -> {
+                        mutable.update { it.copy(phase = AskPhase.Running(AskStatus.Thinking)) }
+                    }
+                    is AgentEvent.StreamToken -> {
+                        updateAssistant(assistantId) { msg ->
+                            msg.copy(
+                                text = msg.text + event.token,
+                                thinking = msg.thinking + event.thinking,
+                                isStreaming = true,
+                            )
+                        }
+                    }
+                    is AgentEvent.ToolCallStarted -> {
+                        mutable.update {
+                            it.copy(phase = AskPhase.Running(AskStatus.ToolCalling(event.toolName)))
+                        }
+                    }
+                    is AgentEvent.ToolCallFinished -> {
+                        mutable.update { it.copy(phase = AskPhase.Running(AskStatus.Thinking)) }
+                    }
+                    is AgentEvent.ContextCompacted -> {
+                        if (event.result.compacted) {
+                            mutable.update {
+                                it.copy(
+                                    phase = AskPhase.Running(AskStatus.Compacting),
+                                    compactionNotice = event.result,
+                                )
+                            }
+                        }
+                    }
+                    is AgentEvent.LoopTerminated -> {
+                        updateAssistant(assistantId) { msg ->
+                            msg.copy(
+                                text = event.response.text.ifBlank { msg.text },
+                                isStreaming = false,
+                                meta = event.response.metadata.toGenerationMeta(),
+                            )
+                        }
+                    }
+                    AgentEvent.LoopCancelled -> {
+                        finalizeCancelledAssistant(assistantId)
+                    }
+                    is AgentEvent.Error -> {
+                        updateAssistant(assistantId) { msg ->
+                            msg.copy(isStreaming = false, error = event.error.toGenerationError())
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun newChat() {
+        if (mutable.value.saving) return
+        val runningTask = task
+        task = null
+        runningTask?.cancel()
+        viewModelScope.launch {
+            executor.interrupt()
+            executor.resetSession()
+            mutable.update {
+                it.copy(
+                    messages = emptyList(),
+                    phase = AskPhase.Idle,
+                    compactionNotice = null,
+                    issue = null,
+                )
+            }
+        }
+    }
+
+    fun saveMessage(messageId: String, title: String) {
+        val current = mutable.value
+        if (current.busy || title.isBlank()) return
+        val message = current.messages.firstOrNull { it.id == messageId && it.role == ChatRole.Assistant } ?: return
+        if (message.savedNoteId != null || message.text.isBlank()) return
+        start(AskPhase.Saving, AskIssue.Save) {
+            val note = notes.createWithContent(vault, title, message.text)
+            updateAssistant(messageId) { it.copy(savedNoteId = note.id) }
+        }
+    }
+
+    fun cancel() {
+        if (mutable.value.saving) return
+        val runningTask = task
+        task = null
+        runningTask?.cancel()
+        viewModelScope.launch {
+            executor.interrupt()
+            mutable.update { current ->
+                val cleaned = current.messages.mapNotNull { msg ->
+                    if (!msg.isStreaming) msg
+                    else if (msg.text.isBlank()) null
+                    else msg.copy(isStreaming = false)
+                }
+                current.copy(messages = cleaned, phase = AskPhase.Idle)
+            }
+        }
+    }
+
+    private fun updateAssistant(assistantId: String, transform: (ChatMessage) -> ChatMessage) {
+        mutable.update { current ->
+            current.copy(
+                messages = current.messages.map { msg ->
+                    if (msg.id == assistantId) transform(msg) else msg
+                },
+            )
+        }
+    }
+
+    private fun finalizeCancelledAssistant(assistantId: String) {
+        mutable.update { current ->
+            val updated = current.messages.mapNotNull { msg ->
+                if (msg.id != assistantId) msg
+                else if (msg.text.isBlank()) null
+                else msg.copy(isStreaming = false)
+            }
+            current.copy(messages = updated)
+        }
+    }
+
+    private fun start(
+        phase: AskPhase,
+        failure: AskIssue,
+        streamingAssistantId: String? = null,
+        action: suspend () -> Unit,
+    ) {
         if (task?.isActive == true) return
         task = viewModelScope.launch {
             mutable.update { it.copy(phase = phase, issue = null) }
             try {
                 action()
             } catch (_: TimeoutCancellationException) {
+                streamingAssistantId?.let(::finalizeCancelledAssistant)
                 mutable.update { it.copy(issue = AskIssue.Timeout) }
             } catch (cancel: CancellationException) {
+                streamingAssistantId?.let(::finalizeCancelledAssistant)
                 throw cancel
             } catch (_: Exception) {
-                mutable.update { it.copy(issue = failure) }
+                streamingAssistantId?.let { id ->
+                    updateAssistant(id) { it.copy(isStreaming = false, error = it.error ?: GenerationError.Failed()) }
+                }
+                if (streamingAssistantId == null) {
+                    mutable.update { it.copy(issue = failure) }
+                }
             } catch (_: LinkageError) {
-                mutable.update { it.copy(issue = failure) }
+                streamingAssistantId?.let { id ->
+                    updateAssistant(id) { it.copy(isStreaming = false, error = it.error ?: GenerationError.Failed()) }
+                }
+                if (streamingAssistantId == null) {
+                    mutable.update { it.copy(issue = failure) }
+                }
             } finally {
                 mutable.update { it.copy(phase = AskPhase.Idle) }
             }
         }
     }
 }
+
+private fun buildSystemInstruction(vaultName: String): String =
+    "You are Looma, a helpful assistant for the user's personal Markdown note vault \"$vaultName\". " +
+        "Respond naturally in the user's language using clear Markdown. " +
+        "When the user's question may depend on their notes, use the available search_vault tool to look up relevant passages and cite note paths when referencing them."
 
 private fun restoredChoice(
     installed: List<AnswerModel>,
@@ -216,38 +396,4 @@ private fun restoredChoice(
     val storedRoute = InferenceRoute.entries.firstOrNull { it.name == routeName }
     val route = storedRoute?.takeIf { it in model.supportedRoutes } ?: model.defaultRoute
     return ModelChoice(model, effort, route)
-}
-
-internal fun VaultAnswer.asMarkdown(question: String, sourcesTitle: String): String = buildString {
-    appendLine("# " + escapeMarkdown(question))
-    for (claim in claims) {
-        appendLine()
-        append(escapeMarkdown(claim.text))
-        if (claim.citations.isNotEmpty()) {
-            append(claim.citations.joinToString(" ", prefix = " ") { "[$it]" })
-        }
-        appendLine()
-    }
-    val cited = claims.flatMap { it.citations }.distinct().sorted()
-    if (cited.isNotEmpty()) {
-        appendLine()
-        appendLine("## $sourcesTitle")
-        cited.forEach { number ->
-            val source = sources[number - 1]
-            val path = wikiPathOf(source.id.path)
-            val link = if (path.none { it in "[]#|\r\n" }) "[[$path]]" else {
-                "[" + escapeMarkdown(path) + "](<" + LocalNoteLink.fromRoot(source.id.path) + ">)"
-            }
-            appendLine()
-            appendLine("[$number] $link")
-            source.text.lineSequence().forEach { appendLine("> " + escapeMarkdown(it)) }
-        }
-    }
-}
-
-private fun escapeMarkdown(text: String): String = buildString {
-    text.forEach { ch ->
-        if (ch in "\\`*_{}[]<>()#+-.!|~>") append('\\')
-        append(ch)
-    }
 }
