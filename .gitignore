@@ -12,3 +12,5 @@ android/.idea/
 .agents/tasks/*
 
 *.html
+*.mp4
+weave-test-vault/
