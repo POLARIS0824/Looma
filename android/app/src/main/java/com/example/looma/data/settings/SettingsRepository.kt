@@ -32,14 +32,27 @@ class SettingsRepository(
                     ?: ImageUploadTarget.LocalAttachment,
                 imageBed = S3ImageBedConfig(
                     endpoint = data.s3Endpoint.orEmpty(),
-                    region = data.s3Region.orEmpty(),
+                    region = data.s3Region?.takeIf { it.isNotBlank() } ?: "auto",
                     bucket = data.s3Bucket.orEmpty(),
                     accessKey = data.s3AccessKey.orEmpty(),
                     secretKey = data.s3SecretKey.orEmpty(),
                     pathPrefix = data.s3PathPrefix.orEmpty(),
                     publicBaseUrl = data.s3PublicBaseUrl.orEmpty(),
                     pathStyle = data.s3PathStyle ?: true,
-                    publicRead = data.s3PublicRead ?: true,
+                    publicRead = data.s3PublicRead ?: false,
+                    namingTemplate = data.s3NamingTemplate?.takeIf { it.isNotBlank() }
+                        ?: S3ImageBedConfig.DEFAULT_NAMING_TEMPLATE,
+                    linkFormat = data.s3LinkFormat
+                        ?.let { stored -> ImageLinkFormat.entries.firstOrNull { it.name == stored } }
+                        ?: ImageLinkFormat.Markdown,
+                    customLinkTemplate = data.s3CustomLinkTemplate ?: S3ImageBedConfig.DEFAULT_CUSTOM_LINK_TEMPLATE,
+                    urlSuffix = data.s3UrlSuffix.orEmpty(),
+                    encodeUrl = data.s3EncodeUrl ?: true,
+                    overwriteExisting = data.s3OverwriteExisting ?: true,
+                    compressEnabled = data.s3CompressEnabled ?: false,
+                    compressQuality = (data.s3CompressQuality ?: S3ImageBedConfig.DEFAULT_COMPRESS_QUALITY)
+                        .coerceIn(10, 100),
+                    convertToWebp = data.s3ConvertToWebp ?: false,
                 ),
                 embeddingBackend = data.embeddingBackend
                     ?.let { stored -> EmbeddingBackend.entries.firstOrNull { it.name == stored } }
@@ -88,6 +101,10 @@ class SettingsRepository(
 
     suspend fun setS3ImageBed(config: S3ImageBedConfig) {
         preferences.saveS3ImageBed(config)
+    }
+
+    suspend fun updateS3ImageBedOptions(transform: (S3ImageBedConfig) -> S3ImageBedConfig) {
+        preferences.updateS3ImageBedOptions(transform)
     }
 
     suspend fun setSyncConfig(config: S3SyncConfig) {

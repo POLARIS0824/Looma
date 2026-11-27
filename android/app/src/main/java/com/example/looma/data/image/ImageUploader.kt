@@ -2,15 +2,12 @@ package com.example.looma.data.image
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.example.looma.data.note.encodeWikiImagePath
 import com.example.looma.data.note.hasOtherAttachmentNamed
 import com.example.looma.data.note.invalidateAttachmentIndex
 import com.example.looma.data.note.resolveImageSource
 import com.example.looma.data.note.writeBytesAtomically
-import com.example.looma.data.s3.S3Client
-import com.example.looma.data.s3.S3EndpointConfig
-import com.example.looma.data.s3.S3ErrorKind
-import com.example.looma.data.s3.S3Exception
 import com.example.looma.data.s3.createLoomaHttpClient
 import com.example.looma.data.settings.AppSettings
 import com.example.looma.data.settings.ImageUploadTarget
@@ -31,7 +28,11 @@ import kotlinx.coroutines.withContext
 
 sealed interface ImageUpload {
     data class Attachment(val fileName: String) : ImageUpload
-    data class Remote(val url: String) : ImageUpload
+    data class Remote(
+        val url: String,
+        val snippet: String = "![]($url)",
+        val objectKey: String = "",
+    ) : ImageUpload
 }
 
 enum class ImageUploadFailure {
@@ -57,17 +58,31 @@ class ImageUploader(
 ) {
 
     suspend fun upload(uri: Uri, settings: AppSettings, notePath: NotePath? = null): ImageUpload = withContext(Dispatchers.IO) {
-        val mimeType = context.contentResolver.getType(uri).orEmpty().lowercase()
-        val extension = extensionFor(mimeType)
-            ?: throw ImageUploadException(ImageUploadFailure.UnsupportedImage)
+        val mimeType = context.contentResolver.getType(uri)
+        val displayName = queryDisplayName(uri)
         val bytes = readBytes(uri)
-        val stem = sha256Hex(bytes).take(16)
-        val fileName = "$stem.$extension"
+        val detected = ImageFormatSniffer.detect(mimeType, bytes, displayName)
+            ?: throw ImageUploadException(ImageUploadFailure.UnsupportedImage)
         when (settings.imageUploadTarget) {
-            ImageUploadTarget.LocalAttachment -> saveAttachment(stem, extension, bytes, notePath)
-            ImageUploadTarget.ImageBed -> uploadToImageBed(settings.imageBed, fileName, mimeType, bytes)
+            ImageUploadTarget.LocalAttachment -> {
+                val stem = sha256Hex(bytes).take(16)
+                saveAttachment(stem, detected.extension, bytes, notePath)
+            }
+            ImageUploadTarget.ImageBed -> {
+                val noteName = notePath?.relativePath?.substringAfterLast('/')?.substringBeforeLast('.')
+                ImageBedUploader(httpClient, AndroidImageCompressor()).uploadBytes(
+                    config = settings.imageBed,
+                    bytes = bytes,
+                    mimeType = mimeType,
+                    originalFileName = displayName,
+                    noteName = noteName,
+                )
+            }
         }
     }
+
+    suspend fun testImageBedConnection(config: S3ImageBedConfig): Result<Unit> =
+        ImageBedUploader(httpClient).testConnection(config)
 
     private suspend fun saveAttachment(
         stem: String,
@@ -92,43 +107,22 @@ class ImageUploader(
         }
     }
 
-    private suspend fun uploadToImageBed(
-        config: S3ImageBedConfig,
-        fileName: String,
-        mimeType: String,
-        bytes: ByteArray,
-    ): ImageUpload {
-        if (!config.isConfigured) throw ImageUploadException(ImageUploadFailure.NotConfigured)
-        val key = listOf(config.pathPrefix.trim().trim('/'), fileName)
-            .filter { it.isNotEmpty() }
-            .joinToString("/")
-        val endpointConfig = S3EndpointConfig(
-            endpoint = config.endpoint,
-            region = config.region,
-            bucket = config.bucket,
-            accessKey = config.accessKey,
-            secretKey = config.secretKey,
-            pathStyle = config.pathStyle,
-        )
-        val extraHeaders = if (config.publicRead) mapOf("x-amz-acl" to "public-read") else emptyMap()
-        try {
-            S3Client(httpClient).uploadBytes(
-                config = endpointConfig,
-                objectKey = key,
-                bytes = bytes,
-                contentType = mimeType,
-                extraHeaders = extraHeaders,
-            )
-        } catch (e: S3Exception) {
-            val failure = when (e.kind) {
-                S3ErrorKind.InvalidConfig -> ImageUploadFailure.NotConfigured
-                S3ErrorKind.Network -> ImageUploadFailure.Network
-                else -> ImageUploadFailure.Rejected
+    private fun queryDisplayName(uri: Uri): String? = runCatching {
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) cursor.getString(index)?.takeIf { it.isNotBlank() } else null
+            } else {
+                null
             }
-            throw ImageUploadException(failure, e.message, e)
         }
-        return ImageUpload.Remote(S3Signer.objectUrl(config, key))
-    }
+    }.getOrNull()
 
     private fun readBytes(uri: Uri): ByteArray {
         val stream = try {
@@ -151,15 +145,6 @@ class ImageUploader(
             }
             output.toByteArray()
         }
-    }
-
-    private fun extensionFor(mimeType: String): String? = when (mimeType) {
-        "image/png" -> "png"
-        "image/jpeg", "image/jpg" -> "jpg"
-        "image/webp" -> "webp"
-        "image/gif" -> "gif"
-        "image/bmp", "image/x-ms-bmp" -> "bmp"
-        else -> null
     }
 
     private fun sha256Hex(bytes: ByteArray): String =

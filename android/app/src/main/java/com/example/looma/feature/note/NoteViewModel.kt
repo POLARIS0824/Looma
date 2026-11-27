@@ -239,7 +239,7 @@ class NoteViewModel(
                 val upload = imageUploader.upload(uri, settings, currentId.path)
                 val snippet = when (upload) {
                     is ImageUpload.Attachment -> "![[${upload.fileName}]]"
-                    is ImageUpload.Remote -> "![](${upload.url})"
+                    is ImageUpload.Remote -> upload.snippet
                 }
                 _uiState.update {
                     it.copy(

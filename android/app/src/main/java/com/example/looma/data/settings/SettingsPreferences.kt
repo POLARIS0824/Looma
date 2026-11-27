@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,15 @@ data class SettingsPreferencesData(
     val s3PublicBaseUrl: String?,
     val s3PathStyle: Boolean?,
     val s3PublicRead: Boolean?,
+    val s3NamingTemplate: String? = null,
+    val s3LinkFormat: String? = null,
+    val s3CustomLinkTemplate: String? = null,
+    val s3UrlSuffix: String? = null,
+    val s3EncodeUrl: Boolean? = null,
+    val s3OverwriteExisting: Boolean? = null,
+    val s3CompressEnabled: Boolean? = null,
+    val s3CompressQuality: Int? = null,
+    val s3ConvertToWebp: Boolean? = null,
     val embeddingBackend: String?,
     val s3CredentialsUnavailable: Boolean = false,
     val syncEndpoint: String? = null,
@@ -50,9 +60,10 @@ data class SettingsPreferencesData(
     val askRoute: String? = null,
 )
 
-class SettingsPreferences(context: Context) {
-
-    private val dataStore = context.applicationContext.settingsDataStore
+class SettingsPreferences internal constructor(
+    private val dataStore: DataStore<Preferences>,
+) {
+    constructor(context: Context) : this(context.applicationContext.settingsDataStore)
 
     val settingsDataFlow: Flow<SettingsPreferencesData> =
         dataStore.data
@@ -87,6 +98,15 @@ class SettingsPreferences(context: Context) {
                     s3PublicBaseUrl = preferences[KEY_S3_PUBLIC_BASE_URL],
                     s3PathStyle = preferences[KEY_S3_PATH_STYLE],
                     s3PublicRead = preferences[KEY_S3_PUBLIC_READ],
+                    s3NamingTemplate = preferences[KEY_S3_NAMING_TEMPLATE],
+                    s3LinkFormat = preferences[KEY_S3_LINK_FORMAT],
+                    s3CustomLinkTemplate = preferences[KEY_S3_CUSTOM_LINK_TEMPLATE],
+                    s3UrlSuffix = preferences[KEY_S3_URL_SUFFIX],
+                    s3EncodeUrl = preferences[KEY_S3_ENCODE_URL],
+                    s3OverwriteExisting = preferences[KEY_S3_OVERWRITE_EXISTING],
+                    s3CompressEnabled = preferences[KEY_S3_COMPRESS_ENABLED],
+                    s3CompressQuality = preferences[KEY_S3_COMPRESS_QUALITY],
+                    s3ConvertToWebp = preferences[KEY_S3_CONVERT_TO_WEBP],
                     embeddingBackend = preferences[KEY_EMBEDDING_BACKEND],
                     s3CredentialsUnavailable = encryptedCredentials != null && credentials == null,
                     syncEndpoint = preferences[KEY_SYNC_S3_ENDPOINT],
@@ -187,8 +207,49 @@ class SettingsPreferences(context: Context) {
             it[KEY_S3_PUBLIC_BASE_URL] = config.publicBaseUrl
             it[KEY_S3_PATH_STYLE] = config.pathStyle
             it[KEY_S3_PUBLIC_READ] = config.publicRead
+            it[KEY_S3_NAMING_TEMPLATE] = config.namingTemplate
+            it[KEY_S3_LINK_FORMAT] = config.linkFormat.name
+            it[KEY_S3_CUSTOM_LINK_TEMPLATE] = config.customLinkTemplate
+            it[KEY_S3_URL_SUFFIX] = config.urlSuffix
+            it[KEY_S3_ENCODE_URL] = config.encodeUrl
+            it[KEY_S3_OVERWRITE_EXISTING] = config.overwriteExisting
+            it[KEY_S3_COMPRESS_ENABLED] = config.compressEnabled
+            it[KEY_S3_COMPRESS_QUALITY] = config.compressQuality
+            it[KEY_S3_CONVERT_TO_WEBP] = config.convertToWebp
         }
     }
+
+    suspend fun updateS3ImageBedOptions(transform: (S3ImageBedConfig) -> S3ImageBedConfig): Unit =
+        withContext(Dispatchers.IO) {
+            dataStore.edit { prefs ->
+                val current = S3ImageBedConfig(
+                    namingTemplate = prefs[KEY_S3_NAMING_TEMPLATE]?.takeIf { it.isNotBlank() }
+                        ?: S3ImageBedConfig.DEFAULT_NAMING_TEMPLATE,
+                    linkFormat = prefs[KEY_S3_LINK_FORMAT]
+                        ?.let { stored -> ImageLinkFormat.entries.firstOrNull { it.name == stored } }
+                        ?: ImageLinkFormat.Markdown,
+                    customLinkTemplate = prefs[KEY_S3_CUSTOM_LINK_TEMPLATE]
+                        ?: S3ImageBedConfig.DEFAULT_CUSTOM_LINK_TEMPLATE,
+                    urlSuffix = prefs[KEY_S3_URL_SUFFIX].orEmpty(),
+                    encodeUrl = prefs[KEY_S3_ENCODE_URL] ?: true,
+                    overwriteExisting = prefs[KEY_S3_OVERWRITE_EXISTING] ?: true,
+                    compressEnabled = prefs[KEY_S3_COMPRESS_ENABLED] ?: false,
+                    compressQuality = (prefs[KEY_S3_COMPRESS_QUALITY]
+                        ?: S3ImageBedConfig.DEFAULT_COMPRESS_QUALITY).coerceIn(10, 100),
+                    convertToWebp = prefs[KEY_S3_CONVERT_TO_WEBP] ?: false,
+                )
+                val updated = transform(current)
+                prefs[KEY_S3_NAMING_TEMPLATE] = updated.namingTemplate
+                prefs[KEY_S3_LINK_FORMAT] = updated.linkFormat.name
+                prefs[KEY_S3_CUSTOM_LINK_TEMPLATE] = updated.customLinkTemplate
+                prefs[KEY_S3_URL_SUFFIX] = updated.urlSuffix
+                prefs[KEY_S3_ENCODE_URL] = updated.encodeUrl
+                prefs[KEY_S3_OVERWRITE_EXISTING] = updated.overwriteExisting
+                prefs[KEY_S3_COMPRESS_ENABLED] = updated.compressEnabled
+                prefs[KEY_S3_COMPRESS_QUALITY] = updated.compressQuality
+                prefs[KEY_S3_CONVERT_TO_WEBP] = updated.convertToWebp
+            }
+        }
 
     suspend fun saveSyncConfig(config: S3SyncConfig): Unit = withContext(Dispatchers.IO) {
         dataStore.edit {
@@ -231,11 +292,20 @@ class SettingsPreferences(context: Context) {
         val KEY_S3_BUCKET = stringPreferencesKey("key_s3_bucket")
         val KEY_S3_ACCESS_KEY = stringPreferencesKey("key_s3_access_key")
         val KEY_S3_SECRET_KEY = stringPreferencesKey("key_s3_secret_key")
-        private val KEY_S3_CREDENTIALS_V1 = stringPreferencesKey("key_s3_credentials_v1")
+        internal val KEY_S3_CREDENTIALS_V1 = stringPreferencesKey("key_s3_credentials_v1")
         val KEY_S3_PATH_PREFIX = stringPreferencesKey("key_s3_path_prefix")
         val KEY_S3_PUBLIC_BASE_URL = stringPreferencesKey("key_s3_public_base_url")
         val KEY_S3_PATH_STYLE = booleanPreferencesKey("key_s3_path_style")
         val KEY_S3_PUBLIC_READ = booleanPreferencesKey("key_s3_public_read")
+        val KEY_S3_NAMING_TEMPLATE = stringPreferencesKey("key_s3_naming_template")
+        val KEY_S3_LINK_FORMAT = stringPreferencesKey("key_s3_link_format")
+        val KEY_S3_CUSTOM_LINK_TEMPLATE = stringPreferencesKey("key_s3_custom_link_template")
+        val KEY_S3_URL_SUFFIX = stringPreferencesKey("key_s3_url_suffix")
+        val KEY_S3_ENCODE_URL = booleanPreferencesKey("key_s3_encode_url")
+        val KEY_S3_OVERWRITE_EXISTING = booleanPreferencesKey("key_s3_overwrite_existing")
+        val KEY_S3_COMPRESS_ENABLED = booleanPreferencesKey("key_s3_compress_enabled")
+        val KEY_S3_COMPRESS_QUALITY = intPreferencesKey("key_s3_compress_quality")
+        val KEY_S3_CONVERT_TO_WEBP = booleanPreferencesKey("key_s3_convert_to_webp")
         val KEY_SYNC_S3_ENDPOINT = stringPreferencesKey("key_sync_s3_endpoint")
         val KEY_SYNC_S3_REGION = stringPreferencesKey("key_sync_s3_region")
         val KEY_SYNC_S3_BUCKET = stringPreferencesKey("key_sync_s3_bucket")
