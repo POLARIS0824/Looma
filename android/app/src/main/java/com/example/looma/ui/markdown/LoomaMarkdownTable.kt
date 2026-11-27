@@ -50,7 +50,7 @@ private data class TableCell(val node: ASTNode, val text: AnnotatedString)
 internal fun LoomaMarkdownTable(
     model: MarkdownComponentModel,
     theme: LoomaMarkdownTheme,
-    compact: Boolean,
+    spec: MarkdownTableSpec,
 ) {
     val settings = annotatorSettings()
     val rows = remember(model.content, model.node, settings) {
@@ -74,16 +74,16 @@ internal fun LoomaMarkdownTable(
     val headerStyle = bodyStyle.copy(fontWeight = FontWeight.Bold)
     val gridColor = theme.colors.dividerColor
     val shape = theme.tableShape
-    val horizontalPadding = if (compact) 6.dp else 8.dp
-    val verticalPadding = if (compact) 4.dp else 8.dp
+    val horizontalPadding = spec.cellHorizontalPadding
+    val verticalPadding = spec.cellVerticalPadding
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer(cacheSize = 0)
     val minimumWidth = with(density) {
-        maxOf(if (compact) 64.dp else 80.dp, bodyStyle.fontSize.toDp() * 4).roundToPx()
+        maxOf(spec.minColumnWidth, bodyStyle.fontSize.toDp() * 4).roundToPx()
     }
-    val preferredWidths = remember(rows, headerStyle, bodyStyle, textMeasurer, minimumWidth, horizontalPadding) {
+    val preferredWidths = remember(rows, headerStyle, bodyStyle, textMeasurer, minimumWidth, horizontalPadding, spec.maxColumnWidth) {
         with(density) {
-            val maxWidth = maxOf(minimumWidth, 240.dp.roundToPx())
+            val maxWidth = maxOf(minimumWidth, spec.maxColumnWidth.roundToPx())
             val padding = horizontalPadding.roundToPx() * 2
             val textConstraints = Constraints(maxWidth = maxOf(0, maxWidth - padding))
             val widths = IntArray(columnCount) { minimumWidth }
@@ -111,14 +111,14 @@ internal fun LoomaMarkdownTable(
             .fillMaxWidth()
             .clip(shape)
             .background(theme.colors.tableBackground)
-            .border(1.dp, gridColor, shape)
+            .border(spec.borderWidth, gridColor, shape)
             .semantics { collectionInfo = CollectionInfo(rows.size, columnCount) },
     ) {
         val viewportWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else preferredWidths.sum()
         val minimumTableWidth = minimumWidth * columnCount
         val tableWidth = when {
             viewportWidth >= minimumTableWidth -> viewportWidth
-            compact -> minimumTableWidth
+            spec.constrainToMinWidth -> minimumTableWidth
             else -> preferredWidths.sum()
         }
         val columnWidths = remember(preferredWidths, minimumWidth, tableWidth) {

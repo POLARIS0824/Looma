@@ -37,7 +37,7 @@ import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.flavours.gfm.GFMElementTypes
 
 @Immutable
-internal class MathRenderState(
+internal data class MathRenderState(
     private val spans: List<MathSpan>,
     private val displays: Map<Int, DisplayList>,
     val fontSize: TextUnit,

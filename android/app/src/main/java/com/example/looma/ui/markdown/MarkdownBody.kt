@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -19,10 +19,7 @@ import com.example.looma.domain.markdown.PreparedMarkdown
 import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.ui.components.pageMargin
 import com.example.looma.ui.theme.LoomaTokens
-import com.mikepenz.markdown.compose.LocalMarkdownInlineContent
 import com.mikepenz.markdown.compose.Markdown
-import com.mikepenz.markdown.compose.MarkdownElement
-import com.mikepenz.markdown.model.markdownInlineContent
 
 @Composable
 internal fun MarkdownBody(
@@ -38,8 +35,10 @@ internal fun MarkdownBody(
     val currentLinkClick = rememberUpdatedState(onWikiLinkClick)
     val currentCheckboxToggle = rememberUpdatedState(onCheckboxToggle)
     val hasCheckboxToggle = onCheckboxToggle != null
+    val layout = MarkdownLayoutPresets.forDensity(MarkdownDensity.Comfortable)
     val theme = loomaMarkdownTheme(
         base = LoomaTokens.type.noteBody,
+        density = MarkdownDensity.Comfortable,
     )
     val accent = MaterialTheme.colorScheme.primary
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
@@ -52,13 +51,19 @@ internal fun MarkdownBody(
     val annotator = remember(math) { mathAnnotator(math) }
     val bodyStart = preview.index.bodyStart
     val components = remember(
+        layout,
         theme.colors.codeBackground,
         theme.colors.inlineCodeBackground,
         theme.colors.dividerColor,
         theme.colors.tableBackground,
         theme.codeShape,
+        theme.codeBorder,
         theme.tableShape,
         theme.tableHeader,
+        theme.blockQuoteContainer,
+        theme.blockQuoteShape,
+        theme.blockQuoteBar,
+        theme.listMarkerColor,
         bodyStart,
         wiki,
         accent,
@@ -68,8 +73,8 @@ internal fun MarkdownBody(
         checkedText,
     ) {
         loomaMarkdownComponents(
+            layout = layout,
             theme = theme,
-            compact = false,
             bodyStart = bodyStart,
             onCheckboxToggle = if (hasCheckboxToggle) { pos, checked ->
                 currentCheckboxToggle.value?.invoke(pos, checked)
@@ -85,38 +90,42 @@ internal fun MarkdownBody(
         )
     }
 
-    Markdown(
-        state = preview.state,
-        imageTransformer = InlineMarkdownImageTransformer,
-        annotator = annotator,
-        colors = theme.colors,
-        typography = theme.typography,
-        padding = theme.padding,
-        extendedSpans = theme.extendedSpans,
-        components = components,
-        modifier = modifier.fillMaxWidth(),
-        success = { state, activeComponents, bodyModifier ->
-            LazyColumn(
-                modifier = bodyModifier,
-                state = scrollState,
-                contentPadding = PaddingValues(horizontal = pageMargin(), vertical = 8.dp),
-            ) {
-                if (header != null) item(key = "header", contentType = "header") { header() }
-                items(state.node.children, key = { it.startOffset }, contentType = { it.type }) { node ->
-                    val range = node.startOffset until node.endOffset
-                    if (math.hasInlineMath(range)) {
-                        val inline = rememberMathInlineContent(math, math.fontSize, range)
-                        CompositionLocalProvider(
-                            LocalMarkdownInlineContent provides markdownInlineContent(inline),
-                        ) {
-                            MarkdownElement(node, activeComponents, state.content)
-                        }
-                    } else {
-                        MarkdownElement(node, activeComponents, state.content)
-                    }
+    CompositionLocalProvider(LocalMarkdownLayoutSpec provides layout) {
+        Markdown(
+            state = preview.state,
+            imageTransformer = InlineMarkdownImageTransformer,
+            annotator = annotator,
+            colors = theme.colors,
+            typography = theme.typography,
+            padding = zeroMarkdownPadding(),
+            extendedSpans = theme.extendedSpans,
+            components = components,
+            modifier = modifier.fillMaxWidth(),
+            success = { state, activeComponents, bodyModifier ->
+                val plannedBlocks = remember(state.node, layout) {
+                    planDocumentBlocks(state.node.children, layout, showImages = true)
                 }
-                if (footer != null) item(key = "footer", contentType = "footer") { footer() }
-            }
-        },
-    )
+                LazyColumn(
+                    modifier = bodyModifier,
+                    state = scrollState,
+                    contentPadding = PaddingValues(horizontal = pageMargin(), vertical = 8.dp),
+                ) {
+                    if (header != null) item(key = "header", contentType = "header") { header() }
+                    itemsIndexed(
+                        items = plannedBlocks,
+                        key = { _, block -> block.node.startOffset },
+                        contentType = { _, block -> block.node.type },
+                    ) { _, planned ->
+                        RenderPlannedMarkdownBlock(
+                            planned = planned,
+                            components = activeComponents,
+                            content = state.content,
+                            math = math,
+                        )
+                    }
+                    if (footer != null) item(key = "footer", contentType = "footer") { footer() }
+                }
+            },
+        )
+    }
 }

@@ -13,7 +13,7 @@ class MarkdownScaleTest {
     @Test
     fun `reading hierarchy stays distinct from compact card previews`() {
         val reading = loomaMarkdownScale(type, base)
-        val preview = loomaMarkdownScale(type, base, compact = true)
+        val preview = loomaMarkdownScale(type, base, density = MarkdownDensity.Compact)
         org.junit.Assert.assertTrue(reading.h1.fontSize > preview.h1.fontSize)
         org.junit.Assert.assertTrue(reading.h1.fontSize > type.noteBody.fontSize)
         org.junit.Assert.assertTrue(reading.h2.fontSize >= reading.h3.fontSize)

@@ -49,9 +49,8 @@ import com.example.looma.ui.components.ErrorBanner
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.PageMaxWidth
 import com.example.looma.ui.components.pageMargin
-import com.example.looma.ui.markdown.MarkdownPreview
-import com.example.looma.ui.theme.LoomaPreviewTypography
-import com.example.looma.ui.theme.LoomaTokens
+import com.example.looma.ui.markdown.LoomaMarkdown
+import com.example.looma.ui.markdown.MarkdownDensity
 
 private fun Modifier.pageColumn(margin: Dp): Modifier =
     widthIn(max = PageMaxWidth).fillMaxWidth().padding(horizontal = margin)
@@ -236,14 +235,10 @@ private fun AssistantMessage(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (message.text.isNotBlank()) {
-            MarkdownPreview(
+            LoomaMarkdown(
                 markdown = message.text,
+                density = MarkdownDensity.Comfortable,
                 modifier = Modifier.fillMaxWidth(),
-                typography = LoomaPreviewTypography(
-                    body = LoomaTokens.type.noteBody,
-                    headings = LoomaTokens.type.noteHeadings,
-                    code = LoomaTokens.type.noteCode,
-                ),
             )
         }
 

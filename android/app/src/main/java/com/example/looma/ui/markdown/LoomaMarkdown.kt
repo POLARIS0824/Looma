@@ -1,6 +1,5 @@
 package com.example.looma.ui.markdown
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -8,65 +7,47 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.isSpecified
-import androidx.compose.ui.unit.sp
-import com.example.looma.R
 import com.example.looma.domain.wiki.WikiContext
+import com.example.looma.ui.theme.LoomaPreviewTypography
 import com.example.looma.ui.theme.LoomaTokens
 import com.example.looma.ui.theme.LoomaTypography
-import com.example.looma.ui.theme.LoomaPreviewTypography
 import com.mikepenz.markdown.annotator.annotatorSettings
 import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString
+import com.mikepenz.markdown.compose.LocalMarkdownInlineContent
+import com.mikepenz.markdown.compose.MarkdownElement
 import com.mikepenz.markdown.compose.components.MarkdownComponent
 import com.mikepenz.markdown.compose.components.MarkdownComponentModel
 import com.mikepenz.markdown.compose.components.MarkdownComponents
-import com.mikepenz.markdown.compose.LocalMarkdownInlineContent
-import com.mikepenz.markdown.compose.LocalMarkdownPadding
 import com.mikepenz.markdown.compose.components.markdownComponents
-import com.mikepenz.markdown.compose.elements.MarkdownBulletList
-import com.mikepenz.markdown.compose.elements.MarkdownBlockQuote
 import com.mikepenz.markdown.compose.elements.MarkdownCodeBackground
 import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
 import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
-import com.mikepenz.markdown.compose.elements.MarkdownOrderedList
+import com.mikepenz.markdown.compose.elements.MarkdownDivider
 import com.mikepenz.markdown.compose.elements.MarkdownText
 import com.mikepenz.markdown.compose.extendedspans.ExtendedSpans
 import com.mikepenz.markdown.m3.markdownColor
@@ -76,7 +57,6 @@ import com.mikepenz.markdown.model.MarkdownExtendedSpans
 import com.mikepenz.markdown.model.MarkdownPadding
 import com.mikepenz.markdown.model.MarkdownTypography
 import com.mikepenz.markdown.model.markdownAnnotatorConfig
-import com.mikepenz.markdown.model.markdownExtendedSpans
 import com.mikepenz.markdown.model.markdownInlineContent
 import com.mikepenz.markdown.model.markdownPadding
 import org.intellij.markdown.IElementType
@@ -91,12 +71,28 @@ import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 data class LoomaMarkdownTheme(
     val colors: MarkdownColors,
     val typography: MarkdownTypography,
-    val padding: MarkdownPadding,
     val codeShape: Shape,
+    val codeBorder: Color,
     val tableShape: Shape,
     val tableHeader: Color,
+    val blockQuoteContainer: Color,
+    val blockQuoteShape: Shape,
+    val blockQuoteBar: Color,
+    val listMarkerColor: Color,
     val extendedSpans: MarkdownExtendedSpans,
 )
+
+@Immutable
+private data class StableMarkdownExtendedSpans(
+    private val background: Color,
+    private val corner: CornerSize,
+) : MarkdownExtendedSpans {
+    override val extendedSpans: @Composable () -> ExtendedSpans = {
+        remember(background, corner) {
+            ExtendedSpans(InlineCodeBackground(background, corner))
+        }
+    }
+}
 
 @Immutable
 internal data class LoomaMarkdownScale(
@@ -113,27 +109,31 @@ internal data class LoomaMarkdownScale(
 internal fun loomaMarkdownScale(
     type: LoomaTypography,
     base: Typography,
-    compact: Boolean = false,
+    density: MarkdownDensity = MarkdownDensity.Comfortable,
     preview: LoomaPreviewTypography? = null,
-): LoomaMarkdownScale = LoomaMarkdownScale(
-    h1 = if (compact) preview?.headings?.h1 ?: base.titleMedium else type.noteHeadings.h1,
-    h2 = if (compact) preview?.headings?.h2 ?: base.titleSmall else type.noteHeadings.h2,
-    h3 = if (compact) preview?.headings?.h3 ?: base.titleSmall else type.noteHeadings.h3,
-    h4 = if (compact) preview?.headings?.h4 ?: base.titleSmall else type.noteHeadings.h4,
-    h5 = if (compact) preview?.headings?.h5 ?: base.titleSmall else type.noteHeadings.h5,
-    h6 = if (compact) preview?.headings?.h6 ?: base.titleSmall else type.noteHeadings.h6,
-    code = if (compact) preview?.code ?: base.bodySmall.copy(fontFamily = type.noteCode.fontFamily) else type.noteCode,
-    inlineCode = if (compact) preview?.code ?: base.bodySmall.copy(fontFamily = type.noteCode.fontFamily) else type.noteCode,
-)
+): LoomaMarkdownScale {
+    val compact = density == MarkdownDensity.Compact
+    return LoomaMarkdownScale(
+        h1 = if (compact) preview?.headings?.h1 ?: base.titleMedium else type.noteHeadings.h1,
+        h2 = if (compact) preview?.headings?.h2 ?: base.titleSmall else type.noteHeadings.h2,
+        h3 = if (compact) preview?.headings?.h3 ?: base.titleSmall else type.noteHeadings.h3,
+        h4 = if (compact) preview?.headings?.h4 ?: base.titleSmall else type.noteHeadings.h4,
+        h5 = if (compact) preview?.headings?.h5 ?: base.titleSmall else type.noteHeadings.h5,
+        h6 = if (compact) preview?.headings?.h6 ?: base.titleSmall else type.noteHeadings.h6,
+        code = if (compact) preview?.code ?: base.bodySmall.copy(fontFamily = type.noteCode.fontFamily) else type.noteCode,
+        inlineCode = if (compact) preview?.code ?: base.bodySmall.copy(fontFamily = type.noteCode.fontFamily) else type.noteCode,
+    )
+}
 
 @Composable
 fun loomaMarkdownTheme(
     base: TextStyle,
-    compact: Boolean = false,
+    density: MarkdownDensity = MarkdownDensity.Comfortable,
     preview: LoomaPreviewTypography? = null,
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     onSelectedContainer: Boolean = false,
 ): LoomaMarkdownTheme {
+    val compact = density == MarkdownDensity.Compact
     val colors = LoomaTokens.colors
     val scheme = MaterialTheme.colorScheme
     val shapes = MaterialTheme.shapes
@@ -151,11 +151,9 @@ fun loomaMarkdownTheme(
     }
     val type = LoomaTokens.type
     val baseType = MaterialTheme.typography
-    val scale = remember(type, baseType, compact, preview) { loomaMarkdownScale(type, baseType, compact, preview) }
-    val extendedSpans = markdownExtendedSpans {
-        remember(inlineBackground, inlineCorner) {
-            ExtendedSpans(InlineCodeBackground(inlineBackground, inlineCorner))
-        }
+    val scale = remember(type, baseType, density, preview) { loomaMarkdownScale(type, baseType, density, preview) }
+    val extendedSpans = remember(inlineBackground, inlineCorner) {
+        StableMarkdownExtendedSpans(inlineBackground, inlineCorner)
     }
     return LoomaMarkdownTheme(
         colors = markdownColor(
@@ -174,7 +172,7 @@ fun loomaMarkdownTheme(
             ordered = base.copy(color = textColor),
             bullet = base.copy(color = textColor),
             quote = base.copy(
-                fontStyle = FontStyle.Italic,
+                fontStyle = FontStyle.Normal,
                 color = if (selectedCompact) textColor else scheme.onSurfaceVariant,
             ),
             code = scale.code.copy(color = textColor),
@@ -187,20 +185,36 @@ fun loomaMarkdownTheme(
             h5 = scale.h5.copy(color = textColor),
             h6 = scale.h6.copy(color = scheme.onSurfaceVariant),
         ),
-        padding = markdownPadding(
-            block = if (compact) 4.dp else 10.dp,
-            list = if (compact) 2.dp else 4.dp,
-            listItemTop = if (compact) 1.dp else 2.dp,
-            listItemBottom = if (compact) 1.dp else 2.dp,
-            listIndent = if (compact) 12.dp else 16.dp,
-            codeBlock = PaddingValues(if (compact) 6.dp else 12.dp),
-            blockQuote = PaddingValues(horizontal = if (compact) 8.dp else 12.dp),
-        ),
         codeShape = if (compact) shapes.medium else shapes.large,
+        codeBorder = scheme.outlineVariant,
         tableShape = if (compact) shapes.small else shapes.medium,
         tableHeader = inset,
+        blockQuoteContainer = if (compact) inset else scheme.surfaceContainerLow,
+        blockQuoteShape = if (compact) shapes.small else shapes.medium,
+        blockQuoteBar = when {
+            selectedCompact -> textColor
+            compact -> scheme.outline
+            else -> scheme.primary
+        },
+        listMarkerColor = if (selectedCompact) textColor else scheme.onSurfaceVariant,
         extendedSpans = extendedSpans,
     )
+}
+
+@Composable
+internal fun zeroMarkdownPadding(): MarkdownPadding {
+    val padding = markdownPadding(
+        block = 0.dp,
+        list = 0.dp,
+        listItemTop = 0.dp,
+        listItemBottom = 0.dp,
+        listIndent = 0.dp,
+        codeBlock = PaddingValues(0.dp),
+        blockQuote = PaddingValues(0.dp),
+        blockQuoteText = PaddingValues(0.dp),
+        blockQuoteBar = PaddingValues.Absolute(0.dp),
+    )
+    return remember(padding) { padding }
 }
 
 internal val loomaAnnotatorConfig = markdownAnnotatorConfig(
@@ -209,8 +223,8 @@ internal val loomaAnnotatorConfig = markdownAnnotatorConfig(
 )
 
 internal fun loomaMarkdownComponents(
+    layout: MarkdownLayoutSpec,
     theme: LoomaMarkdownTheme,
-    compact: Boolean,
     onCheckboxToggle: ((position: Int, checked: Boolean) -> Unit)? = null,
     bodyStart: Int = 0,
     showImages: Boolean = true,
@@ -221,10 +235,6 @@ internal fun loomaMarkdownComponents(
     math: MathRenderState? = null,
     checkedText: Color? = null,
 ): MarkdownComponents {
-    val checkSize = if (compact) 14.dp else 18.dp
-    val checkGap = if (compact) 6.dp else 9.dp
-    val markerColumn = checkSize + checkGap
-    val headingBottom = if (compact) 0.dp else 2.dp
     val links: WikiAnnotator? = wiki?.let { context ->
         val codeBackground = theme.colors.inlineCodeBackground
         { text: AnnotatedString ->
@@ -242,7 +252,9 @@ internal fun loomaMarkdownComponents(
         MarkdownCodeBackground(
             color = theme.colors.codeBackground,
             shape = theme.codeShape,
-            modifier = Modifier.fillMaxWidth().padding(vertical = if (compact) 4.dp else 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(layout.codeBlock.borderWidth, theme.codeBorder, theme.codeShape),
             language = language,
             code = text,
         ) {
@@ -251,53 +263,69 @@ internal fun loomaMarkdownComponents(
                 style = style,
                 modifier = Modifier
                     .horizontalScroll(rememberScrollState())
-                    .padding(theme.padding.codeBlock),
+                    .padding(layout.codeBlock.contentPadding),
             )
         }
     }
+
     return markdownComponents(
-        table = { model -> LoomaMarkdownTable(model, theme, compact) },
+        table = { model -> LoomaMarkdownTable(model, theme, layout.table) },
         blockQuote = { model ->
-            MarkdownBlockQuote(model.content, model.node, style = theme.typography.quote)
+            LoomaMarkdownBlockQuote(
+                content = model.content,
+                node = model.node,
+                layout = layout,
+                theme = theme,
+            )
         },
         codeFence = { model -> MarkdownCodeFence(model.content, model.node, theme.typography.code, code) },
         codeBlock = { model -> MarkdownCodeBlock(model.content, model.node, theme.typography.code, code) },
-        heading1 = heading(theme.typography.h1, MarkdownTokenTypes.ATX_CONTENT, if (compact) 10.dp else 20.dp, headingBottom, links, math),
-        heading2 = heading(theme.typography.h2, MarkdownTokenTypes.ATX_CONTENT, if (compact) 8.dp else 16.dp, if (compact) 0.dp else 6.dp, links, math),
-        heading3 = heading(theme.typography.h3, MarkdownTokenTypes.ATX_CONTENT, if (compact) 6.dp else 12.dp, headingBottom, links, math),
-        heading4 = heading(theme.typography.h4, MarkdownTokenTypes.ATX_CONTENT, if (compact) 4.dp else 8.dp, headingBottom, links, math),
-        heading5 = heading(theme.typography.h5, MarkdownTokenTypes.ATX_CONTENT, if (compact) 4.dp else 8.dp, headingBottom, links, math),
-        heading6 = heading(theme.typography.h6, MarkdownTokenTypes.ATX_CONTENT, if (compact) 4.dp else 8.dp, headingBottom, links, math),
-        setextHeading1 = heading(theme.typography.h1, MarkdownTokenTypes.SETEXT_CONTENT, if (compact) 10.dp else 20.dp, headingBottom, links, math),
-        setextHeading2 = heading(theme.typography.h2, MarkdownTokenTypes.SETEXT_CONTENT, if (compact) 8.dp else 16.dp, if (compact) 0.dp else 6.dp, links, math),
+        horizontalRule = {
+            MarkdownDivider(
+                thickness = layout.divider.thickness,
+                color = theme.colors.dividerColor,
+            )
+        },
+        heading1 = heading(theme.typography.h1, MarkdownTokenTypes.ATX_CONTENT, links, math),
+        heading2 = heading(theme.typography.h2, MarkdownTokenTypes.ATX_CONTENT, links, math),
+        heading3 = heading(theme.typography.h3, MarkdownTokenTypes.ATX_CONTENT, links, math),
+        heading4 = heading(theme.typography.h4, MarkdownTokenTypes.ATX_CONTENT, links, math),
+        heading5 = heading(theme.typography.h5, MarkdownTokenTypes.ATX_CONTENT, links, math),
+        heading6 = heading(theme.typography.h6, MarkdownTokenTypes.ATX_CONTENT, links, math),
+        setextHeading1 = heading(theme.typography.h1, MarkdownTokenTypes.SETEXT_CONTENT, links, math),
+        setextHeading2 = heading(theme.typography.h2, MarkdownTokenTypes.SETEXT_CONTENT, links, math),
         unorderedList = { model ->
-            MarkdownBulletList(
+            LoomaMarkdownList(
                 content = model.content,
                 node = model.node,
-                style = theme.typography.bullet,
-                markerModifier = { Modifier.width(markerColumn) },
-                listModifier = { Modifier.weight(1f) },
+                ordered = false,
+                depth = 0,
+                layout = layout,
+                theme = theme,
+                onCheckboxToggle = onCheckboxToggle,
+                bodyStart = bodyStart,
             )
         },
         orderedList = { model ->
-            MarkdownOrderedList(
+            LoomaMarkdownList(
                 content = model.content,
                 node = model.node,
-                style = theme.typography.ordered,
-                markerModifier = { Modifier.width(markerColumn) },
-                listModifier = { Modifier.weight(1f) },
+                ordered = true,
+                depth = 0,
+                layout = layout,
+                theme = theme,
+                onCheckboxToggle = onCheckboxToggle,
+                bodyStart = bodyStart,
             )
         },
-        paragraph = { model -> LoomaMarkdownParagraph(model, links, math, checkedText, showImages) },
-        checkbox = { model ->
-            CheckboxMarker(
-                checked = model.isChecked(),
-                lineHeight = lineHeightOf(theme.typography.list),
-                size = checkSize,
-                gap = checkGap,
-                onToggle = onCheckboxToggle?.let { toggle ->
-                    { checked: Boolean -> toggle(bodyStart + model.node.startOffset, checked) }
-                },
+        paragraph = { model ->
+            LoomaMarkdownParagraph(
+                model = model,
+                mathPadding = layout.mathBlock.innerVerticalPadding,
+                links = links,
+                math = math,
+                checkedText = checkedText,
+                showImages = showImages,
             )
         },
         image = if (showImages) { model -> LoomaMarkdownImage(model) } else { _ -> },
@@ -305,13 +333,40 @@ internal fun loomaMarkdownComponents(
     )
 }
 
+@Composable
+internal fun RenderPlannedMarkdownBlock(
+    planned: PlannedMarkdownBlock,
+    components: MarkdownComponents,
+    content: String,
+    math: MathRenderState? = null,
+) {
+    if (!planned.visible) return
+    val modifier = if (planned.topSpacing > 0.dp) {
+        Modifier.padding(top = planned.topSpacing)
+    } else {
+        Modifier
+    }
+    Box(modifier = modifier) {
+        val node = planned.node
+        val range = node.startOffset until node.endOffset
+        if (math != null && math.hasInlineMath(range)) {
+            val inline = rememberMathInlineContent(math, math.fontSize, range)
+            CompositionLocalProvider(
+                LocalMarkdownInlineContent provides markdownInlineContent(inline),
+            ) {
+                MarkdownElement(node, components, content, includeSpacer = false)
+            }
+        } else {
+            MarkdownElement(node, components, content, includeSpacer = false)
+        }
+    }
+}
+
 private typealias WikiAnnotator = (AnnotatedString) -> AnnotatedString
 
 private fun heading(
     style: TextStyle,
     contentChildType: IElementType,
-    top: Dp,
-    bottom: Dp,
     links: WikiAnnotator?,
     math: MathRenderState?,
 ): MarkdownComponent = { model ->
@@ -328,7 +383,6 @@ private fun heading(
             content = annotated,
             node = model.node,
             style = style,
-            modifier = Modifier.padding(top = top, bottom = bottom),
             sourceContent = model.content,
         )
     }
@@ -378,6 +432,7 @@ private fun MathInlineScope(
 @Composable
 private fun LoomaMarkdownParagraph(
     model: MarkdownComponentModel,
+    mathPadding: Dp,
     links: WikiAnnotator?,
     math: MathRenderState?,
     checkedText: Color?,
@@ -385,7 +440,7 @@ private fun LoomaMarkdownParagraph(
 ) {
     val block = math?.blockDisplay(model.node)
     if (block != null) {
-        MathBlock(block, math.fontSize, PaddingValues(vertical = LocalMarkdownPadding.current.block))
+        MathBlock(block, math.fontSize, PaddingValues(vertical = mathPadding))
         return
     }
     val style = if (checkedText != null && model.node.inCheckedTask(model.content)) {
@@ -528,70 +583,8 @@ private fun ASTNode.isImageLinePadding(): Boolean = when (type) {
     else -> false
 }
 
-private fun MarkdownComponentModel.isChecked(): Boolean =
-    node.getTextInNode(content).contains("[x]", ignoreCase = true)
-
 private fun ASTNode.inCheckedTask(content: String): Boolean {
     val item = parent?.takeIf { it.type == MarkdownElementTypes.LIST_ITEM } ?: return false
     val box = item.children.getOrNull(1)?.takeIf { it.type == GFMTokenTypes.CHECK_BOX } ?: return false
-    return box.getTextInNode(content).contains("[x]")
-}
-
-@Composable
-private fun CheckboxMarker(
-    checked: Boolean,
-    lineHeight: Dp,
-    size: Dp,
-    gap: Dp,
-    onToggle: ((Boolean) -> Unit)?,
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(percent = 30)
-    Row(
-        modifier = Modifier.heightIn(min = lineHeight),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        val boxModifier = Modifier
-            .size(size)
-            .then(
-                if (onToggle != null) {
-                    Modifier
-                        .wrapContentSize(unbounded = true)
-                        .requiredSize(width = CheckboxTouchTarget, height = maxOf(lineHeight, size))
-                        .toggleable(
-                            value = checked,
-                            interactionSource = null,
-                            indication = ripple(bounded = false, radius = CheckboxTouchTarget / 2),
-                            role = Role.Checkbox,
-                            onValueChange = onToggle,
-                        )
-                        .wrapContentSize()
-                        .size(size)
-                } else {
-                    Modifier
-                },
-            )
-            .clip(shape)
-            .border(1.5.dp, if (checked) colors.primary else colors.outline, shape)
-            .background(if (checked) colors.primary else Color.Transparent, shape)
-        Box(boxModifier, contentAlignment = Alignment.Center) {
-            if (checked) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_check),
-                    contentDescription = null,
-                    tint = colors.onPrimary,
-                    modifier = Modifier.size(size * 0.72f),
-                )
-            }
-        }
-        Spacer(Modifier.width(gap))
-    }
-}
-
-private val CheckboxTouchTarget = 48.dp
-
-@Composable
-private fun lineHeightOf(style: TextStyle): Dp {
-    val resolved = if (style.lineHeight.isSp) style.lineHeight.value else style.fontSize.value * 1.5f
-    return with(LocalDensity.current) { resolved.sp.toDp() }
+    return box.getTextInNode(content).contains("[x]", ignoreCase = true)
 }

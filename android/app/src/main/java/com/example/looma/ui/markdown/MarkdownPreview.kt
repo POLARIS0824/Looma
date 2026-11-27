@@ -1,8 +1,10 @@
 package com.example.looma.ui.markdown
 
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -13,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
 import com.example.looma.domain.markdown.WikiImageFlavour
 import com.example.looma.ui.theme.LoomaPreviewTypography
+import com.example.looma.ui.theme.LoomaTokens
 import com.mikepenz.markdown.compose.Markdown
 import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.markdownAnnotator
@@ -22,12 +25,14 @@ import kotlinx.coroutines.withContext
 import org.intellij.markdown.MarkdownElementTypes
 
 @Composable
-internal fun MarkdownPreview(
+internal fun LoomaMarkdown(
     markdown: String,
+    density: MarkdownDensity = MarkdownDensity.Compact,
     modifier: Modifier = Modifier,
     typography: LoomaPreviewTypography? = null,
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     onSelectedContainer: Boolean = false,
+    showImages: Boolean = false,
 ) {
     if (markdown.isBlank()) return
     val inspection = LocalInspectionMode.current
@@ -47,39 +52,69 @@ internal fun MarkdownPreview(
     }
     if (state == null) return
 
+    val layout = MarkdownLayoutPresets.forDensity(density)
+    val baseStyle = when {
+        typography != null -> typography.body
+        density == MarkdownDensity.Comfortable -> LoomaTokens.type.noteBody
+        else -> MaterialTheme.typography.bodySmall
+    }
     val theme = loomaMarkdownTheme(
-        base = typography?.body ?: MaterialTheme.typography.bodySmall,
-        compact = true,
+        base = baseStyle,
+        density = density,
         preview = typography,
         textColor = textColor,
         onSelectedContainer = onSelectedContainer,
     )
     val components = remember(
+        layout,
         theme.colors.codeBackground,
         theme.colors.inlineCodeBackground,
         theme.colors.dividerColor,
         theme.colors.tableBackground,
         theme.codeShape,
+        theme.codeBorder,
         theme.tableShape,
         theme.tableHeader,
+        theme.blockQuoteContainer,
+        theme.blockQuoteShape,
+        theme.blockQuoteBar,
+        theme.listMarkerColor,
+        showImages,
     ) {
         loomaMarkdownComponents(
+            layout = layout,
             theme = theme,
-            compact = true,
-            showImages = false,
+            showImages = showImages,
         )
     }
 
-    Markdown(
-        state = state,
-        annotator = previewMarkdownAnnotator,
-        colors = theme.colors,
-        typography = theme.typography,
-        padding = theme.padding,
-        extendedSpans = theme.extendedSpans,
-        components = components,
-        modifier = modifier.fillMaxWidth(),
-    )
+    CompositionLocalProvider(LocalMarkdownLayoutSpec provides layout) {
+        Markdown(
+            state = state,
+            imageTransformer = InlineMarkdownImageTransformer,
+            annotator = if (showImages) markdownAnnotator(config = loomaAnnotatorConfig) else previewMarkdownAnnotator,
+            colors = theme.colors,
+            typography = theme.typography,
+            padding = zeroMarkdownPadding(),
+            extendedSpans = theme.extendedSpans,
+            components = components,
+            modifier = modifier.fillMaxWidth(),
+            success = { successState, activeComponents, bodyModifier ->
+                val plannedBlocks = remember(successState.node, layout, showImages) {
+                    planDocumentBlocks(successState.node.children, layout, showImages = showImages)
+                }
+                Column(modifier = bodyModifier) {
+                    for (planned in plannedBlocks) {
+                        RenderPlannedMarkdownBlock(
+                            planned = planned,
+                            components = activeComponents,
+                            content = successState.content,
+                        )
+                    }
+                }
+            },
+        )
+    }
 }
 
 private val markdownPreviewCache = MarkdownPreviewCache(capacity = 128)
@@ -110,4 +145,4 @@ private fun parsePreview(markdown: String): State =
 internal val previewMarkdownAnnotator =
     markdownAnnotator(config = loomaAnnotatorConfig) { _, node ->
         node.type == MarkdownElementTypes.IMAGE
-}
+    }

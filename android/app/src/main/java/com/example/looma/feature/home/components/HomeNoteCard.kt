@@ -38,7 +38,8 @@ import com.example.looma.domain.search.SearchMatch
 import com.example.looma.feature.home.HomeNoteItem
 import com.example.looma.feature.home.HomeSearchResult
 import com.example.looma.ui.image.LoomaAsyncImage
-import com.example.looma.ui.markdown.MarkdownPreview
+import com.example.looma.ui.markdown.LoomaMarkdown
+import com.example.looma.ui.markdown.MarkdownDensity
 import com.example.looma.ui.theme.LoomaPreviewTypography
 import com.example.looma.ui.theme.LoomaTokens
 
@@ -191,20 +192,13 @@ internal fun HomeFadedMarkdownPreview(
         }
     } else {
         Box(modifier.clipToBounds()) {
-            if (previewTypography != null) {
-                MarkdownPreview(
-                    markdown = markdown,
-                    typography = previewTypography,
-                    textColor = bodyColor,
-                    onSelectedContainer = onSelectedContainer,
-                )
-            } else {
-                MarkdownPreview(
-                    markdown = markdown,
-                    textColor = bodyColor,
-                    onSelectedContainer = onSelectedContainer,
-                )
-            }
+            LoomaMarkdown(
+                markdown = markdown,
+                density = MarkdownDensity.Compact,
+                typography = previewTypography,
+                textColor = bodyColor,
+                onSelectedContainer = onSelectedContainer,
+            )
             Box(
                 Modifier.matchParentSize().background(
                     Brush.verticalGradient(

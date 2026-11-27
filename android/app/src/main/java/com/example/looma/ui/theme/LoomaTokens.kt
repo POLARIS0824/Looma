@@ -81,7 +81,10 @@ fun loomaTypography(base: Typography): LoomaTypography = LoomaTypography(
         ),
         code = base.bodyMedium.copy(fontFamily = FontFamily.Monospace),
     ),
-    noteBody = base.bodyLarge.copy(lineHeight = BODY_LINE_HEIGHT.sp),
+    noteBody = base.bodyLarge.copy(
+        lineHeight = BODY_LINE_HEIGHT.sp,
+        letterSpacing = BODY_LETTER_SPACING.sp,
+    ),
     noteHeadings = LoomaNoteHeadings(
         h1 = base.headlineMediumEmphasized,
         h2 = base.headlineSmallEmphasized,
@@ -97,7 +100,8 @@ internal const val TABULAR_FIGURES = "\"tnum\" 1"
 
 private const val BRAND_HERO_WEIGHT = 750
 
-internal const val BODY_LINE_HEIGHT = 26
+internal const val BODY_LINE_HEIGHT = 27
+private const val BODY_LETTER_SPACING = 0.15f
 
 val LocalLoomaColors = staticCompositionLocalOf { loomaColors(lightColorScheme()) }
 val LocalLoomaTypography = staticCompositionLocalOf { loomaTypography(Typography()) }

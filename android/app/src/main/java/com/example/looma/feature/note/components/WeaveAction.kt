@@ -71,7 +71,8 @@ import com.example.looma.feature.note.NoteViewModel
 import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.ErrorBanner
 import com.example.looma.ui.components.LoomaIcon
-import com.example.looma.ui.markdown.MarkdownPreview
+import com.example.looma.ui.markdown.LoomaMarkdown
+import com.example.looma.ui.markdown.MarkdownDensity
 import com.example.looma.ui.theme.LoomaTokens
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
@@ -309,8 +310,9 @@ internal fun WeaveAction(
                                     style = LoomaTokens.type.cardMeta,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                MarkdownPreview(
+                                LoomaMarkdown(
                                     markdown = trimExcerpt(activePassage.excerpt(220), 220),
+                                    density = MarkdownDensity.Compact,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .heightIn(max = 96.dp)
@@ -479,8 +481,9 @@ internal fun WeaveAction(
                                 shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                MarkdownPreview(
+                                LoomaMarkdown(
                                     markdown = trimExcerpt(proposal.evidence.text, 420),
+                                    density = MarkdownDensity.Compact,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(12.dp)
@@ -769,8 +772,9 @@ private fun ConnectionCard(
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    MarkdownPreview(
+                    LoomaMarkdown(
                         markdown = trimExcerpt(item.evidence.text, 420),
+                        density = MarkdownDensity.Compact,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(12.dp)
