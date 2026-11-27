@@ -9,6 +9,7 @@ import com.example.looma.data.index.SearchSignature
 import com.example.looma.data.index.fingerprint
 import com.example.looma.data.index.indexedNote
 import com.example.looma.data.index.toIndexedNote
+import com.example.looma.data.sync.SyncNoteAccess
 import com.example.looma.data.vault.VaultRepository
 import com.example.looma.data.vault.VaultWriteCoordinator
 import com.example.looma.domain.markdown.ImageContext
@@ -58,7 +59,7 @@ class NoteRepository internal constructor(
     private val index: NoteIndex,
     onFilesChanged: suspend (Vault, IndexDelta) -> Unit = { _, _ -> },
     private val onVaultScanned: suspend (Vault, Boolean) -> Unit = { _, _ -> },
-) {
+) : SyncNoteAccess {
     private val parser = MarkdownParser()
     private val _noteIndexChanges = MutableSharedFlow<NoteIndexChange>(extraBufferCapacity = 16)
     internal val noteIndexChanges: SharedFlow<NoteIndexChange> = _noteIndexChanges.asSharedFlow()
@@ -414,12 +415,12 @@ class NoteRepository internal constructor(
         }
     }
 
-    internal suspend fun prepareForSync(vault: Vault): StalledRelocation? =
+    override suspend fun prepareForSync(vault: Vault): StalledRelocation? =
         VaultWriteCoordinator.write(vault) {
             recoverPendingRelocations(vault, retryStalled = true)
         }
 
-    internal suspend fun applyExternalNoteChanges(
+    override suspend fun applyExternalNoteChanges(
         vault: Vault,
         changedNotes: List<NotePath>,
         removedNotes: List<NotePath>,

@@ -78,7 +78,8 @@ internal object S3RequestSigner {
         objectKey: String,
         publicBaseUrl: String = "",
     ): String {
-        val encodedKey = encodePath(objectKey)
+        val cleanKey = objectKey.trimStart('/')
+        val encodedKey = encodePath(cleanKey)
         val publicBase = publicBaseUrl.trim().trimEnd('/')
         if (publicBase.isNotEmpty()) return "$publicBase/$encodedKey"
         val parsed = parseEndpoint(config.endpoint)

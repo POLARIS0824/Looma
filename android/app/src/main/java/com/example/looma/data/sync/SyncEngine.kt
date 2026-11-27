@@ -1,6 +1,5 @@
 package com.example.looma.data.sync
 
-import com.example.looma.data.note.NoteRepository
 import com.example.looma.data.note.invalidateAttachmentIndex
 import com.example.looma.data.s3.S3Client
 import com.example.looma.data.s3.S3EndpointConfig
@@ -73,10 +72,19 @@ internal fun S3SyncConfig.toEndpointConfig(): S3EndpointConfig = S3EndpointConfi
     pathStyle = pathStyle,
 )
 
+internal interface SyncNoteAccess {
+    suspend fun prepareForSync(vault: Vault): StalledRelocation?
+    suspend fun applyExternalNoteChanges(
+        vault: Vault,
+        changedNotes: List<NotePath>,
+        removedNotes: List<NotePath>,
+    )
+}
+
 internal class SyncEngine(
     private val s3Client: S3Client,
     private val syncStateDao: SyncStateDao,
-    private val noteRepository: NoteRepository,
+    private val noteRepository: SyncNoteAccess,
 ) {
     private data class PlannedSync(
         val targetKey: String,

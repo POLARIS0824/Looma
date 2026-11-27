@@ -31,7 +31,10 @@ internal data class S3ErrorPayload(
 )
 
 internal object S3XmlParser {
-    fun parseListObjectsV2(xml: String): ListObjectsPage {
+    fun parseListObjectsV2(
+        xml: String,
+        factory: SAXParserFactory = SAXParserFactory.newInstance(),
+    ): ListObjectsPage {
         val objects = mutableListOf<S3ObjectSummary>()
         var isTruncated = false
         var nextContinuationToken: String? = null
@@ -112,7 +115,7 @@ internal object S3XmlParser {
             }
         }
 
-        createSaxParser().parse(InputSource(StringReader(xml)), handler)
+        createSaxParser(factory).parse(InputSource(StringReader(xml)), handler)
         if (!seenRoot) {
             throw IOException("Unexpected S3 ListObjectsV2 XML response")
         }
@@ -123,7 +126,10 @@ internal object S3XmlParser {
         )
     }
 
-    fun parseError(xml: String): S3ErrorPayload? {
+    fun parseError(
+        xml: String,
+        factory: SAXParserFactory = SAXParserFactory.newInstance(),
+    ): S3ErrorPayload? {
         if (xml.isBlank()) return null
         return runCatching {
             var seenError = false
@@ -170,15 +176,15 @@ internal object S3XmlParser {
                 }
             }
 
-            createSaxParser().parse(InputSource(StringReader(xml)), handler)
+            createSaxParser(factory).parse(InputSource(StringReader(xml)), handler)
             if (!seenError) null else S3ErrorPayload(code, message, requestId)
         }.getOrNull()
     }
 
-    private fun createSaxParser() = SAXParserFactory.newInstance().apply {
+    private fun createSaxParser(factory: SAXParserFactory = SAXParserFactory.newInstance()) = factory.apply {
         isNamespaceAware = true
         isValidating = false
-        isXIncludeAware = false
+        runCatching { isXIncludeAware = false }
         runCatching { setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true) }
         runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
         runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
