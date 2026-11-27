@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
@@ -79,8 +80,10 @@ import com.example.looma.domain.wiki.WikiContext
 import com.example.looma.feature.note.components.BacklinksSection
 import com.example.looma.feature.note.components.NoteBodyEditor
 import com.example.looma.feature.note.components.NoteFormatBar
+import com.example.looma.feature.note.components.NoteFormatBarHeight
 import com.example.looma.feature.note.components.NoteLeaveDialog
 import com.example.looma.feature.note.components.NoteNavigator
+import com.example.looma.feature.note.components.NoteReadScrollbar
 import com.example.looma.feature.note.components.NoteSaveBanner
 import com.example.looma.feature.note.components.NoteTitleField
 import com.example.looma.feature.note.components.NoteTopBar
@@ -323,7 +326,7 @@ private fun NoteWorkspace(
             val source = contentBuffer.snapshot()
             if (preview?.source == source && preview !is PreparedMarkdown.Opening) return@collectLatest
             if (mode == NoteMode.Edit) delay(READ_PREVIEW_IDLE_MILLIS)
-            if (source.length >= LARGE_NOTE_READ_THRESHOLD && preview?.source != source) {
+            if (source.length >= LARGE_NOTE_READ_THRESHOLD && (preview == null || preview is PreparedMarkdown.Failed)) {
                 prepareMarkdownOpening(source)?.let { preview = it }
             }
             preview = prepareMarkdown(source)
@@ -478,7 +481,7 @@ private fun NoteWorkspace(
 
             AnimatedContent(
                 targetState = mode,
-                modifier = Modifier.weight(1f).nestedScroll(modeScrollState.scrollObserver),
+                modifier = Modifier.weight(1f),
                 transitionSpec = { modeEnter togetherWith modeExit using null },
                 label = "note-mode",
             ) { shownMode ->
@@ -540,12 +543,10 @@ private fun NoteWorkspace(
                         NoteBodyEditor(
                             editorState = contentBuffer,
                             active = editorActive,
-                            onScrollChanged = { offsetY, byUser ->
+                            onScrollChanged = { offsetY ->
                                 appBarState.contentOffset = -offsetY.toFloat()
-                                if (byUser) {
-                                    modeScrollState.onUserScroll()
-                                }
                             },
+                            hideUntilScrolled = modeScrollState.pendingModeScroll is ModeScrollRequest.Edit,
                             header = if (state.showInlineTitle) {
                                 {
                                     NoteTitleField(
@@ -661,17 +662,24 @@ private fun NoteReadBody(
     }
     Box(modifier = modifier, contentAlignment = Alignment.TopCenter) {
         val platform = androidx.compose.ui.platform.LocalUriHandler.current
-        val handler = remember(wiki, platform, onOpenNote, onMissingLink) {
+        val currentWiki = androidx.compose.runtime.rememberUpdatedState(wiki)
+        val currentOpenNote = androidx.compose.runtime.rememberUpdatedState(onOpenNote)
+        val currentMissingLink = androidx.compose.runtime.rememberUpdatedState(onMissingLink)
+        val currentPreview = androidx.compose.runtime.rememberUpdatedState(preview)
+        val currentPreviewIsCurrent = androidx.compose.runtime.rememberUpdatedState(previewIsCurrent)
+        val currentCheckboxToggle = androidx.compose.runtime.rememberUpdatedState(onCheckboxToggle)
+        val currentWikiLinkClick = androidx.compose.runtime.rememberUpdatedState(onWikiLinkClick)
+        val handler = remember(platform) {
             object : androidx.compose.ui.platform.UriHandler {
                 override fun openUri(uri: String) {
-                    val target = wiki.localNote(uri)
+                    val target = currentWiki.value.localNote(uri)
                     when {
-                        target != null -> onOpenNote(target)
-                        android.net.Uri.parse(uri).isRelative -> onMissingLink(uri)
+                        target != null -> currentOpenNote.value(target)
+                        android.net.Uri.parse(uri).isRelative -> currentMissingLink.value(uri)
                         else -> try {
                             platform.openUri(uri)
                         } catch (_: IllegalArgumentException) {
-                            onMissingLink(uri)
+                            currentMissingLink.value(uri)
                         }
                     }
                 }
@@ -680,16 +688,21 @@ private fun NoteReadBody(
         CompositionLocalProvider(androidx.compose.ui.platform.LocalUriHandler provides handler) {
             MarkdownBody(
                 preview = ready,
-                onCheckboxToggle = if (previewIsCurrent && preview is PreparedMarkdown.Ready) {
-                    { position, checked -> onCheckboxToggle(preview, position, checked) }
-                } else {
-                    null
+                onCheckboxToggle = { position, checked ->
+                    val current = currentPreview.value
+                    if (currentPreviewIsCurrent.value && current is PreparedMarkdown.Ready) {
+                        currentCheckboxToggle.value(current, position, checked)
+                    }
                 },
                 modifier = Modifier
                     .widthIn(max = PageMaxWidth)
                     .fillMaxWidth(),
                 wiki = wiki,
-                onWikiLinkClick = if (previewIsCurrent) onWikiLinkClick else { _ -> },
+                onWikiLinkClick = { target ->
+                    if (currentPreviewIsCurrent.value) {
+                        currentWikiLinkClick.value(target)
+                    }
+                },
                 scrollState = scrollState,
                 header = title,
                 footer = if (preview is PreparedMarkdown.Opening || wiki.backlinks.isEmpty()) null else {
@@ -703,6 +716,14 @@ private fun NoteReadBody(
                 },
             )
         }
+        NoteReadScrollbar(
+            state = scrollState,
+            enabled = preview is PreparedMarkdown.Ready,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .padding(bottom = NoteFormatBarHeight),
+        )
     }
 }
 

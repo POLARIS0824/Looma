@@ -8,24 +8,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.text.TextRange
 import com.example.looma.domain.markdown.PreparedMarkdown
 
 internal sealed interface ModeScrollRequest {
-    data class ReadPassage(val source: String, val offset: Int) : ModeScrollRequest
-    data class Read(val position: EditScrollPosition) : ModeScrollRequest
-    data class ReadOffset(val itemIndex: Int, val offset: Int) : ModeScrollRequest
+    data class Read(val sourceOffset: Int, val atTop: Boolean, val expectedSource: String? = null) : ModeScrollRequest
     data class Edit(val anchor: ReadingAnchor) : ModeScrollRequest
-    data class EditOffset(val offset: Int) : ModeScrollRequest
 
     val isReadRequest: Boolean
-        get() = this is Read || this is ReadOffset || this is ReadPassage
+        get() = this is Read
 }
-
-internal data class ModeScrollReturn(val source: String, val position: ModeScrollRequest)
 
 @Stable
 internal class NoteModeScrollState(
@@ -35,29 +27,13 @@ internal class NoteModeScrollState(
     private val modeScroll = NoteModeScroll(readScroll, contentBuffer)
     var pendingModeScroll by mutableStateOf<ModeScrollRequest?>(null)
         private set
-    private var modeScrollReturn by mutableStateOf<ModeScrollReturn?>(null)
-
-    val scrollObserver: NestedScrollConnection = object : NestedScrollConnection {
-        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-            if (source == NestedScrollSource.UserInput && consumed.y != 0f) {
-                onUserScroll()
-            }
-            return Offset.Zero
-        }
-    }
-
-    fun onUserScroll() {
-        pendingModeScroll = null
-        modeScrollReturn = null
-    }
 
     fun navigateToRange(mode: NoteMode, source: String, range: TextRange) {
-        modeScrollReturn = null
         if (mode == NoteMode.Edit) {
             contentBuffer.setSelection(range)
             pendingModeScroll = ModeScrollRequest.Edit(ReadingAnchor.edit(range.min, null, 0f, false))
         } else {
-            pendingModeScroll = ModeScrollRequest.ReadPassage(source, range.min)
+            pendingModeScroll = ModeScrollRequest.Read(sourceOffset = range.min, atTop = false, expectedSource = source)
         }
     }
 
@@ -81,38 +57,26 @@ internal class NoteModeScrollState(
         showInlineTitle: Boolean,
     ): NoteMode {
         val next = if (currentMode == NoteMode.Read) NoteMode.Edit else NoteMode.Read
-        val text = contentBuffer.snapshot()
-        val returnPosition = modeScrollReturn?.takeIf { it.source == text }?.position
-        pendingModeScroll = returnPosition ?: when (currentMode) {
+        pendingModeScroll = when (currentMode) {
             NoteMode.Read -> preview?.visibleBlocks()?.let {
                 modeScroll.captureRead(
                     blocks = it.blocks,
                     bodyStart = it.index.bodyStart,
                     hasHeader = showInlineTitle,
-                )?.let { anchor -> ModeScrollRequest.Edit(anchor) }
+                )?.let { anchor ->
+                    contentBuffer.prepareHeaderForScroll(atTop = anchor.atTop)
+                    ModeScrollRequest.Edit(anchor)
+                }
             }
             NoteMode.Edit -> modeScroll.captureEdit()
-                ?.let { position -> ModeScrollRequest.Read(position) }
-        }
-        modeScrollReturn = if (returnPosition == null) {
-            val position = when (currentMode) {
-                NoteMode.Read -> ModeScrollRequest.ReadOffset(
-                    readScroll.firstVisibleItemIndex,
-                    readScroll.firstVisibleItemScrollOffset,
-                )
-                NoteMode.Edit -> ModeScrollRequest.EditOffset(contentBuffer.scrollOffsetY)
-            }
-            ModeScrollReturn(text, position)
-        } else {
-            null
+                ?.let { position -> ModeScrollRequest.Read(position.sourceOffset, position.atTop) }
         }
         return next
     }
 
     fun canShowOpeningPreview(previewIsCurrent: Boolean, passageReady: Boolean): Boolean =
         previewIsCurrent && passageReady && when (val request = pendingModeScroll) {
-            is ModeScrollRequest.Read -> request.position.atTop
-            is ModeScrollRequest.ReadOffset -> request.itemIndex == 0
+            is ModeScrollRequest.Read -> request.atTop
             else -> readScroll.firstVisibleItemIndex == 0
         }
 
@@ -133,32 +97,22 @@ internal class NoteModeScrollState(
             it.source == contentBuffer.snapshot()
         }
         when (request) {
-            is ModeScrollRequest.ReadPassage -> {
+            is ModeScrollRequest.Read -> {
+                if (preview is PreparedMarkdown.Failed) {
+                    if (pendingModeScroll === request) pendingModeScroll = null
+                    return
+                }
                 currentPreview ?: return
-                if (currentPreview.source == request.source) {
-                    modeScroll.openPassage(
-                        request.offset,
-                        currentPreview.blocks,
-                        currentPreview.index.bodyStart,
-                        showInlineTitle,
+                if (request.expectedSource == null || currentPreview.source == request.expectedSource) {
+                    modeScroll.restoreRead(
+                        position = EditScrollPosition(request.sourceOffset, request.atTop),
+                        blocks = currentPreview.blocks,
+                        bodyStart = currentPreview.index.bodyStart,
+                        hasHeader = showInlineTitle,
                     )
                 }
             }
-            is ModeScrollRequest.Read -> {
-                currentPreview ?: return
-                modeScroll.restoreRead(
-                    position = request.position,
-                    blocks = currentPreview.blocks,
-                    bodyStart = currentPreview.index.bodyStart,
-                    hasHeader = showInlineTitle,
-                )
-            }
-            is ModeScrollRequest.ReadOffset -> {
-                currentPreview ?: return
-                readScroll.scrollToItem(request.itemIndex, request.offset)
-            }
             is ModeScrollRequest.Edit -> modeScroll.restoreEdit(request.anchor)
-            is ModeScrollRequest.EditOffset -> modeScroll.restoreEdit(request.offset)
             null -> return
         }
         if (pendingModeScroll === request) pendingModeScroll = null

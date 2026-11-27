@@ -43,6 +43,8 @@ import com.example.looma.domain.markdown.ToolbarItem
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.components.rememberDelayedVisibility
 
+internal val NoteFormatBarHeight = 52.dp
+
 @Composable
 internal fun NoteFormatBar(
     formatState: MarkdownFormatState,
@@ -66,7 +68,7 @@ internal fun NoteFormatBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp)
+                .height(NoteFormatBarHeight)
                 .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,

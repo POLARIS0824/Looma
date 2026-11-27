@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,12 +27,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -104,6 +102,12 @@ private class LoomaEditorColorScheme(
 
 private object ComposingSpanMarker : NoCopySpan
 
+private enum class HeaderTouchPhase {
+    Idle,
+    DraggingHeader,
+    AwaitingPostHandoffMove,
+}
+
 private class LoomaCodeEditor(context: Context) : CodeEditor(context) {
     var appliedStyle: AppliedSoraStyle? = null
     var headerTopPx: Int = 0
@@ -116,8 +120,7 @@ private class LoomaCodeEditor(context: Context) : CodeEditor(context) {
     private var downRawX = 0f
     private var downRawY = 0f
     private var lastRawY = 0f
-    private var draggingHeader = false
-    private var awaitingPostHandoffMove = false
+    private var touchPhase = HeaderTouchPhase.Idle
 
     fun syncSelectionToIme() {
         updateSelection()
@@ -150,8 +153,7 @@ private class LoomaCodeEditor(context: Context) : CodeEditor(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (headerHeightPx <= 0f || eventHandler.handlingMotions()) {
-            draggingHeader = false
-            awaitingPostHandoffMove = false
+            touchPhase = HeaderTouchPhase.Idle
             return super.onTouchEvent(event)
         }
         when (event.actionMasked) {
@@ -159,37 +161,38 @@ private class LoomaCodeEditor(context: Context) : CodeEditor(context) {
                 downRawX = event.rawX
                 downRawY = event.rawY
                 lastRawY = event.rawY
-                draggingHeader = false
-                awaitingPostHandoffMove = false
+                touchPhase = HeaderTouchPhase.Idle
                 return super.onTouchEvent(event)
             }
             MotionEvent.ACTION_MOVE -> {
                 val dy = event.rawY - lastRawY
                 lastRawY = event.rawY
-                if (awaitingPostHandoffMove) {
-                    awaitingPostHandoffMove = false
-                    return super.onTouchEvent(event)
-                }
-                if (!draggingHeader) {
-                    val totalDy = abs(event.rawY - downRawY)
-                    val totalDx = abs(event.rawX - downRawX)
-                    if (totalDy <= touchSlop || totalDy <= totalDx) {
+                when (touchPhase) {
+                    HeaderTouchPhase.AwaitingPostHandoffMove -> {
+                        touchPhase = HeaderTouchPhase.Idle
                         return super.onTouchEvent(event)
                     }
+                    HeaderTouchPhase.Idle -> {
+                        val totalDy = abs(event.rawY - downRawY)
+                        val totalDx = abs(event.rawX - downRawX)
+                        if (totalDy <= touchSlop || totalDy <= totalDx) {
+                            return super.onTouchEvent(event)
+                        }
+                    }
+                    HeaderTouchPhase.DraggingHeader -> Unit
                 }
                 if (dy < 0f && headerOffsetPx < headerHeightPx && scrollMaxY > 0) {
                     val next = (headerOffsetPx - dy).coerceAtMost(headerHeightPx)
                     headerOffsetPx = next
                     onHeaderOffsetChange?.invoke(next)
-                    if (!draggingHeader) {
+                    if (touchPhase != HeaderTouchPhase.DraggingHeader) {
                         val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
                         super.onTouchEvent(cancel)
                         cancel.recycle()
-                        draggingHeader = true
+                        touchPhase = HeaderTouchPhase.DraggingHeader
                     }
                     if (next >= headerHeightPx) {
-                        draggingHeader = false
-                        awaitingPostHandoffMove = true
+                        touchPhase = HeaderTouchPhase.AwaitingPostHandoffMove
                         val down = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_DOWN }
                         super.onTouchEvent(down)
                         down.recycle()
@@ -200,30 +203,32 @@ private class LoomaCodeEditor(context: Context) : CodeEditor(context) {
                     val next = (headerOffsetPx - dy).coerceAtLeast(0f)
                     headerOffsetPx = next
                     onHeaderOffsetChange?.invoke(next)
-                    if (!draggingHeader) {
+                    if (touchPhase != HeaderTouchPhase.DraggingHeader) {
                         val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
                         super.onTouchEvent(cancel)
                         cancel.recycle()
-                        draggingHeader = true
+                        touchPhase = HeaderTouchPhase.DraggingHeader
                     }
                     return true
                 }
-                if (draggingHeader) return true
+                if (touchPhase == HeaderTouchPhase.DraggingHeader) return true
                 return super.onTouchEvent(event)
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (awaitingPostHandoffMove) {
-                    awaitingPostHandoffMove = false
-                    val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
-                    super.onTouchEvent(cancel)
-                    cancel.recycle()
-                    return true
+                return when (touchPhase) {
+                    HeaderTouchPhase.AwaitingPostHandoffMove -> {
+                        touchPhase = HeaderTouchPhase.Idle
+                        val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                        super.onTouchEvent(cancel)
+                        cancel.recycle()
+                        true
+                    }
+                    HeaderTouchPhase.DraggingHeader -> {
+                        touchPhase = HeaderTouchPhase.Idle
+                        true
+                    }
+                    HeaderTouchPhase.Idle -> super.onTouchEvent(event)
                 }
-                if (draggingHeader) {
-                    draggingHeader = false
-                    return true
-                }
-                return super.onTouchEvent(event)
             }
         }
         return super.onTouchEvent(event)
@@ -394,8 +399,9 @@ private class LoomaInputConnection(
 internal fun NoteBodyEditor(
     editorState: NoteEditorState,
     active: Boolean,
-    onScrollChanged: (offsetY: Int, byUser: Boolean) -> Unit,
+    onScrollChanged: (offsetY: Int) -> Unit,
     modifier: Modifier = Modifier,
+    hideUntilScrolled: Boolean = false,
     header: (@Composable () -> Unit)? = null,
 ) {
     val typeface = rememberNoteBodyTypeface()
@@ -422,20 +428,11 @@ internal fun NoteBodyEditor(
         actionIcon = colorScheme.onSurface.toArgb(),
     )
     val latestOnScroll by rememberUpdatedState(onScrollChanged)
-    var editorView by remember { mutableStateOf<LoomaCodeEditor?>(null) }
-    var headerHeightPx by remember { mutableFloatStateOf(0f) }
     var firstRowBaselinePx by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(header == null) {
         if (header == null) {
-            headerHeightPx = 0f
             editorState.headerHeightPx = 0f
-        }
-    }
-
-    DisposableEffect(editorState) {
-        onDispose {
-            editorView?.let { editorState.detach(it) }
         }
     }
 
@@ -449,6 +446,7 @@ internal fun NoteBodyEditor(
                 .fillMaxSize()
                 .padding(horizontal = pageMargin()),
         ) {
+            val headerHeightPx = editorState.headerHeightPx
             val bodyTopPx = (headerHeightPx - editorState.headerOffsetPx).coerceAtLeast(0f).roundToInt()
             val bodyTopDp = with(density) { bodyTopPx.toDp() }
             AndroidView(
@@ -462,6 +460,7 @@ internal fun NoteBodyEditor(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                         )
                         isWordwrap = true
+                        isVerticalScrollBarEnabled = false
                         isLineNumberEnabled = false
                         isScalable = false
                         isHighlightCurrentLine = false
@@ -475,11 +474,9 @@ internal fun NoteBodyEditor(
                         props.textBackgroundWrapTextOnly = true
                         getComponent(EditorAutoCompletion::class.java).isEnabled = false
                         alpha = 0f
-                        editorView = this
                     }
                 },
                 update = { ed ->
-                    editorView = ed
                     ed.headerTopPx = bodyTopPx
                     ed.headerHeightPx = headerHeightPx
                     ed.headerOffsetPx = editorState.headerOffsetPx
@@ -508,15 +505,14 @@ internal fun NoteBodyEditor(
                     if (ed.editable != active) {
                         ed.editable = active
                     }
-                    val targetAlpha = if (editorState.isLayoutReady) 1f else 0f
+                    val targetAlpha = if (editorState.isLayoutReady && !hideUntilScrolled) 1f else 0f
                     if (ed.alpha != targetAlpha) {
                         ed.alpha = targetAlpha
                     }
-                    editorState.attach(ed) { y, byUser -> latestOnScroll(y, byUser) }
+                    editorState.attach(ed) { y -> latestOnScroll(y) }
                 },
                 onRelease = { ed ->
                     editorState.detach(ed)
-                    if (editorView === ed) editorView = null
                     ed.release()
                 },
             )
@@ -540,9 +536,7 @@ internal fun NoteBodyEditor(
                     modifier = Modifier
                         .fillMaxWidth()
                         .onSizeChanged {
-                            val h = it.height.toFloat()
-                            headerHeightPx = h
-                            editorState.headerHeightPx = h
+                            editorState.headerHeightPx = it.height.toFloat()
                         }
                         .graphicsLayer { translationY = -editorState.headerOffsetPx }
                         .draggable(
@@ -554,5 +548,12 @@ internal fun NoteBodyEditor(
                 }
             }
         }
+        NoteEditorScrollbar(
+            editorState = editorState,
+            enabled = editorState.isLayoutReady && !hideUntilScrolled,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight(),
+        )
     }
 }

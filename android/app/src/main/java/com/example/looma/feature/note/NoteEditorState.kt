@@ -22,6 +22,28 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 
+private enum class LayoutPhase {
+    Unbound,
+    LayoutBusy,
+    Ready,
+}
+
+internal data class EditorScrollMetrics(
+    val offsetPx: Float = 0f,
+    val maxOffsetPx: Float = 0f,
+    val viewportPx: Float = 0f,
+)
+
+private sealed interface EditorSession {
+    data object Detached : EditorSession
+    data class Attached(
+        val editor: CodeEditor,
+        val subscriptions: List<SubscriptionReceipt<*>>,
+        val layoutChangeListener: View.OnLayoutChangeListener,
+        val phase: LayoutPhase,
+    ) : EditorSession
+}
+
 internal class NoteEditorState(
     initialText: String = "",
     initialSelection: TextRange = TextRange.Zero,
@@ -43,32 +65,44 @@ internal class NoteEditorState(
     var isEmpty by mutableStateOf(initialText.isEmpty())
         private set
 
-    var layoutRevision by mutableLongStateOf(0L)
-        private set
-
-    var isLayoutReady by mutableStateOf(false)
-        private set
-
     var headerOffsetPx by mutableFloatStateOf(0f)
         private set
 
-    var headerHeightPx: Float = 0f
+    private var _headerHeightPx by mutableFloatStateOf(0f)
+    var headerHeightPx: Float
+        get() = _headerHeightPx
         set(value) {
             val clamped = value.coerceAtLeast(0f)
-            field = clamped
-            if (headerOffsetPx > clamped) {
+            _headerHeightPx = clamped
+            if (clamped == 0f) {
+                collapseHeaderOnMeasure = false
+            }
+            if (clamped > 0f && collapseHeaderOnMeasure) {
+                headerOffsetPx = clamped
+                collapseHeaderOnMeasure = false
+            } else if (headerOffsetPx > clamped) {
                 headerOffsetPx = clamped
             }
+            syncScrollMetrics()
         }
 
+    var scrollMetrics by mutableStateOf(EditorScrollMetrics())
+        private set
+
+    private var collapseHeaderOnMeasure: Boolean = false
     private var cachedVersion: Long = 0L
     private var cachedText: String = initialText
-    private var attachedEditor: CodeEditor? = null
-    private var subscriptions: List<SubscriptionReceipt<*>> = emptyList()
-    private var contentBound: Boolean = false
-    private var layoutBusy: Boolean = false
-    private var layoutChangeListener: View.OnLayoutChangeListener? = null
-    private var scrollCallback: ((offsetY: Int, byUser: Boolean) -> Unit)? = null
+    private var session by mutableStateOf<EditorSession>(EditorSession.Detached)
+    private var scrollCallback: ((offsetY: Int) -> Unit)? = null
+
+    private val attachedEditor: CodeEditor?
+        get() = (session as? EditorSession.Attached)?.editor
+
+    private val isContentBound: Boolean
+        get() = (session as? EditorSession.Attached)?.let { it.phase != LayoutPhase.Unbound } == true
+
+    val isLayoutReady: Boolean
+        get() = (session as? EditorSession.Attached)?.phase == LayoutPhase.Ready
 
     init {
         applyCursorSelection(content, selection)
@@ -106,8 +140,10 @@ internal class NoteEditorState(
         get() = (attachedEditor?.scrollMaxY ?: 0) > 0 || headerOffsetPx > 0f
 
     fun updateHeaderOffset(offset: Float) {
+        collapseHeaderOnMeasure = false
         headerOffsetPx = offset.coerceIn(0f, headerHeightPx)
-        scrollCallback?.invoke(totalScrollOffsetY.roundToInt(), true)
+        syncScrollMetrics()
+        scrollCallback?.invoke(totalScrollOffsetY.roundToInt())
     }
 
     fun dragHeaderBy(delta: Float) {
@@ -116,8 +152,23 @@ internal class NoteEditorState(
     }
 
     fun expandHeader() {
+        collapseHeaderOnMeasure = false
         headerOffsetPx = 0f
-        scrollCallback?.invoke(totalScrollOffsetY.roundToInt(), false)
+        syncScrollMetrics()
+        scrollCallback?.invoke(totalScrollOffsetY.roundToInt())
+    }
+
+    fun prepareHeaderForScroll(atTop: Boolean) {
+        if (atTop) {
+            collapseHeaderOnMeasure = false
+            headerOffsetPx = 0f
+        } else if (headerHeightPx > 0f) {
+            headerOffsetPx = headerHeightPx
+            collapseHeaderOnMeasure = false
+        } else {
+            collapseHeaderOnMeasure = true
+        }
+        syncScrollMetrics()
     }
 
     fun snapshot(): String {
@@ -135,7 +186,7 @@ internal class NoteEditorState(
         newSelection: TextRange? = null,
     ) {
         val editor = attachedEditor
-        if (editor != null && contentBound && editor.hasComposingText()) {
+        if (editor != null && isContentBound && editor.hasComposingText()) {
             editor.restartInput()
         }
         val from = minOf(start, end).coerceIn(0, content.length)
@@ -152,7 +203,7 @@ internal class NoteEditorState(
         val target = clampedRange(range, content.length)
         _selection.value = target
         val editor = attachedEditor
-        if (editor != null && contentBound) {
+        if (editor != null && isContentBound) {
             applySelectionToEditor(editor, target)
             editor.notifyIMEExternalCursorChange()
         } else {
@@ -184,18 +235,15 @@ internal class NoteEditorState(
         }
     }
 
-    fun attach(editor: CodeEditor, onScrollChanged: (offsetY: Int, byUser: Boolean) -> Unit) {
+    fun attach(editor: CodeEditor, onScrollChanged: (offsetY: Int) -> Unit) {
         scrollCallback = onScrollChanged
         if (attachedEditor === editor) {
             bindContentIfReady(editor)
+            refreshLayoutReady(editor)
             return
         }
         attachedEditor?.let { detach(it) }
-        attachedEditor = editor
-        layoutBusy = false
-        contentBound = false
-        isLayoutReady = false
-        subscriptions = listOf(
+        val subscriptions = listOf(
             editor.subscribeEvent(SelectionChangeEvent::class.java) { event, _ ->
                 _selection.value = TextRange(event.left.index, event.right.index)
             },
@@ -216,62 +264,74 @@ internal class NoteEditorState(
                         }
                     }
                 }
-                val byUser = holdingScrollbar ||
-                    event.cause == ScrollEvent.CAUSE_USER_DRAG ||
-                    event.cause == ScrollEvent.CAUSE_USER_FLING
-                scrollCallback?.invoke((headerOffsetPx + event.endY).roundToInt(), byUser)
+                syncScrollMetrics(editor, event.endY)
+                scrollCallback?.invoke((headerOffsetPx + event.endY).roundToInt())
             },
             editor.subscribeEvent(LayoutStateChangeEvent::class.java) { event, _ ->
-                layoutBusy = event.isLayoutBusy
-                if (!event.isLayoutBusy && contentBound && editor.width > 0 && editor.height > 0) {
-                    isLayoutReady = true
-                    layoutRevision++
+                val current = (session as? EditorSession.Attached)?.takeIf { it.editor === editor }
+                    ?: return@subscribeEvent
+                if (event.isLayoutBusy) {
+                    if (current.phase != LayoutPhase.Unbound) {
+                        session = current.copy(phase = LayoutPhase.LayoutBusy)
+                    }
+                } else {
+                    refreshLayoutReady(editor, fromLayoutComplete = true)
                 }
             },
         )
         val listener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             if (editor.width > 0 && editor.height > 0) {
                 bindContentIfReady(editor)
-                if (!layoutBusy && contentBound && editor.layout != null && editor.layout.rowCount > 0) {
-                    isLayoutReady = true
-                    layoutRevision++
-                }
+                refreshLayoutReady(editor)
+                syncScrollMetrics(editor)
             }
         }
-        layoutChangeListener = listener
         editor.addOnLayoutChangeListener(listener)
+        session = EditorSession.Attached(
+            editor = editor,
+            subscriptions = subscriptions,
+            layoutChangeListener = listener,
+            phase = LayoutPhase.Unbound,
+        )
         if (editor.width > 0 && editor.height > 0) {
             bindContentIfReady(editor)
-            if (!layoutBusy && contentBound && editor.layout != null && editor.layout.rowCount > 0) {
-                isLayoutReady = true
-                layoutRevision++
-            }
+            refreshLayoutReady(editor)
         }
     }
 
     private fun bindContentIfReady(editor: CodeEditor) {
-        if (contentBound || editor.width <= 0) return
-        contentBound = true
+        val current = (session as? EditorSession.Attached)
+            ?.takeIf { it.editor === editor && it.phase == LayoutPhase.Unbound }
+            ?: return
+        if (editor.width <= 0) return
+        val needsWordwrapLayout = editor.text !== content && editor.isWordwrap
+        session = current.copy(phase = LayoutPhase.LayoutBusy)
         if (editor.text !== content) {
-            if (editor.isWordwrap) {
-                layoutBusy = true
-            }
             editor.setText(content)
         }
         applySelectionToEditor(editor, selection, makePositionVisible = false)
+        if (!needsWordwrapLayout) {
+            refreshLayoutReady(editor, fromLayoutComplete = true)
+        }
+    }
+
+    private fun refreshLayoutReady(editor: CodeEditor, fromLayoutComplete: Boolean = false) {
+        val current = (session as? EditorSession.Attached)?.takeIf { it.editor === editor } ?: return
+        if (current.phase == LayoutPhase.Unbound) return
+        if (current.phase == LayoutPhase.LayoutBusy && !fromLayoutComplete) return
+        if (editor.width > 0 && editor.height > 0 && editor.layout != null && editor.layout.rowCount > 0) {
+            session = current.copy(phase = LayoutPhase.Ready)
+            syncScrollMetrics(editor)
+        }
     }
 
     fun detach(editor: CodeEditor) {
-        if (attachedEditor !== editor) return
-        layoutChangeListener?.let { editor.removeOnLayoutChangeListener(it) }
-        layoutChangeListener = null
-        subscriptions.forEach { it.unsubscribe() }
-        subscriptions = emptyList()
-        layoutBusy = false
-        contentBound = false
-        isLayoutReady = false
-        attachedEditor = null
+        val current = (session as? EditorSession.Attached)?.takeIf { it.editor === editor } ?: return
+        editor.removeOnLayoutChangeListener(current.layoutChangeListener)
+        current.subscriptions.forEach { it.unsubscribe() }
+        session = EditorSession.Detached
         scrollCallback = null
+        scrollMetrics = EditorScrollMetrics()
     }
 
     fun captureScrollPosition(): EditScrollPosition? {
@@ -287,21 +347,51 @@ internal class NoteEditorState(
 
     suspend fun awaitLayoutReady(): CodeEditor =
         snapshotFlow {
-            layoutRevision
-            attachedEditor?.takeIf {
-                contentBound && !layoutBusy && it.width > 0 && it.height > 0 && it.layout != null && it.layout.rowCount > 0
-            }
+            (session as? EditorSession.Attached)?.takeIf { it.phase == LayoutPhase.Ready }?.editor
         }.filterNotNull().first()
 
     fun scrollToY(y: Int) {
         val editor = attachedEditor ?: return
-        val target = y.coerceIn(0, editor.scrollMaxY)
-        headerOffsetPx = if (target > 0) headerHeightPx else 0f
+        val target = y.coerceIn(0, editor.scrollMaxY.coerceAtLeast(0))
+        prepareHeaderForScroll(atTop = target == 0)
         editor.scroller.forceFinished(true)
         editor.scroller.startScroll(0, target, 0, 0, 0)
         editor.scroller.abortAnimation()
         editor.invalidate()
-        scrollCallback?.invoke((headerOffsetPx + target).roundToInt(), false)
+        syncScrollMetrics(editor, target)
+        scrollCallback?.invoke((headerOffsetPx + target).roundToInt())
+    }
+
+    fun scrollToFraction(fraction: Float) {
+        val editor = attachedEditor ?: return
+        val maxY = editor.scrollMaxY.coerceAtLeast(0)
+        val totalMax = (headerHeightPx + maxY).coerceAtLeast(0f)
+        val targetTotal = fraction.coerceIn(0f, 1f) * totalMax
+        collapseHeaderOnMeasure = false
+        headerOffsetPx = targetTotal.coerceAtMost(headerHeightPx)
+        val bodyTarget = (targetTotal - headerOffsetPx).roundToInt().coerceIn(0, maxY)
+        editor.scroller.forceFinished(true)
+        editor.scroller.startScroll(0, bodyTarget, 0, 0, 0)
+        editor.scroller.abortAnimation()
+        editor.invalidate()
+        syncScrollMetrics(editor, bodyTarget)
+        scrollCallback?.invoke((headerOffsetPx + bodyTarget).roundToInt())
+    }
+
+    private fun syncScrollMetrics(editor: CodeEditor? = attachedEditor, bodyY: Int? = null) {
+        if (editor == null || editor.height <= 0 || editor.layout == null) {
+            scrollMetrics = EditorScrollMetrics()
+            return
+        }
+        val y = (bodyY ?: editor.offsetY).coerceAtLeast(0)
+        val maxY = editor.scrollMaxY.coerceAtLeast(0)
+        val totalOffset = (headerOffsetPx + y).coerceAtLeast(0f)
+        val totalMax = (headerHeightPx + maxY).coerceAtLeast(0f)
+        scrollMetrics = EditorScrollMetrics(
+            offsetPx = totalOffset.coerceAtMost(totalMax),
+            maxOffsetPx = totalMax,
+            viewportPx = editor.height.toFloat(),
+        )
     }
 
     fun verticalTopFor(offset: Int): Float {

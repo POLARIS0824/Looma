@@ -43,7 +43,7 @@ internal class NoteModeScroll(
     ) {
         val header = if (hasHeader) 1 else 0
         val index = ReadingBlocks.indexAt(blocks, position.sourceOffset, bodyStart)
-        if (position.atTop || index == null) {
+        if (position.atTop || position.sourceOffset < bodyStart || index == null) {
             read.scrollToItem(0)
             return
         }
@@ -52,10 +52,7 @@ internal class NoteModeScroll(
     }
 
     suspend fun openPassage(sourceOffset: Int, blocks: List<ReadingBlock>, bodyStart: Int, hasHeader: Boolean) {
-        val index = ReadingBlocks.indexAt(blocks, sourceOffset, bodyStart) ?: return
-        val block = blocks[index].shift(bodyStart)
-        val fraction = blockFraction(sourceOffset.toFloat(), block.start.toFloat(), (block.end - block.start).toFloat())
-        scrollReadBlock(index + if (hasHeader) 1 else 0, fraction)
+        restoreRead(EditScrollPosition(sourceOffset, atTop = false), blocks, bodyStart, hasHeader)
     }
 
     private suspend fun scrollReadBlock(itemIndex: Int, fraction: Float) {
@@ -71,6 +68,7 @@ internal class NoteModeScroll(
     }
 
     suspend fun restoreEdit(anchor: ReadingAnchor) {
+        editor.prepareHeaderForScroll(atTop = anchor.atTop)
         editor.awaitLayoutReady()
         if (anchor.atTop) {
             editor.scrollToY(0)
@@ -78,11 +76,6 @@ internal class NoteModeScroll(
         }
         val targetY = textTopFor(anchor)
         editor.scrollToY(targetY.roundToInt())
-    }
-
-    suspend fun restoreEdit(scrollOffset: Int) {
-        editor.awaitLayoutReady()
-        editor.scrollToY(scrollOffset)
     }
 
     private fun textTopFor(anchor: ReadingAnchor): Float {
