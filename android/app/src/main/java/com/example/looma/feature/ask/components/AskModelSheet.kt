@@ -2,10 +2,15 @@ package com.example.looma.feature.ask.components
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -19,7 +24,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,8 +39,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilledTonalToggleButton
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -61,11 +65,15 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -74,6 +82,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.data.assistant.AnswerModel
@@ -95,6 +104,14 @@ private enum class AskSheetPage { Model, Effort }
 private val WheelItemHeight = 56.dp
 private const val WheelVisibleItems = 3
 private val EffortTrackHeight = 56.dp
+
+private val ConsumeRemainingVerticalScroll = object : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+        Offset(0f, available.y)
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        Velocity(0f, available.y)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,6 +136,7 @@ internal fun AskModelSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = LoomaTokens.colors.sheet,
+        dragHandle = null,
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = !isEffort),
     ) {
         BackHandler(enabled = isEffort) { page = AskSheetPage.Model }
@@ -126,9 +144,9 @@ internal fun AskModelSheet(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
-                .padding(horizontal = 16.dp),
+                .padding(start = 8.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
         ) {
-            FilledTonalIconButton(
+            IconButton(
                 onClick = { if (isEffort) page = AskSheetPage.Model else onDismiss() },
                 modifier = Modifier.align(Alignment.CenterStart),
                 shapes = IconButtonDefaults.shapes(),
@@ -146,11 +164,12 @@ internal fun AskModelSheet(
         }
         AnimatedContent(
             targetState = page,
+            modifier = Modifier.clipToBounds(),
             transitionSpec = {
                 val direction = if (targetState == AskSheetPage.Effort) 1 else -1
                 (slideInHorizontally(motion.defaultSpatialSpec()) { direction * it / 5 } + fadeIn(motion.fastEffectsSpec()))
                     .togetherWith(slideOutHorizontally(motion.defaultSpatialSpec()) { -direction * it / 5 } + fadeOut(motion.fastEffectsSpec()))
-                    .using(SizeTransform(clip = false) { _, _ -> motion.defaultSpatialSpec() })
+                    .using(SizeTransform(clip = true) { _, _ -> motion.defaultSpatialSpec() })
             },
             label = "askSheetPage",
         ) { current ->
@@ -182,8 +201,9 @@ private fun ModelPage(
 ) {
     val motion = MaterialTheme.motionScheme
     Column(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
     ) {
         if (models.isEmpty()) {
             Text(
@@ -195,19 +215,29 @@ private fun ModelPage(
         } else {
             ModelWheel(models = models, choice = choice, onSelect = onSelect, onOpenEffort = onOpenEffort)
             val routes = choice?.model?.supportedRoutes.orEmpty()
-            if (routes.size > 1) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            var displayRoutes by remember { mutableStateOf(routes) }
+            if (routes.size > 1) displayRoutes = routes
+            AnimatedVisibility(
+                visible = routes.size > 1,
+                enter = fadeIn(motion.fastEffectsSpec()) + expandVertically(motion.defaultSpatialSpec()),
+                exit = fadeOut(motion.fastEffectsSpec()) + shrinkVertically(motion.defaultSpatialSpec()),
+                label = "routeSelector",
+            ) {
+                Column(
+                    modifier = Modifier.padding(top = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
                     ) {
-                        routes.forEachIndexed { index, route ->
+                        displayRoutes.forEachIndexed { index, route ->
                             FilledTonalToggleButton(
                                 checked = choice?.route == route,
                                 onCheckedChange = { if (it) onRoute(route) },
                                 shapes = when (index) {
                                     0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                    routes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                                    displayRoutes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                                     else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                                 },
                                 contentPadding = PaddingValues(horizontal = 4.dp),
@@ -223,62 +253,84 @@ private fun ModelPage(
                             }
                         }
                     }
-                    AnimatedContent(
-                        targetState = choice?.route,
-                        transitionSpec = { fadeIn(motion.fastEffectsSpec()).togetherWith(fadeOut(motion.fastEffectsSpec())) },
+                    Crossfade(
+                        targetState = choice?.route?.let { stringResource(it.descriptionRes()) }.orEmpty(),
+                        animationSpec = motion.fastEffectsSpec(),
                         label = "routeDescription",
-                    ) { route ->
+                    ) { description ->
                         Text(
-                            text = route?.let { stringResource(it.descriptionRes()) }.orEmpty(),
+                            text = description,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            minLines = 2,
                         )
                     }
                 }
             }
-            when (val availability = choice?.model?.availability) {
-                is GeneratorAvailability.Downloading -> {
-                    val progress = availability.progress
-                    if (progress == null) {
-                        LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    } else {
-                        LinearWavyProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+            val availability = choice?.model?.availability
+            val showAvailability = availability is GeneratorAvailability.Downloading ||
+                availability is GeneratorAvailability.Downloadable ||
+                availability is GeneratorAvailability.Unavailable
+            var displayAvailability by remember { mutableStateOf<GeneratorAvailability?>(null) }
+            if (showAvailability) displayAvailability = availability
+            AnimatedVisibility(
+                visible = showAvailability,
+                enter = fadeIn(motion.fastEffectsSpec()) + expandVertically(motion.defaultSpatialSpec()),
+                exit = fadeOut(motion.fastEffectsSpec()) + shrinkVertically(motion.defaultSpatialSpec()),
+                label = "modelAvailability",
+            ) {
+                Box(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    when (val shown = displayAvailability) {
+                        is GeneratorAvailability.Downloading -> {
+                            val progress = shown.progress
+                            if (progress == null) {
+                                LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            } else {
+                                LinearWavyProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                        is GeneratorAvailability.Downloadable -> {
+                            FilledTonalButton(onClick = onPrepareModel, shapes = ButtonDefaults.shapes()) {
+                                Text(stringResource(R.string.ask_model_download))
+                            }
+                        }
+                        is GeneratorAvailability.Unavailable -> {
+                            Text(
+                                text = shown.reason?.takeIf { it.isNotBlank() }
+                                    ?: stringResource(R.string.ask_error_on_device_unavailable),
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        else -> Unit
                     }
                 }
-                is GeneratorAvailability.Downloadable -> {
-                    FilledTonalButton(onClick = onPrepareModel, shapes = ButtonDefaults.shapes()) {
-                        Text(stringResource(R.string.ask_model_download))
-                    }
-                }
-                is GeneratorAvailability.Unavailable -> {
-                    Text(
-                        text = availability.reason?.takeIf { it.isNotBlank() }
-                            ?: stringResource(R.string.ask_error_on_device_unavailable),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                else -> Unit
             }
-            AnimatedContent(
-                targetState = choice?.model,
-                transitionSpec = { fadeIn(motion.fastEffectsSpec()).togetherWith(fadeOut(motion.fastEffectsSpec())) },
+            Crossfade(
+                targetState = choice?.model?.displayDescription().orEmpty(),
+                modifier = Modifier.padding(top = 16.dp),
+                animationSpec = motion.fastEffectsSpec(),
                 label = "modelDescription",
-            ) { model ->
+            ) { description ->
                 Text(
-                    text = model?.displayDescription().orEmpty(),
+                    text = description,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    minLines = 2,
                 )
             }
         }
-        FilledTonalButton(onClick = onManageModels, shapes = ButtonDefaults.shapes()) {
+        FilledTonalButton(
+            onClick = onManageModels,
+            modifier = Modifier.padding(top = 16.dp),
+            shapes = ButtonDefaults.shapes(),
+        ) {
             Text(stringResource(R.string.models_manage))
         }
     }
@@ -291,6 +343,7 @@ private fun ModelWheel(
     onSelect: (AnswerModel) -> Unit,
     onOpenEffort: () -> Unit,
 ) {
+    val motion = MaterialTheme.motionScheme
     val scope = rememberCoroutineScope()
     val selected = models.indexOfFirst { it.id == choice?.model?.id }.coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = selected)
@@ -314,12 +367,17 @@ private fun ModelWheel(
         )
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().nestedScroll(ConsumeRemainingVerticalScroll),
             contentPadding = PaddingValues(vertical = WheelItemHeight * (WheelVisibleItems / 2)),
             flingBehavior = rememberSnapFlingBehavior(listState),
         ) {
             itemsIndexed(models, key = { _, model -> model.id }) { index, model ->
                 val isCentered = index == centered
+                val labelColor by animateColorAsState(
+                    targetValue = if (isCentered) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = motion.fastEffectsSpec(),
+                    label = "wheelLabelColor",
+                )
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -341,20 +399,27 @@ private fun ModelWheel(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        model.displayLabel(),
-                        modifier = Modifier.weight(1f, fill = false),
-                        style = if (isCentered) MaterialTheme.typography.titleMediumEmphasized else MaterialTheme.typography.titleMedium,
-                        color = if (isCentered) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        stringResource(model.sourceRes()),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            model.displayLabel(),
+                            modifier = Modifier.weight(1f, fill = false),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = labelColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            stringResource(model.sourceRes()),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
                     val effort = choice?.effort?.takeIf { choice.model.id == model.id }
                     if (isCentered && effort != null && model.efforts.size > 1) {
                         EffortMeterButton(efforts = model.efforts, current = effort, onClick = onOpenEffort)
@@ -395,9 +460,10 @@ private fun EffortMeterButton(efforts: List<ThinkingEffort>, current: ThinkingEf
                 )
             }
         }
-        SwapText(
+        Text(
             text = stringResource(current.labelRes()),
             style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
         )
         LoomaIcon(
             iconRes = R.drawable.ic_chevron_right,
@@ -412,7 +478,7 @@ private fun EffortMeterButton(efforts: List<ThinkingEffort>, current: ThinkingEf
 private fun EffortPage(choice: ModelChoice?, onEffort: (ThinkingEffort) -> Unit) {
     val efforts = choice?.model?.efforts.orEmpty()
     Column(
-        Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 24.dp),
+        Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (choice == null || efforts.size < 2) {

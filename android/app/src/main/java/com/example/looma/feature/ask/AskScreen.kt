@@ -2,6 +2,8 @@ package com.example.looma.feature.ask
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.clearText
@@ -27,8 +29,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -44,6 +49,8 @@ import com.example.looma.feature.ask.components.AskQuestionLimit
 import com.example.looma.feature.ask.components.AskSkillsSheet
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 internal fun AskScreen(
@@ -58,10 +65,26 @@ internal fun AskScreen(
 
     val input = rememberTextFieldState()
     val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
     var saveTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
+    var pendingModelSheet by remember { mutableStateOf(false) }
     var historyOpen by rememberSaveable { mutableStateOf(false) }
     var skillsOpen by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(pendingModelSheet) {
+        if (!pendingModelSheet) return@LaunchedEffect
+        focus.clearFocus(force = true)
+        keyboard?.hide()
+        withTimeoutOrNull(350) {
+            snapshotFlow { ime.getBottom(density) }
+                .first { it == 0 }
+        }
+        pendingModelSheet = false
+        sheetOpen = true
+    }
 
     val firstUserMessage = state.messages.firstOrNull { it.role == ChatRole.User }?.text
     val topBarTitle = firstUserMessage ?: stringResource(R.string.ask_title)
@@ -113,7 +136,7 @@ internal fun AskScreen(
                 choice = state.choice,
                 running = phase is AskPhase.Running,
                 busy = state.busy,
-                sheetOpen = sheetOpen,
+                sheetOpen = sheetOpen || pendingModelSheet,
                 onSend = {
                     val question = input.text.toString()
                     if (question.isNotBlank() && question.length <= AskQuestionLimit && !state.busy) {
@@ -123,7 +146,7 @@ internal fun AskScreen(
                     }
                 },
                 onStop = model::cancel,
-                onModel = { sheetOpen = true },
+                onModel = { pendingModelSheet = true },
             )
         },
     ) { padding ->
@@ -184,6 +207,8 @@ internal fun AskScreen(
             onRoute = model::setRoute,
             onPrepareModel = model::prepareSelectedModel,
             onManageModels = {
+                focus.clearFocus(force = true)
+                keyboard?.hide()
                 sheetOpen = false
                 manageModels()
             },
