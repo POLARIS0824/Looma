@@ -2,7 +2,7 @@
     <string name="models_title">Models</string>
     <string name="models_settings_desc">Choose on-device and API models for answers</string>
     <string name="models_manage">Manage models</string>
-    <string name="models_pair">%1$s · %2$s</string>
+    <string name="models_pair">%1$s, %2$s</string>
     <string name="models_hero_title">Choose the model for answers</string>
     <string name="models_hero_subtitle">On-device models work offline. API models are stronger but need a network connection.</string>
     <string name="models_local_title">On-device models</string>
@@ -25,7 +25,7 @@
     <string name="models_api_none">Not connected</string>
     <string name="models_default_title">Default model</string>
     <string name="models_default_empty">Download an on-device model or add an API connection to choose a default.</string>
-    <string name="models_on_device_size">On device · %1$s</string>
+    <string name="models_on_device_size">On device, %1$s</string>
     <string name="models_imported_name">Imported model</string>
     <string name="models_local_hero">Runs on this device</string>
     <string name="models_local_subtitle">Works offline and your notes never leave this device. Larger models answer better but use more memory and battery.</string>
@@ -76,5 +76,5 @@
     <string name="models_edit_status_checking">Checking connection…</string>
     <string name="models_edit_status_ok">Last check: connected</string>
     <string name="models_edit_status_failed">Last check: could not connect. Check the base URL and API key.</string>
-    <string name="models_edit_test">Test connection</string>
+    <string name="models_edit_test">Test</string>
 </resources>

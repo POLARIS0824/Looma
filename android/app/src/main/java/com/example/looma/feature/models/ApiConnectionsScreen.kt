@@ -96,7 +96,6 @@ private fun ConnectionItem(connection: ApiConnection, index: Int, count: Int, on
         shapes = ListItemDefaults.segmentedShapes(index, count),
         colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier.fillMaxWidth(),
-        leadingContent = { ProviderAvatar(connection.provider) },
         supportingContent = {
             Text(
                 stringResource(

@@ -1,6 +1,6 @@
 <resources>
     <string name="ask_title">Ask this vault</string>
-    <string name="ask_tool">Investigating · %1$s</string>
+    <string name="ask_tool">Investigating %1$s</string>
     <string name="ask_run_failed">Could not read this vault. Check access and try again.</string>
     <string name="ask_timeout">The investigation timed out. Try a narrower question.</string>
     <string name="ask_changed">This passage has changed or moved. Search again to update the citation.</string>
@@ -18,8 +18,8 @@
     <string name="weave_diff">Append to this note\n+ [[%1$s]]</string>
     <string name="weave_insert">Insert link</string>
     <string name="weave_retry">Refresh suggestions</string>
-    <string name="weave_similarity">Passage similarity · %1$.2f</string>
-    <string name="weave_keywords">Shared terms · %1$s</string>
+    <string name="weave_similarity">Passage similarity: %1$.2f</string>
+    <string name="weave_keywords">Shared terms: %1$s</string>
     <string name="ask_length">Use a question of 1,000 characters or fewer</string>
     <string name="ask_saving">Saving answer…</string>
     <string name="ask_save_note">Save as note</string>
@@ -67,6 +67,7 @@
     <string name="ask_origin_cloud">Generated in cloud</string>
     <string name="ask_origin_local_file">Generated from local model</string>
     <string name="ask_meta_fallback">Used fallback route</string>
+    <string name="ask_origin_with_fallback">%1$s (%2$s)</string>
     <string name="ask_effort_off">Off</string>
     <string name="ask_effort_low">Low</string>
     <string name="ask_effort_medium">Medium</string>

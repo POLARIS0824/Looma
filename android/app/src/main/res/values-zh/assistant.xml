@@ -1,6 +1,6 @@
 <resources>
     <string name="ask_title">问笔记库</string>
-    <string name="ask_tool">正在查找 · %1$s</string>
+    <string name="ask_tool">正在查找 %1$s</string>
     <string name="ask_run_failed">无法读取笔记库，请检查存储权限后重试</string>
     <string name="ask_timeout">查找超时，请缩小问题范围后重试</string>
     <string name="ask_changed">这段原文已修改或移动，请重新查找以更新引用</string>
@@ -18,8 +18,8 @@
     <string name="weave_diff">将在本笔记末尾追加\n+ [[%1$s]]</string>
     <string name="weave_insert">确认插入</string>
     <string name="weave_retry">刷新推荐</string>
-    <string name="weave_similarity">段落余弦相似度 · %1$.2f</string>
-    <string name="weave_keywords">共同词语 · %1$s</string>
+    <string name="weave_similarity">段落余弦相似度 %1$.2f</string>
+    <string name="weave_keywords">共同词语：%1$s</string>
     <string name="ask_length">问题最多可输入 1,000 个字符</string>
     <string name="ask_saving">正在保存回答…</string>
     <string name="ask_save_note">保存为笔记</string>
@@ -67,6 +67,7 @@
     <string name="ask_origin_cloud">由云端生成</string>
     <string name="ask_origin_local_file">由本地模型生成</string>
     <string name="ask_meta_fallback">已自动切换推理路径</string>
+    <string name="ask_origin_with_fallback">%1$s（%2$s）</string>
     <string name="ask_effort_off">关闭</string>
     <string name="ask_effort_low">低</string>
     <string name="ask_effort_medium">中</string>

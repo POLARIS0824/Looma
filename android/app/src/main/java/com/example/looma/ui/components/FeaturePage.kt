@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.looma.ui.theme.LoomaTokens
@@ -118,7 +119,12 @@ fun FlowRowScope.FeatureAction(
             )
             Spacer(Modifier.size(ButtonDefaults.IconSpacing))
         }
-        Text(text = text, style = ButtonDefaults.textStyleFor(height))
+        Text(
+            text = text,
+            style = ButtonDefaults.textStyleFor(height),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
     when (style) {
         FeatureActionStyle.Filled -> Button(

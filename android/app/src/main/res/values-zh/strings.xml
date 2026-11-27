@@ -426,7 +426,7 @@
     <string name="settings_sync_now">立即同步</string>
     <string name="settings_sync_retry">重试</string>
     <string name="settings_sync_configure">配置</string>
-    <string name="settings_sync_test">测试连接</string>
+    <string name="settings_sync_test">测试</string>
     <string name="settings_sync_testing">正在测试…</string>
     <string name="settings_sync_test_ok">连接成功</string>
     <string name="settings_sync_action_failed">无法更新同步任务，请重试。</string>

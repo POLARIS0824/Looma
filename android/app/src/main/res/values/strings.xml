@@ -432,7 +432,7 @@
     <string name="settings_sync_now">Sync now</string>
     <string name="settings_sync_retry">Retry</string>
     <string name="settings_sync_configure">Configure</string>
-    <string name="settings_sync_test">Test connection</string>
+    <string name="settings_sync_test">Test</string>
     <string name="settings_sync_testing">Testing…</string>
     <string name="settings_sync_test_ok">Connection succeeded</string>
     <string name="settings_sync_action_failed">Couldn’t update sync. Try again.</string>

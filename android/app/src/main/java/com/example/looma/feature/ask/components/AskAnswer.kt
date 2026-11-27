@@ -1,5 +1,6 @@
 package com.example.looma.feature.ask.components
 
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -27,8 +29,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -106,6 +115,14 @@ internal fun AskEmpty(
     }
 }
 
+private fun LazyListState.isAtBottom(): Boolean {
+    if (!canScrollForward) return true
+    val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull() ?: return true
+    if (lastVisible.index < layoutInfo.totalItemsCount - 1) return false
+    val viewportBottom = layoutInfo.viewportEndOffset - layoutInfo.afterContentPadding
+    return (lastVisible.offset + lastVisible.size) <= viewportBottom + 8
+}
+
 @Composable
 internal fun AskConversation(
     messages: List<ChatMessage>,
@@ -121,10 +138,54 @@ internal fun AskConversation(
     contentPadding: PaddingValues,
 ) {
     val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val bottomPaddingPx = with(density) { (contentPadding.calculateBottomPadding() + 16.dp).roundToPx() }
+    val currentBottomPaddingPx by rememberUpdatedState(bottomPaddingPx)
+    var stickToBottom by remember { mutableStateOf(true) }
+    var programmaticScroll by remember { mutableStateOf(false) }
+
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            Triple(
+                listState.isScrollInProgress,
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+            )
+        }.collect {
+            if (!programmaticScroll) {
+                stickToBottom = listState.isAtBottom()
+            }
+        }
+    }
+
+    LaunchedEffect(listState) {
+        var previousBottomPaddingPx = currentBottomPaddingPx
+        snapshotFlow { currentBottomPaddingPx }.collect { newBottomPaddingPx ->
+            val delta = newBottomPaddingPx - previousBottomPaddingPx
+            previousBottomPaddingPx = newBottomPaddingPx
+            if (delta > 0 && stickToBottom) {
+                programmaticScroll = true
+                try {
+                    listState.scrollBy(delta.toFloat())
+                } finally {
+                    programmaticScroll = false
+                }
+            }
+        }
+    }
+
     val lastTextLength = messages.lastOrNull()?.text?.length ?: 0
+    LaunchedEffect(messages.size) {
+        stickToBottom = true
+    }
     LaunchedEffect(messages.size, lastTextLength, status) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
+        if (messages.isNotEmpty() && stickToBottom) {
+            programmaticScroll = true
+            try {
+                listState.animateScrollToItem(messages.lastIndex)
+            } finally {
+                programmaticScroll = false
+            }
         }
     }
 
@@ -268,12 +329,11 @@ private fun AssistantMessage(
             } else if (message.text.isNotBlank()) {
                 val meta = message.meta
                 if (meta != null) {
-                    val label = buildString {
-                        append(stringResource(meta.originLabelRes()))
-                        if (meta.fallbackUsed) {
-                            append(" · ")
-                            append(stringResource(R.string.ask_meta_fallback))
-                        }
+                    val origin = stringResource(meta.originLabelRes())
+                    val label = if (meta.fallbackUsed) {
+                        stringResource(R.string.ask_origin_with_fallback, origin, stringResource(R.string.ask_meta_fallback))
+                    } else {
+                        origin
                     }
                     Text(
                         label,

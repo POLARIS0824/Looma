@@ -2,7 +2,7 @@
     <string name="models_title">模型</string>
     <string name="models_settings_desc">选择回答用的本地模型和 API 模型</string>
     <string name="models_manage">管理模型</string>
-    <string name="models_pair">%1$s · %2$s</string>
+    <string name="models_pair">%1$s，%2$s</string>
     <string name="models_hero_title">选择回答用的模型</string>
     <string name="models_hero_subtitle">本地模型离线运行，API 模型更强，但需要联网。</string>
     <string name="models_local_title">本地模型</string>
@@ -22,7 +22,7 @@
     <string name="models_api_none">未连接</string>
     <string name="models_default_title">默认模型</string>
     <string name="models_default_empty">下载本地模型或添加 API 连接后，可以在这里选择默认模型。</string>
-    <string name="models_on_device_size">本地 · %1$s</string>
+    <string name="models_on_device_size">本地 %1$s</string>
     <string name="models_imported_name">导入的模型</string>
     <string name="models_local_hero">在设备上运行</string>
     <string name="models_local_subtitle">离线可用，笔记不会离开这台设备。模型越大回答越好，也更耗内存和电量。</string>
@@ -73,5 +73,5 @@
     <string name="models_edit_status_checking">正在检查连接…</string>
     <string name="models_edit_status_ok">上次检查：连接成功</string>
     <string name="models_edit_status_failed">上次检查：连接失败，请检查 Base URL 和 API key。</string>
-    <string name="models_edit_test">测试连接</string>
+    <string name="models_edit_test">测试</string>
 </resources>
