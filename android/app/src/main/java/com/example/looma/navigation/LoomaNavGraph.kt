@@ -64,6 +64,8 @@ import com.example.looma.feature.models.ModelSettingsViewModel
 import com.example.looma.feature.note.NoteRoute
 import com.example.looma.feature.note.NoteViewModel
 import com.example.looma.feature.note.titleEditFor
+import com.example.looma.feature.settings.ImageBedSettingsRoute
+import com.example.looma.feature.settings.ImageBedSettingsViewModel
 import com.example.looma.feature.settings.SemanticSearchSettingsRoute
 import com.example.looma.feature.settings.SemanticSearchSettingsViewModel
 import com.example.looma.feature.settings.SettingsRoute
@@ -268,6 +270,11 @@ internal fun LoomaNavGraph(
                                 backStack.add(LoomaRoute.SyncSettings)
                             }
                         },
+                        onImageBedClick = {
+                            if (backStack.lastOrNull() == LoomaRoute.Settings) {
+                                backStack.add(LoomaRoute.ImageBedSettings)
+                            }
+                        },
                         onModelsClick = {
                             if (backStack.lastOrNull() == LoomaRoute.Settings) {
                                 backStack.add(LoomaRoute.ModelSettings)
@@ -295,6 +302,16 @@ internal fun LoomaNavGraph(
                     SyncSettingsRoute(
                         viewModel = syncSettingsViewModel,
                         vaultName = vault?.name.orEmpty(),
+                        onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                    )
+                }
+
+                entry<LoomaRoute.ImageBedSettings> {
+                    val imageBedViewModel: ImageBedSettingsViewModel = viewModel {
+                        ImageBedSettingsViewModel(app.settingsRepository, app.imageUploader)
+                    }
+                    ImageBedSettingsRoute(
+                        viewModel = imageBedViewModel,
                         onNavigateUp = { if (backStack.size > 1) backStack.removeLastOrNull() },
                     )
                 }

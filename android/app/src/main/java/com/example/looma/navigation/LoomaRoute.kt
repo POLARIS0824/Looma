@@ -33,6 +33,9 @@ sealed interface LoomaRoute : NavKey {
     data object SyncSettings : LoomaRoute
 
     @Serializable
+    data object ImageBedSettings : LoomaRoute
+
+    @Serializable
     data object ModelSettings : LoomaRoute
 
     @Serializable

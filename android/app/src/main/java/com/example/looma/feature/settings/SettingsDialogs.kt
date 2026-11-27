@@ -28,7 +28,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.data.settings.AppLanguage
-import com.example.looma.data.settings.ImageUploadTarget
 import com.example.looma.data.settings.ThemePreset
 import com.example.looma.ui.theme.presetScheme
 
@@ -75,43 +74,6 @@ private fun <T> SettingsRadioDialog(
             TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.dialog_confirm)) }
         },
     )
-}
-
-@Composable
-internal fun ImageTargetDialog(
-    current: ImageUploadTarget,
-    imageBedConfigured: Boolean,
-    onSelect: (ImageUploadTarget) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    SettingsRadioDialog(
-        title = stringResource(R.string.settings_image_destination_dialog_title),
-        options = ImageUploadTarget.entries,
-        selected = current,
-        onSelect = onSelect,
-        onDismiss = onDismiss,
-        isEnabled = { target -> target != ImageUploadTarget.ImageBed || imageBedConfigured },
-    ) { target, enabled ->
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = imageTargetName(target),
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = stringResource(target.descriptionRes()),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (!enabled) {
-                Text(
-                    text = stringResource(R.string.settings_image_destination_bed_unavailable),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -176,19 +138,6 @@ internal fun ThemeSwatch(preset: ThemePreset, useWallpaper: Boolean) {
             Box(Modifier.size(12.dp).background(scheme.tertiary, CircleShape))
         }
     }
-}
-
-@Composable
-internal fun imageTargetName(target: ImageUploadTarget): String = stringResource(
-    when (target) {
-        ImageUploadTarget.LocalAttachment -> R.string.settings_image_destination_local
-        ImageUploadTarget.ImageBed -> R.string.settings_image_destination_bed
-    },
-)
-
-private fun ImageUploadTarget.descriptionRes(): Int = when (this) {
-    ImageUploadTarget.LocalAttachment -> R.string.settings_image_destination_local_desc
-    ImageUploadTarget.ImageBed -> R.string.settings_image_destination_bed_desc
 }
 
 @Composable

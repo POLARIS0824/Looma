@@ -15,22 +15,15 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedSecureTextField
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextFieldLabelPosition
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,151 +56,11 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.example.looma.R
-import com.example.looma.data.settings.S3ImageBedConfig
 import com.example.looma.domain.markdown.ToolbarItem
 import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
-import java.io.IOException
 import kotlin.math.abs
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-
-@Composable
-internal fun ImageBedSheet(
-    config: S3ImageBedConfig,
-    onSave: suspend (S3ImageBedConfig) -> Unit,
-    credentialsUnavailable: Boolean,
-    onDismiss: () -> Unit,
-) {
-    val endpoint = rememberTextFieldState(config.endpoint)
-    val region = rememberTextFieldState(config.region)
-    val bucket = rememberTextFieldState(config.bucket)
-    val accessKey = rememberTextFieldState(config.accessKey)
-    val secretKey = rememberTextFieldState(config.secretKey)
-    val pathPrefix = rememberTextFieldState(config.pathPrefix)
-    val publicBaseUrl = rememberTextFieldState(config.publicBaseUrl)
-    var pathStyle by remember { mutableStateOf(config.pathStyle) }
-    var publicRead by remember { mutableStateOf(config.publicRead) }
-    var saving by remember { mutableStateOf(false) }
-    var saveFailed by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-
-    val sheetState = rememberExpandedSheetState()
-    ModalBottomSheet(
-        onDismissRequest = { if (!saving) onDismiss() },
-        sheetState = sheetState,
-        containerColor = LoomaTokens.colors.sheet,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.settings_image_bed_sheet_title),
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (credentialsUnavailable) {
-                Text(stringResource(R.string.settings_image_bed_credentials_unavailable))
-            }
-            Text(
-                text = stringResource(R.string.settings_image_bed_credentials_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ImageBedField(state = endpoint, label = stringResource(R.string.settings_image_bed_endpoint))
-            ImageBedField(state = region, label = stringResource(R.string.settings_image_bed_region))
-            ImageBedField(state = bucket, label = stringResource(R.string.settings_image_bed_bucket))
-            ImageBedField(state = accessKey, label = stringResource(R.string.settings_image_bed_access_key))
-            OutlinedSecureTextField(
-                state = secretKey,
-                label = { Text(stringResource(R.string.settings_image_bed_secret_key)) },
-                labelPosition = TextFieldLabelPosition.Inside(),
-                shape = OutlinedTextFieldDefaults.roundedShape,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            ImageBedField(state = pathPrefix, label = stringResource(R.string.settings_image_bed_path_prefix))
-            ImageBedField(state = publicBaseUrl, label = stringResource(R.string.settings_image_bed_public_url))
-            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
-                SettingsSwitchRow(
-                    index = 0,
-                    count = 2,
-                    title = stringResource(R.string.settings_image_bed_path_style),
-                    description = stringResource(R.string.settings_image_bed_path_style_desc),
-                    checked = pathStyle,
-                    enabled = true,
-                    onCheckedChange = { pathStyle = it },
-                )
-                SettingsSwitchRow(
-                    index = 1,
-                    count = 2,
-                    title = stringResource(R.string.settings_image_bed_public_read),
-                    description = stringResource(R.string.settings_image_bed_public_read_desc),
-                    checked = publicRead,
-                    enabled = true,
-                    onCheckedChange = { publicRead = it },
-                )
-            }
-            if (saveFailed) {
-                Text(
-                    text = stringResource(R.string.settings_image_bed_save_failed),
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                TextButton(onClick = onDismiss, enabled = !saving, shapes = ButtonDefaults.shapes()) {
-                    Text(stringResource(R.string.dialog_cancel))
-                }
-                TextButton(
-                    enabled = !saving,
-                    shapes = ButtonDefaults.shapes(),
-                    onClick = {
-                        val updatedConfig = S3ImageBedConfig(
-                            endpoint = endpoint.text.toString().trim(),
-                            region = region.text.toString().trim(),
-                            bucket = bucket.text.toString().trim(),
-                            accessKey = accessKey.text.toString().trim(),
-                            secretKey = secretKey.text.toString(),
-                            pathPrefix = pathPrefix.text.toString().trim(),
-                            publicBaseUrl = publicBaseUrl.text.toString().trim(),
-                            pathStyle = pathStyle,
-                            publicRead = publicRead,
-                        )
-                        saving = true
-                        saveFailed = false
-                        scope.launch {
-                            try {
-                                onSave(updatedConfig)
-                            } catch (_: IOException) {
-                                saveFailed = true
-                            } finally {
-                                saving = false
-                            }
-                        }
-                    },
-                ) { Text(stringResource(R.string.dialog_save)) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ImageBedField(state: TextFieldState, label: String) {
-    OutlinedTextField(
-        state = state,
-        label = { Text(label) },
-        labelPosition = TextFieldLabelPosition.Inside(),
-        shape = OutlinedTextFieldDefaults.roundedShape,
-        lineLimits = TextFieldLineLimits.SingleLine,
-        modifier = Modifier.fillMaxWidth(),
-    )
-}
 
 @Composable
 internal fun ToolbarOrderSheet(

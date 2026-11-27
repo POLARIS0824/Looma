@@ -6,8 +6,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.looma.data.settings.AppSettings
-import com.example.looma.data.settings.ImageUploadTarget
-import com.example.looma.data.settings.S3ImageBedConfig
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.data.settings.ThemePreset
 import com.example.looma.data.sync.SyncRepository
@@ -58,14 +56,6 @@ class SettingsViewModel(
 
     fun setToolbarOrder(order: List<ToolbarItem>) {
         viewModelScope.launch { repository.setToolbarOrder(order) }
-    }
-
-    fun setImageUploadTarget(target: ImageUploadTarget) {
-        viewModelScope.launch { repository.setImageUploadTarget(target) }
-    }
-
-    suspend fun setS3ImageBed(config: S3ImageBedConfig) {
-        repository.setS3ImageBed(config)
     }
 
     companion object {

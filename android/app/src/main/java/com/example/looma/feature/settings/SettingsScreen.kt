@@ -37,7 +37,6 @@ import com.example.looma.data.settings.AppLanguage
 import com.example.looma.data.settings.AppLocale
 import com.example.looma.data.settings.AppSettings
 import com.example.looma.data.settings.ImageUploadTarget
-import com.example.looma.data.settings.S3ImageBedConfig
 import com.example.looma.data.settings.ThemePreset
 import com.example.looma.data.sync.SyncStatus
 import com.example.looma.domain.markdown.ToolbarItem
@@ -61,6 +60,7 @@ fun SettingsRoute(
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
     onSyncClick: () -> Unit = {},
+    onImageBedClick: () -> Unit = {},
     onModelsClick: () -> Unit = {},
 ) {
     val vaultState by vaultViewModel.uiState.collectAsStateWithLifecycle()
@@ -99,10 +99,9 @@ fun SettingsRoute(
         onKeepEmptyNotesChange = settingsViewModel::setKeepEmptyNotes,
         onShowInlineTitleChange = settingsViewModel::setShowInlineTitle,
         onToolbarOrderChange = settingsViewModel::setToolbarOrder,
-        onImageUploadTargetChange = settingsViewModel::setImageUploadTarget,
-        onImageBedChange = settingsViewModel::setS3ImageBed,
         syncStatus = syncStatus,
         onSyncClick = onSyncClick,
+        onImageBedClick = onImageBedClick,
         onModelsClick = onModelsClick,
         onNavigateUp = onNavigateUp,
         modifier = modifier,
@@ -127,13 +126,12 @@ internal fun SettingsScreen(
     onKeepEmptyNotesChange: (Boolean) -> Unit,
     onShowInlineTitleChange: (Boolean) -> Unit,
     onToolbarOrderChange: (List<ToolbarItem>) -> Unit,
-    onImageUploadTargetChange: (ImageUploadTarget) -> Unit,
-    onImageBedChange: suspend (S3ImageBedConfig) -> Unit,
     onSemanticSearchClick: () -> Unit,
     onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier,
     syncStatus: SyncStatus? = null,
     onSyncClick: () -> Unit = {},
+    onImageBedClick: () -> Unit = {},
     onModelsClick: () -> Unit = {},
 ) {
     var overlay by remember { mutableStateOf<SettingsOverlay?>(null) }
@@ -306,27 +304,10 @@ internal fun SettingsScreen(
                 SettingsGroup(stringResource(R.string.settings_section_images)) {
                     SettingsRow(
                         index = 0,
-                        count = 2,
-                        title = stringResource(R.string.settings_image_destination),
-                        description = imageTargetName(settings.imageUploadTarget),
-                        onClick = { overlay = SettingsOverlay.ImageTarget },
-                    )
-                    SettingsRow(
-                        index = 1,
-                        count = 2,
+                        count = 1,
                         title = stringResource(R.string.settings_image_bed),
-                        description = if (settings.s3CredentialsUnavailable) {
-                            stringResource(R.string.settings_image_bed_credentials_unavailable)
-                        } else if (settings.imageBed.isConfigured) {
-                            stringResource(
-                                R.string.settings_image_bed_configured,
-                                settings.imageBed.bucket,
-                                settings.imageBed.endpoint,
-                            )
-                        } else {
-                            stringResource(R.string.settings_image_bed_not_configured)
-                        },
-                        onClick = { overlay = SettingsOverlay.ImageBed },
+                        description = imageBedSummaryText(settings),
+                        onClick = onImageBedClick,
                     )
                 }
 
@@ -387,24 +368,6 @@ internal fun SettingsScreen(
             onSave = { onToolbarOrderChange(it); overlay = null },
             onDismiss = { overlay = null },
         )
-        SettingsOverlay.ImageTarget -> ImageTargetDialog(
-            current = settings.imageUploadTarget,
-            imageBedConfigured = settings.imageBed.isConfigured,
-            onSelect = {
-                onImageUploadTargetChange(it)
-                overlay = null
-            },
-            onDismiss = { overlay = null },
-        )
-        SettingsOverlay.ImageBed -> ImageBedSheet(
-            config = settings.imageBed,
-            onSave = {
-                onImageBedChange(it)
-                overlay = null
-            },
-            credentialsUnavailable = settings.s3CredentialsUnavailable,
-            onDismiss = { overlay = null },
-        )
         null -> Unit
     }
 }
@@ -413,8 +376,20 @@ private sealed interface SettingsOverlay {
     data object Theme : SettingsOverlay
     data object Language : SettingsOverlay
     data object ToolbarOrder : SettingsOverlay
-    data object ImageTarget : SettingsOverlay
-    data object ImageBed : SettingsOverlay
+}
+
+@Composable
+private fun imageBedSummaryText(settings: AppSettings): String = when {
+    settings.imageUploadTarget == ImageUploadTarget.LocalAttachment ->
+        stringResource(R.string.settings_image_destination_local)
+    settings.s3CredentialsUnavailable ->
+        stringResource(R.string.settings_image_bed_credentials_unavailable)
+    settings.imageBed.isConfigured -> stringResource(
+        R.string.settings_image_bed_configured,
+        settings.imageBed.bucket,
+        settings.imageBed.endpoint,
+    )
+    else -> stringResource(R.string.settings_image_bed_not_configured)
 }
 
 @Composable
