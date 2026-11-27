@@ -66,3 +66,13 @@ internal suspend inline fun executeVaultTool(
         ToolResult(e.message?.takeIf { it.isNotBlank() } ?: fallbackError, isError = true)
     }
 }
+
+internal fun validateVisibleNotePath(path: String): String? {
+    if (path.isEmpty()) {
+        return "Path must not be blank."
+    }
+    if (path.startsWith('/') || '\\' in path || path.split('/').any { it.isBlank() || it == "." || it == ".." || it.startsWith('.') }) {
+        return "Access to hidden or invalid path '$path' is not allowed."
+    }
+    return null
+}

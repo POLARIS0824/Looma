@@ -1,5 +1,6 @@
 package com.example.looma.data.assistant.sessions
 
+import com.example.looma.data.assistant.runtime.LlmMessage
 import com.example.looma.data.assistant.runtime.LlmRole
 import com.example.looma.data.assistant.runtime.LlmRuntimeBackend
 
@@ -31,7 +32,7 @@ internal class TruncationContextCompactor(
             usedTokens += msgTokens
             startIndex = i
         }
-        while (startIndex < messages.size && messages[startIndex].role != LlmRole.User) {
+        while (startIndex < messages.size && (messages[startIndex].role != LlmRole.User || isToolResultMessage(messages[startIndex]))) {
             startIndex++
         }
         if (startIndex <= 0 || startIndex >= messages.size) {
@@ -47,5 +48,12 @@ internal class TruncationContextCompactor(
             tokensBefore = estimatedTokens,
             tokensAfter = tokensAfter,
         )
+    }
+
+    private fun isToolResultMessage(message: LlmMessage): Boolean =
+        message.role == LlmRole.User && TOOL_RESULT_PREFIX.containsMatchIn(message.content)
+
+    private companion object {
+        val TOOL_RESULT_PREFIX = Regex("^Tool '[^']+' (?:result|error):\\n")
     }
 }

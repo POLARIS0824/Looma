@@ -91,7 +91,7 @@ internal class VaultSkillManager(
         return withContext(Dispatchers.IO) {
             val skillsDir = File(vault.rootPath, SKILLS_RELATIVE_DIR)
             if (!skillsDir.isDirectory) return@withContext emptyMap()
-            val dirs = skillsDir.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }.orEmpty()
+            val dirs = skillsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith('.') }?.sortedBy { it.name }.orEmpty()
             val result = LinkedHashMap<String, AgentSkillDetail>()
             for (dir in dirs) {
                 val file = File(dir, SKILL_FILE_NAME)

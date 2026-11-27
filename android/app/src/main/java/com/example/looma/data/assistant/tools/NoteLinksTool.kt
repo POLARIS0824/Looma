@@ -21,9 +21,7 @@ internal class NoteLinksTool(
 
     override suspend fun execute(args: JSONObject): ToolResult {
         val path = args.optString("path").trim()
-        if (path.isEmpty()) {
-            return ToolResult("Path must not be blank.", isError = true)
-        }
+        validateVisibleNotePath(path)?.let { return ToolResult(it, isError = true) }
 
         return executeVaultTool(gateway, "Failed to get links for '$path'.") { vault ->
             val noteId = NoteId(vault.id, NotePath(path))

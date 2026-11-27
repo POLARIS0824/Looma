@@ -20,9 +20,7 @@ internal class ReadNoteTool(
 
     override suspend fun execute(args: JSONObject): ToolResult {
         val path = args.optString("path").trim()
-        if (path.isEmpty()) {
-            return ToolResult("Path must not be blank.", isError = true)
-        }
+        validateVisibleNotePath(path)?.let { return ToolResult(it, isError = true) }
         val maxChars = args.optInt("max_chars", DEFAULT_MAX_CHARS).coerceIn(MIN_MAX_CHARS, MAX_MAX_CHARS)
 
         return executeVaultTool(gateway, "Failed to read note '$path'.") { vault ->
