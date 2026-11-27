@@ -88,7 +88,7 @@ internal fun SyncSettingsRoute(
     SyncSettingsScreen(
         vaultName = uiState.vaultName.ifBlank { vaultName },
         status = uiState.status,
-        testState = if (showConfigSheet) SyncTestState.Idle else uiState.testState,
+        testState = if (showConfigSheet) S3ConnectionTestState.Idle else uiState.testState,
         actionState = uiState.actionState,
         onPreviewFirstSync = viewModel::loadFirstSyncPreview,
         onStartSync = startSyncWithPermission,
@@ -135,7 +135,7 @@ internal fun SyncSettingsRoute(
 internal fun SyncSettingsScreen(
     vaultName: String,
     status: SyncStatus?,
-    testState: SyncTestState,
+    testState: S3ConnectionTestState,
     actionState: SyncActionState,
     onPreviewFirstSync: () -> Unit,
     onStartSync: () -> Unit,
@@ -183,9 +183,9 @@ internal fun SyncSettingsScreen(
             status = syncStatus(vaultName = vaultName, status = status),
             loading = status == null,
         )
-        if (testState !is SyncTestState.Idle) {
+        if (testState !is S3ConnectionTestState.Idle) {
             Box(Modifier.padding(top = 16.dp, start = 4.dp, end = 4.dp)) {
-                SyncTestFeedback(testState = testState)
+                S3TestFeedback(testState = testState)
             }
         }
         if (actionState == SyncActionState.Failed) {
@@ -210,7 +210,7 @@ internal fun SyncSettingsScreen(
 @Composable
 private fun FlowRowScope.SyncActions(
     status: SyncStatus?,
-    testState: SyncTestState,
+    testState: S3ConnectionTestState,
     actionState: SyncActionState,
     onPreviewFirstSync: () -> Unit,
     onStartSync: () -> Unit,
@@ -250,12 +250,12 @@ private fun FlowRowScope.SyncActions(
                 text = stringResource(R.string.settings_sync_test),
                 onClick = { onTestConnection(status.config) },
                 style = FeatureActionStyle.Tonal,
-                enabled = !submitting && testState !is SyncTestState.Testing,
+                enabled = !submitting && testState !is S3ConnectionTestState.Testing,
             )
             FeatureAction(
                 text = primaryLabel,
                 onClick = onPrimaryClick,
-                enabled = !submitting && testState !is SyncTestState.Testing,
+                enabled = !submitting && testState !is S3ConnectionTestState.Testing,
             )
         }
     }
@@ -524,7 +524,7 @@ private fun SyncPreview(status: SyncStatus?) {
         SyncSettingsScreen(
             vaultName = "My Notes",
             status = status,
-            testState = SyncTestState.Idle,
+            testState = S3ConnectionTestState.Idle,
             actionState = SyncActionState.Idle,
             onPreviewFirstSync = {},
             onStartSync = {},

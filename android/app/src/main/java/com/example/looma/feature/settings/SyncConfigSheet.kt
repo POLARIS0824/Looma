@@ -4,28 +4,21 @@
 
 package com.example.looma.feature.settings
 
-import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedSecureTextField
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,9 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.example.looma.R
 import com.example.looma.data.settings.S3SyncConfig
 import com.example.looma.domain.sync.RemotePrefix
-import com.example.looma.ui.components.DelayedLoadingIndicator
 import com.example.looma.ui.components.ErrorBanner
-import com.example.looma.ui.components.LoomaIcon
 import com.example.looma.ui.theme.LoomaTokens
 import java.io.IOException
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -59,7 +50,7 @@ import kotlinx.coroutines.launch
 internal fun SyncConfigSheet(
     config: S3SyncConfig,
     credentialsUnavailable: Boolean,
-    testState: SyncTestState,
+    testState: S3ConnectionTestState,
     onTestConnection: (S3SyncConfig) -> Unit,
     onResetTestState: () -> Unit,
     onSave: suspend (S3SyncConfig) -> Unit,
@@ -125,20 +116,20 @@ internal fun SyncConfigSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            SyncTextField(
+            S3ConfigTextField(
                 state = endpoint,
                 label = stringResource(R.string.settings_sync_endpoint),
                 supportingText = stringResource(R.string.settings_sync_endpoint_hint),
             )
-            SyncTextField(
+            S3ConfigTextField(
                 state = region,
                 label = stringResource(R.string.settings_sync_region),
             )
-            SyncTextField(
+            S3ConfigTextField(
                 state = bucket,
                 label = stringResource(R.string.settings_sync_bucket),
             )
-            SyncTextField(
+            S3ConfigTextField(
                 state = accessKey,
                 label = stringResource(R.string.settings_sync_access_key),
             )
@@ -149,7 +140,7 @@ internal fun SyncConfigSheet(
                 shape = OutlinedTextFieldDefaults.roundedShape,
                 modifier = Modifier.fillMaxWidth(),
             )
-            SyncTextField(
+            S3ConfigTextField(
                 state = remotePrefix,
                 label = stringResource(R.string.settings_sync_remote_prefix),
                 isError = !prefixValid,
@@ -168,9 +159,9 @@ internal fun SyncConfigSheet(
                 enabled = !saving,
                 onCheckedChange = { pathStyle = it },
             )
-            SyncTestConnectionRow(
+            S3TestConnectionRow(
                 testState = testState,
-                enabled = !saving && prefixValid && testState !is SyncTestState.Testing,
+                enabled = !saving && prefixValid && testState !is S3ConnectionTestState.Testing,
                 onTestClick = { onTestConnection(draftConfig()) },
             )
             if (saveFailed) {
@@ -214,109 +205,4 @@ internal fun SyncConfigSheet(
             }
         }
     }
-}
-
-@Composable
-private fun SyncTextField(
-    state: TextFieldState,
-    label: String,
-    isError: Boolean = false,
-    supportingText: String? = null,
-) {
-    OutlinedTextField(
-        state = state,
-        label = { Text(label) },
-        labelPosition = TextFieldLabelPosition.Inside(),
-        shape = OutlinedTextFieldDefaults.roundedShape,
-        lineLimits = TextFieldLineLimits.SingleLine,
-        isError = isError,
-        supportingText = supportingText?.let { text -> { Text(text) } },
-        modifier = Modifier.fillMaxWidth(),
-    )
-}
-
-@Composable
-internal fun SyncTestConnectionRow(
-    testState: SyncTestState,
-    enabled: Boolean,
-    onTestClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    FlowRow(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        itemVerticalAlignment = Alignment.CenterVertically,
-    ) {
-        FilledTonalButton(
-            onClick = onTestClick,
-            enabled = enabled,
-            shapes = ButtonDefaults.shapes(),
-        ) {
-            Text(stringResource(R.string.settings_sync_test))
-        }
-        SyncTestFeedback(testState = testState)
-    }
-}
-
-@Composable
-internal fun SyncTestFeedback(testState: SyncTestState) {
-    when (testState) {
-        SyncTestState.Idle -> Unit
-        SyncTestState.Testing -> {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                DelayedLoadingIndicator(loading = true, size = 24.dp)
-                Text(
-                    text = stringResource(R.string.settings_sync_testing),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        SyncTestState.Succeeded -> {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                LoomaIcon(
-                    iconRes = R.drawable.ic_cloud_done,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = stringResource(R.string.settings_sync_test_ok),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        is SyncTestState.Failed -> {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                LoomaIcon(
-                    iconRes = R.drawable.ic_warning,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = syncFailureMessage(testState.messageRes, testState.detail),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-internal fun syncFailureMessage(@StringRes messageRes: Int, detail: String?): String {
-    val base = stringResource(messageRes)
-    return if (detail.isNullOrBlank()) base else "$base ($detail)"
 }

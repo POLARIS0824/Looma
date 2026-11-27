@@ -101,7 +101,7 @@ internal fun SyncPreviewSheet(
                 }
                 is SyncPreviewState.Failed -> {
                     ErrorBanner(
-                        message = syncFailureMessage(previewState.messageRes, previewState.detail),
+                        message = s3FailureMessage(previewState.messageRes, previewState.detail),
                         actionLabel = stringResource(R.string.home_retry),
                         onAction = onRetry,
                     )

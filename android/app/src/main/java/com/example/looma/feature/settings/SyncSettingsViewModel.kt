@@ -7,8 +7,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.looma.R
-import com.example.looma.data.s3.S3ErrorKind
-import com.example.looma.data.s3.S3Exception
 import com.example.looma.data.settings.S3SyncConfig
 import com.example.looma.data.settings.SettingsRepository
 import com.example.looma.data.sync.SyncNotConfiguredException
@@ -25,13 +23,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-internal sealed interface SyncTestState {
-    data object Idle : SyncTestState
-    data object Testing : SyncTestState
-    data object Succeeded : SyncTestState
-    data class Failed(@StringRes val messageRes: Int, val detail: String? = null) : SyncTestState
-}
-
 internal sealed interface SyncPreviewState {
     data object Closed : SyncPreviewState
     data object Loading : SyncPreviewState
@@ -44,7 +35,7 @@ internal enum class SyncActionState { Idle, Submitting, Failed }
 internal data class SyncSettingsUiState(
     val vaultName: String,
     val status: SyncStatus?,
-    val testState: SyncTestState,
+    val testState: S3ConnectionTestState,
     val previewState: SyncPreviewState,
     val actionState: SyncActionState,
 )
@@ -58,7 +49,7 @@ internal class SyncSettingsViewModel(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = null,
     )
-    private val _testState = MutableStateFlow<SyncTestState>(SyncTestState.Idle)
+    private val _testState = MutableStateFlow<S3ConnectionTestState>(S3ConnectionTestState.Idle)
     private val _previewState = MutableStateFlow<SyncPreviewState>(SyncPreviewState.Closed)
     private val _actionState = MutableStateFlow(SyncActionState.Idle)
 
@@ -84,7 +75,7 @@ internal class SyncSettingsViewModel(
         initialValue = SyncSettingsUiState(
             vaultName = "",
             status = null,
-            testState = SyncTestState.Idle,
+            testState = S3ConnectionTestState.Idle,
             previewState = SyncPreviewState.Closed,
             actionState = SyncActionState.Idle,
         ),
@@ -94,21 +85,21 @@ internal class SyncSettingsViewModel(
         settingsRepository.setSyncConfig(config)
         testJob?.cancel()
         previewJob?.cancel()
-        _testState.value = SyncTestState.Idle
+        _testState.value = S3ConnectionTestState.Idle
         _previewState.value = SyncPreviewState.Closed
         _actionState.value = SyncActionState.Idle
     }
 
     fun testConnection(config: S3SyncConfig) {
         testJob?.cancel()
-        _testState.value = SyncTestState.Testing
+        _testState.value = S3ConnectionTestState.Testing
         testJob = viewModelScope.launch {
             val result = syncRepository.testConnection(config)
             _testState.value = result.fold(
-                onSuccess = { SyncTestState.Succeeded },
+                onSuccess = { S3ConnectionTestState.Succeeded },
                 onFailure = { error ->
                     val messageRes = syncErrorMessageRes(error)
-                    SyncTestState.Failed(
+                    S3ConnectionTestState.Failed(
                         messageRes = messageRes,
                         detail = errorDetailFor(error, messageRes),
                     )
@@ -119,7 +110,7 @@ internal class SyncSettingsViewModel(
 
     fun resetTestState() {
         testJob?.cancel()
-        _testState.value = SyncTestState.Idle
+        _testState.value = S3ConnectionTestState.Idle
     }
 
     fun loadFirstSyncPreview() {
@@ -183,11 +174,7 @@ internal class SyncSettingsViewModel(
     }
 
     private fun errorDetailFor(error: Throwable, @StringRes messageRes: Int): String? =
-        if (messageRes == R.string.settings_sync_err_generic) {
-            error.message?.takeIf { it.isNotBlank() }
-        } else {
-            null
-        }
+        s3ErrorDetailFor(error, messageRes)
 
     companion object {
         fun factory(
@@ -203,14 +190,6 @@ internal class SyncSettingsViewModel(
 internal fun syncErrorMessageRes(error: Throwable): Int = when (error) {
     is SyncStalledRelocationException -> R.string.settings_sync_err_stalled_relocation
     is SyncNotConfiguredException -> R.string.settings_sync_err_invalid_config
-    is S3Exception -> when (error.kind) {
-        S3ErrorKind.InvalidConfig -> R.string.settings_sync_err_invalid_config
-        S3ErrorKind.AuthFailed -> R.string.settings_sync_err_auth
-        S3ErrorKind.BucketNotFound -> R.string.settings_sync_err_bucket_not_found
-        S3ErrorKind.ClockSkew -> R.string.settings_sync_err_clock_skew
-        S3ErrorKind.Network -> R.string.settings_sync_err_network
-        else -> R.string.settings_sync_err_generic
-    }
     is IllegalStateException, is IllegalArgumentException -> R.string.settings_sync_err_vault_unavailable
-    else -> R.string.settings_sync_err_generic
+    else -> s3ErrorMessageRes(error)
 }
