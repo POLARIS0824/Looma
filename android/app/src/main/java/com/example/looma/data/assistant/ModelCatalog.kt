@@ -4,12 +4,13 @@ import android.net.Uri
 import com.example.looma.data.assistant.api.ApiConnectionStore
 import com.example.looma.data.assistant.api.ApiResult
 import com.example.looma.data.assistant.api.KtorApiClient
+import com.example.looma.data.assistant.api.StoredApiState
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,13 +91,46 @@ internal interface ModelSettingsRepository {
     fun setDefault(modelId: String)
 }
 
+internal interface ModelCatalogStore {
+    val state: Flow<StoredApiState>
+    suspend fun saveConnections(connections: List<ApiConnection>)
+    suspend fun saveDefaultModelId(modelId: String?)
+}
+
+internal interface LocalModelSource {
+    val installed: Boolean
+    val installedBytes: Long
+    suspend fun install(uri: Uri)
+}
+
 internal class LoomaModelSettingsRepository(
-    private val store: ApiConnectionStore,
+    private val store: ModelCatalogStore,
     private val apiClient: KtorApiClient,
-    private val generator: LocalGenerator,
+    private val generator: LocalModelSource,
+    private val onDefaultModelChanged: suspend (String?) -> Unit = {},
 ) : ModelSettingsRepository {
+
+    constructor(
+        store: ApiConnectionStore,
+        apiClient: KtorApiClient,
+        generator: LocalGenerator,
+        onDefaultModelChanged: suspend (String?) -> Unit = {},
+    ) : this(
+        store = object : ModelCatalogStore {
+            override val state: Flow<StoredApiState> = store.state
+            override suspend fun saveConnections(connections: List<ApiConnection>) = store.saveConnections(connections)
+            override suspend fun saveDefaultModelId(modelId: String?) = store.saveDefaultModelId(modelId)
+        },
+        apiClient = apiClient,
+        generator = object : LocalModelSource {
+            override val installed: Boolean get() = generator.installed
+            override val installedBytes: Long get() = generator.installedBytes
+            override suspend fun install(uri: Uri) = generator.install(uri)
+        },
+        onDefaultModelChanged = onDefaultModelChanged,
+    )
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val downloads = mutableMapOf<String, Job>()
     private val connectionJobs = mutableMapOf<String, Job>()
     private val mutableLocal = MutableStateFlow(catalog(imported()))
     private val mutableConnections = MutableStateFlow<List<ApiConnection>>(emptyList())
@@ -117,46 +151,37 @@ internal class LoomaModelSettingsRepository(
         }
     }
 
-    override fun download(id: String) {
-        if (downloads[id]?.isActive == true) return
-        downloads[id] = scope.launch {
-            for (step in 0..20) {
-                setLocalState(id, LocalModelState.Downloading(step / 20f))
-                delay(250)
-            }
-            setLocalState(id, LocalModelState.Ready)
-            if (mutableDefault.value == null) {
-                mutableDefault.value = id
-                store.saveDefaultModelId(id)
-            }
-        }
-    }
+    override fun download(id: String) = Unit
 
-    override fun cancelDownload(id: String) {
-        downloads.remove(id)?.cancel()
-        setLocalState(id, LocalModelState.NotDownloaded)
-    }
+    override fun cancelDownload(id: String) = Unit
 
     override fun deleteLocal(id: String) {
         if (id == AnswerModels.LocalModel.id) return
-        setLocalState(id, LocalModelState.NotDownloaded)
         if (mutableDefault.value == id) {
             mutableDefault.value = null
-            scope.launch { store.saveDefaultModelId(null) }
+            scope.launch {
+                store.saveDefaultModelId(null)
+                onDefaultModelChanged(null)
+            }
         }
     }
 
     override fun importLocal(uri: Uri) {
+        importLocalWith { generator.install(uri) }
+    }
+
+    internal fun importLocalWith(installAction: suspend () -> Unit) {
         if (mutableImport.value == LocalImport.Running) return
         mutableImport.value = LocalImport.Running
         scope.launch {
-            val result = runCatching { generator.install(uri) }
-            mutableLocal.value = catalog(imported(), mutableLocal.value)
+            val result = runCatching { installAction() }
+            mutableLocal.value = catalog(imported())
             mutableImport.value = if (result.isSuccess) LocalImport.Idle else LocalImport.Failed
             if (result.isSuccess && mutableDefault.value == null) {
                 val localId = AnswerModels.LocalModel.id
                 mutableDefault.value = localId
                 store.saveDefaultModelId(localId)
+                onDefaultModelChanged(localId)
             }
         }
     }
@@ -174,7 +199,10 @@ internal class LoomaModelSettingsRepository(
         val defaultSnapshot = mutableDefault.value
         scope.launch {
             store.saveConnections(snapshot)
-            if (defaultCleared) store.saveDefaultModelId(defaultSnapshot)
+            if (defaultCleared) {
+                store.saveDefaultModelId(defaultSnapshot)
+                onDefaultModelChanged(defaultSnapshot)
+            }
         }
     }
 
@@ -186,7 +214,10 @@ internal class LoomaModelSettingsRepository(
         val defaultSnapshot = mutableDefault.value
         scope.launch {
             store.saveConnections(snapshot)
-            if (defaultCleared) store.saveDefaultModelId(defaultSnapshot)
+            if (defaultCleared) {
+                store.saveDefaultModelId(defaultSnapshot)
+                onDefaultModelChanged(defaultSnapshot)
+            }
         }
     }
 
@@ -236,15 +267,14 @@ internal class LoomaModelSettingsRepository(
 
     override fun setDefault(modelId: String) {
         mutableDefault.value = modelId
-        scope.launch { store.saveDefaultModelId(modelId) }
+        scope.launch {
+            store.saveDefaultModelId(modelId)
+            onDefaultModelChanged(modelId)
+        }
     }
 
     private fun updateConnection(id: String, change: (ApiConnection) -> ApiConnection) {
         mutableConnections.update { list -> list.map { if (it.id == id) change(it) else it } }
-    }
-
-    private fun setLocalState(id: String, state: LocalModelState) {
-        mutableLocal.update { list -> list.map { if (it.id == id) it.copy(state = state) else it } }
     }
 
     private fun clearMissingDefault(): Boolean {
@@ -274,12 +304,4 @@ internal class LoomaModelSettingsRepository(
     }
 }
 
-private fun catalog(imported: LocalModelEntry?, current: List<LocalModelEntry> = emptyList()): List<LocalModelEntry> {
-    val states = current.associate { it.id to it.state }
-    val entries = listOf(
-        LocalModelEntry("gemma-3n-e2b", "Gemma 3n E2B", 1_300_000_000L, null, recommended = true, LocalModelState.NotDownloaded),
-        LocalModelEntry("gemma-3n-e4b", "Gemma 3n E4B", 2_900_000_000L, null, recommended = false, LocalModelState.NotDownloaded),
-        LocalModelEntry("qwen3-1.7b", "Qwen3 1.7B", 1_700_000_000L, null, recommended = false, LocalModelState.NotDownloaded),
-    ).map { entry -> states[entry.id]?.let { entry.copy(state = it) } ?: entry }
-    return listOfNotNull(imported) + entries
-}
+private fun catalog(imported: LocalModelEntry?): List<LocalModelEntry> = listOfNotNull(imported)

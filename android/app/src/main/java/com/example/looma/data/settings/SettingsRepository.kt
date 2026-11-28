@@ -2,10 +2,12 @@ package com.example.looma.data.settings
 
 import android.content.Context
 import com.example.looma.data.assistant.ModelChoice
+import com.example.looma.data.assistant.ThinkingEffort
 import com.example.looma.domain.markdown.ToolbarItem
 import com.example.looma.domain.markdown.ToolbarOrder
 import com.example.looma.embedding.EmbeddingBackend
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 class SettingsRepository(
@@ -117,5 +119,18 @@ class SettingsRepository(
 
     internal suspend fun setAskModel(choice: ModelChoice) {
         preferences.saveAskModel(choice.model.id, choice.effort.name, choice.route?.name)
+    }
+
+    internal suspend fun setAskModelId(id: String?) {
+        if (id == null) {
+            preferences.saveAskModel("", ThinkingEffort.Off.name, null)
+        } else {
+            val current = settings.first()
+            preferences.saveAskModel(
+                modelId = id,
+                effort = current.askEffort ?: ThinkingEffort.Off.name,
+                route = current.askRoute,
+            )
+        }
     }
 }

@@ -89,7 +89,12 @@ class LoomaApp : Application(), SingletonImageLoader.Factory {
     private val apiConnectionStore by lazy { ApiConnectionStore(this) }
     private val ktorApiClient by lazy { KtorApiClient(httpClient) }
     internal val modelSettingsRepository: ModelSettingsRepository by lazy {
-        LoomaModelSettingsRepository(apiConnectionStore, ktorApiClient, localGenerator)
+        LoomaModelSettingsRepository(
+            store = apiConnectionStore,
+            apiClient = ktorApiClient,
+            generator = localGenerator,
+            onDefaultModelChanged = { id -> settingsRepository.setAskModelId(id) },
+        )
     }
     private val apiModelProvider by lazy { ApiModelProvider(modelSettingsRepository.connections, ktorApiClient) }
     private val firebaseHybridModelProvider by lazy { FirebaseHybridModelProvider(firebaseConfigured) }
