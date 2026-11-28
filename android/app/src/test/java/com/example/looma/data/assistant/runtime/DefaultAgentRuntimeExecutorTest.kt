@@ -355,4 +355,72 @@ class DefaultAgentRuntimeExecutorTest {
             events,
         )
     }
+
+    @Test
+    fun `executeStream buffers tool-call JSON and does not emit it as StreamToken`() = runBlocking {
+        var callCount = 0
+        val backend = FakeBackend(
+            onStream = {
+                callCount++
+                if (callCount == 1) {
+                    flow {
+                        emit(LlmResult.Success(LlmStreamChunk(thinking = "checking")))
+                        emit(LlmResult.Success(LlmStreamChunk(text = """{"tool":"echo_tool",""")))
+                        emit(LlmResult.Success(LlmStreamChunk(text = """"arguments":{"q":"ping"}}""", done = true)))
+                    }
+                } else {
+                    flow {
+                        emit(LlmResult.Success(LlmStreamChunk(text = "Result: ", done = false)))
+                        emit(LlmResult.Success(LlmStreamChunk(text = "pong", done = true)))
+                    }
+                }
+            },
+        )
+        val tools = DefaultToolsProvider(listOf(echoTool()))
+        val executor = DefaultAgentRuntimeExecutor(contextCompactor = null)
+
+        val events = executor.executeStream(
+            backend = backend,
+            request = AgentRequest(question = "Run tool", maxSteps = 4),
+            tools = tools,
+        ).toList()
+
+        val streamTokens = events.filterIsInstance<AgentEvent.StreamToken>()
+        assertEquals(
+            listOf(
+                AgentEvent.StreamToken(token = "", thinking = "checking"),
+                AgentEvent.StreamToken(token = "Result: "),
+                AgentEvent.StreamToken(token = "pong"),
+            ),
+            streamTokens,
+        )
+    }
+
+    @Test
+    fun `executeStream flushes buffered brace-prefixed non-tool text as single StreamToken`() = runBlocking {
+        val backend = FakeBackend(
+            onStream = {
+                flow {
+                    emit(LlmResult.Success(LlmStreamChunk(text = """{"name": "demo-app",""")))
+                    emit(LlmResult.Success(LlmStreamChunk(text = """ "version": "1.0"}""", done = true)))
+                }
+            },
+        )
+        val tools = DefaultToolsProvider(listOf(echoTool()))
+        val executor = DefaultAgentRuntimeExecutor(contextCompactor = null)
+
+        val events = executor.executeStream(
+            backend = backend,
+            request = AgentRequest(question = "Show json", maxSteps = 4),
+            tools = tools,
+        ).toList()
+
+        val streamTokens = events.filterIsInstance<AgentEvent.StreamToken>()
+        assertEquals(
+            listOf(AgentEvent.StreamToken(token = """{"name": "demo-app", "version": "1.0"}""")),
+            streamTokens,
+        )
+        val terminated = events.filterIsInstance<AgentEvent.LoopTerminated>().single()
+        assertEquals("""{"name": "demo-app", "version": "1.0"}""", terminated.response.text)
+    }
 }

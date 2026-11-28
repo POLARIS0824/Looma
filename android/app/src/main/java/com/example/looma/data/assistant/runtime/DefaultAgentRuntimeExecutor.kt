@@ -116,6 +116,8 @@ internal class DefaultAgentRuntimeExecutor(
                 send(AgentEvent.StepStarted(label = stepLabel))
 
                 val textBuilder = StringBuilder()
+                val pendingBuffer = StringBuilder()
+                var bufferMode = if (tools != null) StreamBufferMode.UNDECIDED else StreamBufferMode.PASSTHROUGH
                 var lastMetadata = LlmMetadata()
                 var failed = false
 
@@ -134,8 +136,43 @@ internal class DefaultAgentRuntimeExecutor(
                             val token = outcome.value.text
                             val thinking = outcome.value.thinking
                             textBuilder.append(token)
-                            if (token.isNotEmpty() || thinking.isNotEmpty()) {
-                                send(AgentEvent.StreamToken(token = token, thinking = thinking))
+                            when (bufferMode) {
+                                StreamBufferMode.PASSTHROUGH -> {
+                                    if (token.isNotEmpty() || thinking.isNotEmpty()) {
+                                        send(AgentEvent.StreamToken(token = token, thinking = thinking))
+                                    }
+                                }
+                                StreamBufferMode.BUFFERING -> {
+                                    pendingBuffer.append(token)
+                                    if (thinking.isNotEmpty()) {
+                                        send(AgentEvent.StreamToken(token = "", thinking = thinking))
+                                    }
+                                }
+                                StreamBufferMode.UNDECIDED -> {
+                                    pendingBuffer.append(token)
+                                    val firstNonWs = pendingBuffer.firstOrNull { !it.isWhitespace() }
+                                    when {
+                                        firstNonWs == null -> {
+                                            if (thinking.isNotEmpty()) {
+                                                send(AgentEvent.StreamToken(token = "", thinking = thinking))
+                                            }
+                                        }
+                                        firstNonWs == '{' || firstNonWs == '`' -> {
+                                            bufferMode = StreamBufferMode.BUFFERING
+                                            if (thinking.isNotEmpty()) {
+                                                send(AgentEvent.StreamToken(token = "", thinking = thinking))
+                                            }
+                                        }
+                                        else -> {
+                                            bufferMode = StreamBufferMode.PASSTHROUGH
+                                            val flushed = pendingBuffer.toString()
+                                            pendingBuffer.clear()
+                                            if (flushed.isNotEmpty() || thinking.isNotEmpty()) {
+                                                send(AgentEvent.StreamToken(token = flushed, thinking = thinking))
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -149,6 +186,9 @@ internal class DefaultAgentRuntimeExecutor(
                     null
                 }
                 if (toolCall == null) {
+                    if (pendingBuffer.isNotEmpty()) {
+                        send(AgentEvent.StreamToken(token = pendingBuffer.toString()))
+                    }
                     send(
                         AgentEvent.LoopTerminated(
                             AgentResponse(text = cleaned, steps = steps, metadata = lastMetadata)
@@ -220,4 +260,10 @@ internal class DefaultAgentRuntimeExecutor(
 
     private fun formatToolResult(name: String, output: String, isError: Boolean): String =
         if (isError) "Tool '$name' error:\n$output" else "Tool '$name' result:\n$output"
+
+    private enum class StreamBufferMode {
+        UNDECIDED,
+        BUFFERING,
+        PASSTHROUGH,
+    }
 }

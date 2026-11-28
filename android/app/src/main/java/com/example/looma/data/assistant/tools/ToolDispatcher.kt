@@ -33,8 +33,15 @@ internal class ToolDispatcher {
     }
 
     fun extractToolCall(rawModelOutput: String): ParsedToolCall? {
-        val json = extractJsonObject(rawModelOutput) ?: return null
-        val name = json.optString("tool").ifBlank { json.optString("name") }.trim()
+        val trimmed = rawModelOutput.trim()
+        if (trimmed.isEmpty()) return null
+        val candidate = unwrapTopLevelCodeFence(trimmed)
+        if (!candidate.startsWith("{") || !candidate.endsWith("}")) return null
+        val json = tryParseObject(candidate) ?: return null
+        val toolName = json.optString("tool").trim()
+        val nameKey = json.optString("name").trim()
+        val hasArgs = json.has("arguments") || json.has("args") || json.has("parameters")
+        val name = toolName.ifEmpty { if (hasArgs) nameKey else "" }
         if (name.isEmpty()) return null
         val argsObj = json.optJSONObject("arguments")
             ?: json.optJSONObject("args")
@@ -99,6 +106,14 @@ internal class ToolDispatcher {
 
     private fun normalizeName(name: String): String =
         name.trim().lowercase().replace("-", "").replace("_", "")
+
+    private fun unwrapTopLevelCodeFence(trimmed: String): String {
+        if (!trimmed.startsWith("```") || !trimmed.endsWith("```")) return trimmed
+        val firstNewline = trimmed.indexOf('\n')
+        if (firstNewline < 0) return trimmed
+        val inner = trimmed.substring(firstNewline + 1, trimmed.length - 3).trim()
+        return if (inner.contains("```")) trimmed else inner
+    }
 
     private fun stripCodeFence(text: String): String {
         val fenceStart = text.indexOf("```")
