@@ -239,15 +239,29 @@ private fun ModelPage(
             }
             when (val availability = choice?.model?.availability) {
                 is GeneratorAvailability.Downloading -> {
-                    LinearWavyProgressIndicator(
-                        progress = { availability.progress ?: Float.NaN },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    val progress = availability.progress
+                    if (progress == null) {
+                        LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    } else {
+                        LinearWavyProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
                 is GeneratorAvailability.Downloadable -> {
                     FilledTonalButton(onClick = onPrepareModel, shapes = ButtonDefaults.shapes()) {
                         Text(stringResource(R.string.ask_model_download))
                     }
+                }
+                is GeneratorAvailability.Unavailable -> {
+                    Text(
+                        text = availability.reason?.takeIf { it.isNotBlank() }
+                            ?: stringResource(R.string.ask_error_on_device_unavailable),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
                 else -> Unit
             }

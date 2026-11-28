@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.looma.R
+import com.example.looma.data.assistant.GeneratorAvailability
 import com.example.looma.domain.model.NoteId
 import com.example.looma.feature.ask.components.AskComposer
 import com.example.looma.feature.ask.components.AskConversation
@@ -129,7 +130,7 @@ internal fun AskScreen(
         if (state.messages.isEmpty()) {
             AskEmpty(
                 vaultName = state.vaultName,
-                hasModel = state.models.isNotEmpty(),
+                hasModel = state.models.any { it.availability !is GeneratorAvailability.Unavailable },
                 issue = state.issue,
                 onManageModels = manageModels,
                 contentPadding = padding,
@@ -145,6 +146,7 @@ internal fun AskScreen(
                 onSaveMessage = { message -> saveTarget = message.id },
                 onOpenSaved = openNote,
                 onRetry = model::retry,
+                onManageModels = manageModels,
                 contentPadding = padding,
             )
         }

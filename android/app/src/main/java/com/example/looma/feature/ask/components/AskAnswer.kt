@@ -100,7 +100,7 @@ internal fun AskEmpty(
                         Text(stringResource(R.string.models_manage))
                     }
                 }
-                issue?.let { AskIssueBanner(it) }
+                issue?.let { AskIssueBanner(it, onManageModels = onManageModels) }
             }
         }
     }
@@ -117,6 +117,7 @@ internal fun AskConversation(
     onSaveMessage: (ChatMessage) -> Unit,
     onOpenSaved: (NoteId) -> Unit,
     onRetry: () -> Unit,
+    onManageModels: () -> Unit,
     contentPadding: PaddingValues,
 ) {
     val listState = rememberLazyListState()
@@ -196,7 +197,11 @@ internal fun AskConversation(
         if (issue != null) {
             item(key = "issue") {
                 Box(Modifier.pageColumn(pageMargin())) {
-                    AskIssueBanner(issue, onRetry.takeIf { issue == AskIssue.Run || issue == AskIssue.Timeout })
+                    AskIssueBanner(
+                        issue = issue,
+                        onRetry = onRetry.takeIf { issue == AskIssue.Run || issue == AskIssue.Timeout },
+                        onManageModels = onManageModels,
+                    )
                 }
             }
         }
@@ -245,15 +250,20 @@ private fun AssistantMessage(
         if (!message.isStreaming) {
             val error = message.error
             if (error != null) {
+                val errorText = if (error is GenerationError.Failed && !error.message.isNullOrBlank()) {
+                    error.message
+                } else {
+                    stringResource(error.messageRes())
+                }
                 if (isLast) {
                     ErrorBanner(
-                        message = stringResource(error.messageRes()),
+                        message = errorText,
                         actionLabel = stringResource(R.string.ask_retry),
                         onAction = onRetry,
                         actionEnabled = !busy,
                     )
                 } else {
-                    ErrorBanner(message = stringResource(error.messageRes()))
+                    ErrorBanner(message = errorText)
                 }
             } else if (message.text.isNotBlank()) {
                 val meta = message.meta
@@ -304,7 +314,11 @@ private fun GenerationError.messageRes(): Int = when (this) {
 }
 
 @Composable
-private fun AskIssueBanner(issue: AskIssue, onRetry: (() -> Unit)? = null) {
+private fun AskIssueBanner(
+    issue: AskIssue,
+    onRetry: (() -> Unit)? = null,
+    onManageModels: (() -> Unit)? = null,
+) {
     val message = stringResource(
         when (issue) {
             AskIssue.Run -> R.string.ask_run_failed
@@ -313,9 +327,15 @@ private fun AskIssueBanner(issue: AskIssue, onRetry: (() -> Unit)? = null) {
             AskIssue.Save -> R.string.ask_save_failed
         },
     )
-    if (onRetry == null) {
-        ErrorBanner(message = message)
-    } else {
-        ErrorBanner(message = message, actionLabel = stringResource(R.string.ask_retry), onAction = onRetry)
+    when {
+        issue == AskIssue.NoModel && onManageModels != null -> {
+            ErrorBanner(message = message, actionLabel = stringResource(R.string.models_manage), onAction = onManageModels)
+        }
+        onRetry != null -> {
+            ErrorBanner(message = message, actionLabel = stringResource(R.string.ask_retry), onAction = onRetry)
+        }
+        else -> {
+            ErrorBanner(message = message)
+        }
     }
 }

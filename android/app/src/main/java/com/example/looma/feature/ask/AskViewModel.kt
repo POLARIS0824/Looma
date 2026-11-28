@@ -225,7 +225,11 @@ internal class AskViewModel(
 
     fun prepareSelectedModel() {
         val model = mutable.value.choice?.model ?: return
-        viewModelScope.launch { models.prepare(model) }
+        viewModelScope.launch {
+            models.prepare(model).onFailure {
+                mutable.update { it.copy(issue = AskIssue.Run) }
+            }
+        }
     }
 
     private fun pick(change: (AskState) -> AskState) {
@@ -252,8 +256,12 @@ internal class AskViewModel(
         } else {
             messages
         }
+        val priorHistory = trimmedList.dropLast(1).toLlmMessages()
         mutable.update { it.copy(messages = trimmedList, issue = null) }
-        sendTurn(lastUser.text, appendUserMessage = false)
+        viewModelScope.launch {
+            executor.sessionManager.replaceHistory(priorHistory)
+            sendTurn(lastUser.text, appendUserMessage = false)
+        }
     }
 
     private fun sendTurn(question: String, appendUserMessage: Boolean) {
@@ -374,19 +382,21 @@ internal class AskViewModel(
         viewModelScope.launch {
             val stored = history.loadMessages(conversationId)
             val loaded = stored.map { it.toChatMessage(vault) }
-            val llmMessages = loaded
-                .filter { it.text.isNotBlank() && it.error == null }
-                .map { msg ->
-                    LlmMessage(
-                        role = if (msg.role == ChatRole.User) LlmRole.User else LlmRole.Model,
-                        content = msg.text,
-                    )
+            executor.sessionManager.replaceHistory(loaded.toLlmMessages())
+            mutable.update { current ->
+                val savedModelId = current.conversations.firstOrNull { it.id == conversationId }?.modelId
+                val restored = savedModelId?.let { id ->
+                    current.models.firstOrNull { it.id == id }?.let { model ->
+                        val effort = current.choice?.effort?.takeIf { it in model.efforts } ?: model.defaultEffort
+                        val route = current.choice?.route?.takeIf { it in model.supportedRoutes } ?: model.defaultRoute
+                        ModelChoice(model, effort, route)
+                    }
                 }
-            executor.sessionManager.replaceHistory(llmMessages)
-            mutable.update {
-                it.copy(
+                if (restored != null) picked = true
+                current.copy(
                     conversationId = conversationId,
                     messages = loaded,
+                    choice = restored ?: current.choice,
                     compactionNotice = null,
                     issue = null,
                 )
@@ -586,6 +596,15 @@ private object NoopAskHistoryRepository : AskHistoryRepository {
     override suspend fun deleteConversation(conversationId: String) = Unit
 }
 
+private fun List<ChatMessage>.toLlmMessages(): List<LlmMessage> =
+    filter { it.text.isNotBlank() && it.error == null }
+        .map { msg ->
+            LlmMessage(
+                role = if (msg.role == ChatRole.User) LlmRole.User else LlmRole.Model,
+                content = msg.text,
+            )
+        }
+
 private fun ChatMessage.toStored(createdAt: Long): StoredChatMessage = StoredChatMessage(
     id = id,
     role = role.name,
@@ -595,6 +614,7 @@ private fun ChatMessage.toStored(createdAt: Long): StoredChatMessage = StoredCha
     errorCode = error?.toStoredCode(),
     savedNotePath = savedNoteId?.path?.relativePath,
     createdAt = createdAt,
+    fallbackUsed = meta?.fallbackUsed ?: false,
 )
 
 private fun StoredChatMessage.toChatMessage(vault: Vault): ChatMessage = ChatMessage(
@@ -603,7 +623,9 @@ private fun StoredChatMessage.toChatMessage(vault: Vault): ChatMessage = ChatMes
     text = text,
     thinking = thinking,
     isStreaming = false,
-    meta = origin?.let { name -> InferenceOrigin.entries.firstOrNull { it.name == name } }?.let { GenerationMeta(it) },
+    meta = origin?.let { name -> InferenceOrigin.entries.firstOrNull { it.name == name } }?.let {
+        GenerationMeta(it, fallbackUsed = fallbackUsed)
+    },
     error = errorCode?.toStoredGenerationError(),
     savedNoteId = savedNotePath?.let { NoteId(vault.id, NotePath(it)) },
 )
