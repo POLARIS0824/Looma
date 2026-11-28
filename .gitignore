@@ -14,3 +14,4 @@ android/.idea/
 *.html
 *.mp4
 weave-test-vault/
+google-services.json

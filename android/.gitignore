@@ -17,3 +17,4 @@ __pycache__/
 !.audit/justmd-prototype.todo.md
 !.audit/justmd-editor-comparison.tsv
 !.audit/justmd-editor-comparison.todo.md
+google-services.json
