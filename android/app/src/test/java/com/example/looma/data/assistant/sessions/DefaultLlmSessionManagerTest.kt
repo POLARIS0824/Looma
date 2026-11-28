@@ -172,4 +172,32 @@ class DefaultLlmSessionManagerTest {
         assertEquals(replacement, manager.messages)
         assertEquals(2, backend.resetCalls)
     }
+
+    @Test
+    fun `ensureSession clears history when systemInstruction changes`() = runBlocking {
+        val backend = FakeBackend(modelId = "m1", sessionKey = "m1")
+        val manager = DefaultLlmSessionManager()
+        manager.ensureSession(backend, "vault-A")
+        manager.generateResponse("secret from vault A")
+        assertEquals(2, manager.messages.size)
+
+        manager.ensureSession(backend, "vault-B")
+
+        assertTrue("Expected history to be cleared on systemInstruction change", manager.messages.isEmpty())
+    }
+
+    @Test
+    fun `ensureSession preserves history when attaching first systemInstruction after replaceHistory`() = runBlocking {
+        val backend = FakeBackend(modelId = "m1", sessionKey = "m1")
+        val manager = DefaultLlmSessionManager()
+        val restored = listOf(
+            LlmMessage(LlmRole.User, "restored question"),
+            LlmMessage(LlmRole.Model, "restored answer"),
+        )
+        manager.replaceHistory(restored)
+
+        manager.ensureSession(backend, "vault-A")
+
+        assertEquals(restored, manager.messages)
+    }
 }

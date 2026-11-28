@@ -56,6 +56,11 @@ internal class DefaultLlmSessionManager : LlmSessionManager {
                 currentBackend = backend
                 return@withLock
             }
+            if (currentSystemInstruction != null && currentSystemInstruction != systemInstruction) {
+                synchronized(historyLock) {
+                    history.clear()
+                }
+            }
             currentBackend = backend
             currentSystemInstruction = systemInstruction
             if (previous != null && previous !== backend) {
