@@ -41,4 +41,5 @@ internal data class AskMessageEntity(
     val errorCode: String?,
     val savedNotePath: String?,
     val createdAt: Long,
+    val fallbackUsed: Boolean = false,
 )

@@ -21,6 +21,7 @@ internal data class StoredChatMessage(
     val errorCode: String?,
     val savedNotePath: String?,
     val createdAt: Long,
+    val fallbackUsed: Boolean = false,
 )
 
 internal interface AskHistoryRepository {
@@ -79,6 +80,7 @@ private fun AskMessageEntity.toStored(): StoredChatMessage = StoredChatMessage(
     errorCode = errorCode,
     savedNotePath = savedNotePath,
     createdAt = createdAt,
+    fallbackUsed = fallbackUsed,
 )
 
 private fun StoredChatMessage.toEntity(conversationId: String, orderIndex: Int): AskMessageEntity = AskMessageEntity(
@@ -92,4 +94,5 @@ private fun StoredChatMessage.toEntity(conversationId: String, orderIndex: Int):
     errorCode = errorCode,
     savedNotePath = savedNotePath,
     createdAt = createdAt,
+    fallbackUsed = fallbackUsed,
 )
