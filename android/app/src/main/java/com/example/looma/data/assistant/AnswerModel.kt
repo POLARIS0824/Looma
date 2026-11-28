@@ -133,7 +133,7 @@ internal fun GenerationError.toLlmError(): LlmError = when (this) {
     GenerationError.Offline -> LlmError(LlmError.OFFLINE)
     GenerationError.QuotaExceeded -> LlmError(LlmError.QUOTA_EXCEEDED)
     GenerationError.OnDeviceUnavailable -> LlmError(LlmError.UNAVAILABLE)
-    GenerationError.AppCheckFailed -> LlmError(LlmError.AUTH_FAILED)
+    GenerationError.AppCheckFailed -> LlmError(LlmError.APP_CHECK_FAILED)
     is GenerationError.Failed -> LlmError(LlmError.FAILED, message)
 }
 
@@ -141,6 +141,7 @@ internal fun LlmError.toGenerationError(): GenerationError = when (code) {
     LlmError.OFFLINE -> GenerationError.Offline
     LlmError.QUOTA_EXCEEDED -> GenerationError.QuotaExceeded
     LlmError.UNAVAILABLE -> GenerationError.OnDeviceUnavailable
-    LlmError.AUTH_FAILED -> GenerationError.AppCheckFailed
+    LlmError.APP_CHECK_FAILED -> GenerationError.AppCheckFailed
+    LlmError.AUTH_FAILED -> GenerationError.Failed(message ?: "Authentication failed")
     else -> GenerationError.Failed(message)
 }

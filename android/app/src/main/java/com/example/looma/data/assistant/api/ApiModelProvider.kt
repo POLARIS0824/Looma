@@ -91,7 +91,11 @@ internal class ApiRuntimeBackend(
     private fun toLlmFailure(failure: ApiResult.Failure): LlmResult.Failure =
         if (failure.httpStatus == 401 || failure.httpStatus == 403) {
             LlmResult.Failure(
-                LlmError(LlmError.AUTH_FAILED, (failure.error as? GenerationError.Failed)?.message)
+                LlmError(
+                    LlmError.AUTH_FAILED,
+                    (failure.error as? GenerationError.Failed)?.message
+                        ?: "Authentication failed (HTTP ${failure.httpStatus})",
+                )
             )
         } else {
             LlmResult.Failure(failure.error.toLlmError())

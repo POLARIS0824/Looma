@@ -33,6 +33,7 @@ internal data class LlmError(
         const val QUOTA_EXCEEDED = "quota_exceeded"
         const val UNAVAILABLE = "unavailable"
         const val AUTH_FAILED = "auth_failed"
+        const val APP_CHECK_FAILED = "app_check_failed"
         const val FAILED = "failed"
     }
 }
