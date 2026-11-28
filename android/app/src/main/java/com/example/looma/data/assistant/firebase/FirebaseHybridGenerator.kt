@@ -45,21 +45,30 @@ internal class FirebaseHybridGenerator(
 
     override suspend fun generate(request: LlmGenerateRequest): LlmResult<String> {
         val totalChars = request.messages.sumOf { it.content.length } + request.systemInstruction.orEmpty().length
+        val multiStep = request.messages.size > 1
         val effectiveRoute = HybridRoutingPolicy.resolveEffectiveRoute(
             requested = route,
-            multiStep = request.messages.size > 1,
+            multiStep = multiStep,
             promptChars = totalChars,
         )
         return try {
             val model = buildModel(request.systemInstruction, effectiveRoute, request.maxOutputTokens)
             val contents = request.messages.toContents()
             val response = model.generateContent(contents)
-            val actualOrigin = response.inferenceSource.toOrigin()
+            val actualOrigin = response.inferenceSource.toOrigin(defaultOriginFor(effectiveRoute))
+            val (fallbackUsed, fallbackReason) = HybridRoutingPolicy.evaluateFallback(
+                requested = route,
+                effective = effectiveRoute,
+                actualOrigin = actualOrigin,
+                multiStep = multiStep,
+                promptChars = totalChars,
+            )
             LlmResult.Success(
                 value = response.text.orEmpty(),
                 metadata = GenerationMeta(
                     origin = actualOrigin,
-                    fallbackUsed = isFallback(effectiveRoute, actualOrigin),
+                    fallbackUsed = fallbackUsed,
+                    fallbackReason = fallbackReason,
                 ).toLlmMetadata(),
             )
         } catch (cancel: CancellationException) {
@@ -71,19 +80,40 @@ internal class FirebaseHybridGenerator(
 
     override fun generateStream(request: LlmGenerateRequest): Flow<LlmResult<LlmStreamChunk>> = flow<LlmResult<LlmStreamChunk>> {
         val totalChars = request.messages.sumOf { it.content.length } + request.systemInstruction.orEmpty().length
+        val multiStep = request.messages.size > 1
         val effectiveRoute = HybridRoutingPolicy.resolveEffectiveRoute(
             requested = route,
-            multiStep = request.messages.size > 1,
+            multiStep = multiStep,
             promptChars = totalChars,
         )
         val model = buildModel(request.systemInstruction, effectiveRoute, request.maxOutputTokens)
         val contents = request.messages.toContents()
-        var lastMeta = GenerationMeta(origin = defaultOriginFor(effectiveRoute)).toLlmMetadata()
+        val defaultOrigin = defaultOriginFor(effectiveRoute)
+        val (initialFallbackUsed, initialFallbackReason) = HybridRoutingPolicy.evaluateFallback(
+            requested = route,
+            effective = effectiveRoute,
+            actualOrigin = defaultOrigin,
+            multiStep = multiStep,
+            promptChars = totalChars,
+        )
+        var lastMeta = GenerationMeta(
+            origin = defaultOrigin,
+            fallbackUsed = initialFallbackUsed,
+            fallbackReason = initialFallbackReason,
+        ).toLlmMetadata()
         model.generateContentStream(contents).collect { chunk ->
-            val actualOrigin = chunk.inferenceSource.toOrigin()
+            val actualOrigin = chunk.inferenceSource.toOrigin(defaultOrigin)
+            val (fallbackUsed, fallbackReason) = HybridRoutingPolicy.evaluateFallback(
+                requested = route,
+                effective = effectiveRoute,
+                actualOrigin = actualOrigin,
+                multiStep = multiStep,
+                promptChars = totalChars,
+            )
             lastMeta = GenerationMeta(
                 origin = actualOrigin,
-                fallbackUsed = isFallback(effectiveRoute, actualOrigin),
+                fallbackUsed = fallbackUsed,
+                fallbackReason = fallbackReason,
             ).toLlmMetadata()
             val text = chunk.text.orEmpty()
             if (text.isNotEmpty()) {
@@ -132,20 +162,10 @@ internal class FirebaseHybridGenerator(
         InferenceRoute.CloudOnly -> InferenceMode.ONLY_IN_CLOUD
     }
 
-    private fun InferenceSource?.toOrigin(): InferenceOrigin = when (this) {
-        InferenceSource.ON_DEVICE -> InferenceOrigin.OnDevice
-        InferenceSource.IN_CLOUD -> InferenceOrigin.Cloud
-        else -> InferenceOrigin.Cloud
-    }
-
     private fun defaultOriginFor(route: InferenceRoute): InferenceOrigin = when (route) {
         InferenceRoute.PreferOnDevice, InferenceRoute.OnDeviceOnly -> InferenceOrigin.OnDevice
         InferenceRoute.PreferCloud, InferenceRoute.CloudOnly -> InferenceOrigin.Cloud
     }
-
-    private fun isFallback(route: InferenceRoute, origin: InferenceOrigin): Boolean =
-        (route == InferenceRoute.PreferOnDevice && origin == InferenceOrigin.Cloud) ||
-            (route == InferenceRoute.PreferCloud && origin == InferenceOrigin.OnDevice)
 
     private fun mapError(error: Throwable): GenerationError {
         val message = error.message.orEmpty()
@@ -166,4 +186,11 @@ internal class FirebaseHybridGenerator(
             else -> GenerationError.Failed(error.message)
         }
     }
+}
+
+@OptIn(PublicPreviewAPI::class)
+internal fun InferenceSource?.toOrigin(defaultOrigin: InferenceOrigin): InferenceOrigin = when (this) {
+    InferenceSource.ON_DEVICE -> InferenceOrigin.OnDevice
+    InferenceSource.IN_CLOUD -> InferenceOrigin.Cloud
+    else -> defaultOrigin
 }

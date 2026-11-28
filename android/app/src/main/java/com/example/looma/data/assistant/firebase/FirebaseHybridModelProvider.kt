@@ -47,11 +47,11 @@ internal class FirebaseHybridModelProvider(
         }
     }
     private val mutableModels = MutableStateFlow(
-        listOf(
-            buildModel(
-                if (firebaseConfigured) GeneratorAvailability.Ready else GeneratorAvailability.Unavailable()
-            )
-        )
+        if (firebaseConfigured) {
+            listOf(buildModel(GeneratorAvailability.Ready))
+        } else {
+            emptyList()
+        }
     )
     override val models: StateFlow<List<AnswerModel>> = mutableModels.asStateFlow()
 
@@ -62,14 +62,9 @@ internal class FirebaseHybridModelProvider(
     }
 
     override fun backend(model: AnswerModel, route: InferenceRoute?): LlmRuntimeBackend? {
-        if (model.id != MODEL_ID) return null
-        val availability = mutableModels.value.firstOrNull()?.availability
-        return if (firebaseConfigured || availability is GeneratorAvailability.Ready) {
-            val effectiveRoute = route ?: InferenceRoute.PreferOnDevice
-            generators.getOrPut(effectiveRoute) { FirebaseHybridGenerator(effectiveRoute) }
-        } else {
-            null
-        }
+        if (!firebaseConfigured || model.id != MODEL_ID) return null
+        val effectiveRoute = route ?: InferenceRoute.PreferOnDevice
+        return generators.getOrPut(effectiveRoute) { FirebaseHybridGenerator(effectiveRoute) }
     }
 
     override suspend fun prepare(model: AnswerModel): Result<Unit> {
@@ -143,6 +138,10 @@ internal class FirebaseHybridModelProvider(
     }
 
     private suspend fun refreshStatus() {
+        if (!firebaseConfigured) {
+            mutableModels.value = emptyList()
+            return
+        }
         val extension = onDeviceExtension
         if (extension == null) {
             updateAvailability(
